@@ -82,7 +82,7 @@ IMPORTANTE: El timbrado (firma del XML y obtención del UUID/SelloSAT/Certificad
 siempre lo realiza un PAC o el Buzón Tributario. El sistema genera un "skeleton" XML que sirve
 para revisión y para que el contador/PAC lo timbren.
 
-1) Plantilla mínima (ParametrosFiscales)
+## 1) Plantilla mínima (ParametrosFiscales)
 Coloca estos valores en la hoja `ParametrosFiscales` del XLSX (o mediante la API ParametroFiscal):
 - Emisor_RFC: RFC del emisor (ej. ACME010101ABC)
 - Emisor_Nombre: Nombre o razón social
@@ -101,7 +101,7 @@ Coloca estos valores en la hoja `ParametrosFiscales` del XLSX (o mediante la API
 - IVA_trasladado_cuenta: cuenta del catálogo que representa IVA trasladado (ej. "2080")
 - ObjetoImp_default: clave de objeto de impuesto (ej. "01")
 
-2) Pre-validación (`is_cfdi_ready_for_timbrado`)
+## 2) Pre-validación (`is_cfdi_ready_for_timbrado`)
 Antes de generar y enviar al PAC, el sistema realiza una pre-validación que comprueba:
 - Emisor_RFC y Emisor_Nombre están presentes y RFC tiene formato aproximado.
 - FormaPago y LugarExpedicion están definidos.
@@ -109,7 +109,7 @@ Antes de generar y enviar al PAC, el sistema realiza una pre-validación que com
 - Cada concepto (línea) tiene importe y se puede derivar ClaveProdServ/ClaveUnidad;
   se recomienda completar NoIdentificacion y confirmar ObjetoImp para cada concepto.
 
-3) Flujo recomendado
+## 3) Flujo recomendado
 - Usuario completa ParametrosFiscales y registra movimientos/pólizas en la app.
 - Ejecutar generate-cfdi con `--pre-validate`:
   - Si hay errores en pre-validación, el proceso devuelve la lista de errores y no genera el XML.
@@ -117,25 +117,157 @@ Antes de generar y enviar al PAC, el sistema realiza una pre-validación que com
 - Enviar XML generado al contador/PAC para timbrado (ellos añadirán Sello/Certificado/NoCertificado).
 - Importar XML timbrado con `import-timbrado` para adjuntar UUID/Sello al asiento en el libro.
 
-4) Notas OSC vs Comercial
+## 4) Notas OSC vs Comercial
 - Técnica: los requisitos técnicos del XSD son los mismos para ambos tipos; sin embargo:
   - OSC pueden emitir comprobantes por donativos, recibos de aportaciones o servicios sin IVA.
   - Comercial emite facturas de venta con mayor frecuencia y debe prestar atención a FormaPago, Moneda y TipoDeComprobante.
 - Recomendación: mantener los parámetros fiscales actualizados en `ParametrosFiscales` según el tipo de entidad.
 
-5) Validación XSD local
+## 5) Validación XSD local
 - Descarga los XSD oficiales del SAT en `datos/xsds` (hay un script `scripts/fetch_xsds.py`).
 - Usar la función `validate_xml_against_schema(xml, xsd, xsds_dir)` para una validación estricta
   (requiere `lxml` instalado). La validación XSD fallará hasta que el XML esté timbrado si faltan
   atributos obligatorios (Sello, Certificado, NoCertificado, Exportacion, etc.). Úsala como
   comprobación final o para detectar problemas de estructura/tipos.
 
-6) Ejemplo CLI
-- Generar con pre-validación:
-  python main.py generate-cfdi --id 3 --pre-validate --out datos/cfdi
-- Generar y validar XSD (si tienes XSD y lxml):
-  python main.py generate-cfdi --id 3 --validate-xsd datos/xsds/sitio_internet/cfd/4/cfdv40.xsd --out datos/cfdi
-- Importar timbrado:
-  python main.py import-timbrado --id 3 --file datos/cfdi/asiento_3_timbrado.xml --out datos/cfdi/timbrados
+## 6) Uso del CLI
+
+### Descargar XSD schemas
+```bash
+python main.py fetch-xsds --url https://www.sat.gob.mx/sitio_internet/cfd/4/cfdv40.xsd --verify
+```
+
+Opciones:
+- `--url`: URL del XSD principal
+- `--out`: directorio destino (default: datos/xsds)
+- `--force`: forzar re-descarga
+- `--verify`: calcular SHA256 y crear manifiesto en datos/xsds/sha256.txt
+- `--shafile`: ruta personalizada para el archivo SHA256
+
+### Generar CFDI skeleton
+```bash
+python main.py generate-cfdi --id 3 --emisor-rfc ACME010101ABC --emisor-nombre "ACME AC" \
+  --receptor-rfc XAXX010101000 --receptor-nombre "Público General" --out datos/cfdi
+```
+
+### Importar XML timbrado
+```bash
+python main.py import-timbrado --id 3 --file datos/cfdi/asiento_3_timbrado.xml --out datos/cfdi/timbrados
+```
+
+## 7) Configuraciones específicas por tipo de contribuyente
+
+### RESICO (Régimen Simplificado de Confianza)
+Para contribuyentes del RESICO:
+- **Emisor_Regimen**: usar "626" (RESICO)
+- **TipoDeComprobante**: normalmente "I" (Ingreso)
+- **FormaPago**: según acuerdo con el cliente
+- **MetodoPago**: "PUE" (Pago en una sola exhibición) o "PPD" (Pago en parcialidades)
+- **IVA**: RESICO puede aplicar tasa de 8% en lugar de 16% en ciertos casos
+
+Ejemplo de parámetros fiscales para RESICO:
+```
+Emisor_RFC: XXXX010101XXX
+Emisor_Nombre: Contribuyente RESICO
+Emisor_Regimen: 626
+FormaPago: 03
+MetodoPago: PUE
+TipoDeComprobante: I
+Moneda: MXN
+LugarExpedicion: 64000
+IVA_general: 8
+```
+
+**Nota importante**: El RESICO tiene límites de ingresos anuales (3.5 millones de pesos). Mantén actualizada tu información en el SAT y revoca tokens/certificados cuando ya no los uses.
+
+### Persona Moral (PM) pequeña
+Para PMs pequeñas (ingresos menores a cierto umbral):
+- **Emisor_Regimen**: usar "601" (General) o el régimen específico aplicable
+- **TipoDeComprobante**: "I" (Ingreso) para ventas, "E" (Egreso) para devoluciones
+- **FormaPago**: según tipo de operación (01=Efectivo, 03=Transferencia, 04=Tarjeta, etc.)
+- **MetodoPago**: "PUE" o "PPD" según acuerdo comercial
+- **IVA_general**: 16 (o 0 para productos/servicios exentos)
+
+Ejemplo:
+```
+Emisor_RFC: ABC010101XXX
+Emisor_Nombre: Mi Empresa SA de CV
+Emisor_Regimen: 601
+FormaPago: 03
+MetodoPago: PUE
+TipoDeComprobante: I
+Moneda: MXN
+LugarExpedicion: 06000
+IVA_general: 16
+```
+
+### Asociación Civil (AC)
+Para Asociaciones Civiles y donatarias autorizadas:
+- **Emisor_Regimen**: usar "603" (Personas Morales con Fines no Lucrativos)
+- **TipoDeComprobante**: "I" para ingresos/donativos
+- **FormaPago**: según la operación
+- **MetodoPago**: usualmente "PUE"
+- **Receptor_UsoCFDI**: para donativos, el receptor usará "D10" (Por definir - para completar)
+
+Ejemplo para AC:
+```
+Emisor_RFC: ACD010101XXX
+Emisor_Nombre: Asociación Civil AC
+Emisor_Regimen: 603
+FormaPago: 03
+MetodoPago: PUE
+TipoDeComprobante: I
+Moneda: MXN
+LugarExpedicion: 03100
+Receptor_UsoCFDI: D10
+IVA_general: 0
+```
+
+**Nota para ACs**: Las donatarias autorizadas deben incluir la leyenda de deducibilidad en el comprobante. Asegúrate de mantener actualizado tu registro ante el SAT.
+
+## 8) Buenas prácticas de seguridad
+
+### Manejo de certificados y tokens
+- **NUNCA** almacenes contraseñas de certificados (.key) en texto plano en archivos de configuración
+- Usa variables de entorno o almacenamiento seguro para credenciales
+- **Revoca tokens y certificados** cuando:
+  - Ya no los necesites
+  - Haya cambio de personal con acceso
+  - Sospeches de compromiso de seguridad
+  - Cambies de PAC o proveedor de timbrado
+
+### Actualización de XSD schemas
+- Mantén los XSD actualizados descargándolos periódicamente del SAT
+- Usa `--verify` para crear checksums SHA256 y detectar modificaciones
+- Compara el archivo `sha256.txt` entre descargas para verificar integridad
+
+```bash
+# Descargar XSDs con verificación
+python main.py fetch-xsds --url https://www.sat.gob.mx/sitio_internet/cfd/4/cfdv40.xsd --verify
+
+# Revisar el manifiesto
+cat datos/xsds/sha256.txt
+```
+
+### Respaldo y control de versiones
+- Mantén backups regulares de `datos/Sistema_Contable.xlsx`
+- Guarda los XML timbrados en `datos/cfdi/timbrados` y respalda regularmente
+- No compartas XMLs timbrados públicamente (contienen información fiscal sensible)
+
+## 9) Solución de problemas comunes
+
+### Error: "No se pudo validar contra XSD"
+- Asegúrate de haber descargado los XSD con `fetch-xsds`
+- Verifica que el XML tenga todos los campos requeridos antes de validar
+- La validación XSD completa solo funciona con XMLs timbrados (que tienen Sello, Certificado, etc.)
+
+### Error: "RFC inválido"
+- Verifica el formato del RFC (13 caracteres para PM, 12 para PF)
+- Usa XAXX010101000 para público general
+
+### El PAC rechaza el XML
+- Revisa que todos los campos obligatorios estén presentes
+- Verifica que los códigos (FormaPago, UsoCFDI, etc.) sean válidos según catálogos SAT
+- Asegúrate de que los importes estén correctamente calculados
 
 ```
