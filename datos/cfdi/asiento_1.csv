@@ -1,2 +1,0 @@
-id_asiento,fecha,emisor_rfc,receptor_rfc,subtotal,iva,total
-1,2025-10-01,ACME010101ABC,XAXX010101000,1000.00,0.00,1000.00

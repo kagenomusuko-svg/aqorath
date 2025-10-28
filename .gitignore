@@ -43,6 +43,10 @@ Thumbs.db
 # Project specific
 logs/
 datos/backups/
+datos/cfdi/*.xml
+datos/cfdi/*.csv
+datos/cfdi/*.pdf
+datos/cfdi/timbrados/
 *.log
 
 # PyInstaller
