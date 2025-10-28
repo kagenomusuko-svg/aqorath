@@ -1,122 +1,134 @@
 #!/usr/bin/env python3
 """
-scripts/fetch_xsds.py
+Descarga XSDs desde una lista de URLs y opcionalmente verifica SHA256 y escribe un manifiesto.
 
-Descarga recursiva del XSD principal (ej. cfdv40.xsd) y de los XSDs referenciados
-(vía schemaLocation en <xs:import> / <xs:include>), guardando la estructura en
-un directorio local (por defecto datos/xsds).
+Modo de uso:
+  python scripts/fetch_xsds.py --manifest datos/xsds_urls.txt --verify --shafile datos/xsds/sha256.txt
 
-Uso:
-  python scripts/fetch_xsds.py --url https://www.sat.gob.mx/sitio_internet/cfd/4/cfdv40.xsd --out datos/xsds
-
-Opciones:
-  --url   URL pública del XSD principal (por defecto la URL del SAT si la conoces)
-  --out   directorio destino (por defecto datos/xsds)
-  --force forzar descarga y sobreescritura de archivos existentes
+Comportamiento:
+  - Si el archivo destino ya existe y su SHA coincide con la versión remota (si --verify), se salta.
+  - Si --manifest no se proporciona, buscará datos/xsds_urls.txt.
+  - Es idempotente: no reescribe archivos sin cambios.
 """
 from __future__ import annotations
 import argparse
+import hashlib
 import os
-from pathlib import Path
+import pathlib
 import requests
-from urllib.parse import urljoin, urlparse
-import re
-import time
+import tempfile
+import shutil
+from typing import List, Tuple
 
-SESSION = requests.Session()
-SESSION.headers.update({"User-Agent": "SistemaContable/1.0 (+https://example.org)"})
+ROOT = pathlib.Path(__file__).parent.parent
+DEFAULT_MANIFEST = ROOT / "datos" / "xsds_urls.txt"
+DEFAULT_OUTDIR = ROOT / "datos" / "xsds"
 
-SCHEMA_LOCATION_RE = re.compile(r'schemaLocation=["\']([^"\']+)["\']', re.IGNORECASE)
-IMPORT_INCLUDE_RE = re.compile(r'<xs:(?:import|include)[^>]*schemaLocation=["\']([^"\']+)["\']', re.IGNORECASE)
+def sha256_of_file(path: pathlib.Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
-def download(url: str, dest: Path, timeout: int = 15, retries: int = 3) -> None:
-    for attempt in range(retries):
-        try:
-            r = SESSION.get(url, timeout=timeout)
-            r.raise_for_status()
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(r.content)
-            print(f"Guardado: {dest}  ({len(r.content)} bytes)")
-            return
-        except Exception as e:
-            if attempt + 1 < retries:
-                print(f"Error descargando {url}: {e}. Reintentando en 2s...")
-                time.sleep(2)
-            else:
-                raise
+def download_url(url: str, dest: pathlib.Path) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    # Descarga segura a archivo temporal y rename atómico
+    with requests.get(url, stream=True, timeout=30) as r:
+        r.raise_for_status()
+        with tempfile.NamedTemporaryFile(delete=False, dir=str(dest.parent)) as tmp:
+            for chunk in r.iter_content(chunk_size=8192):
+                if chunk:
+                    tmp.write(chunk)
+            tmp.flush()
+            tmp_name = tmp.name
+    shutil.move(tmp_name, str(dest))
 
-def find_schema_locations(xsd_text: str) -> list[str]:
-    # Buscar imports/includes con schemaLocation
-    found = IMPORT_INCLUDE_RE.findall(xsd_text)
-    # devolvemos lista de URL/paths tal como aparecen
-    return found
-
-def normalize_local_path_for_url(base_out: Path, url: str) -> Path:
+def parse_manifest(path: pathlib.Path) -> List[Tuple[str, str]]:
     """
-    Construye una ruta local para el URL. Ejemplo:
-      https://www.sat.gob.mx/sitio_internet/cfd/catalogos/catCFDI.xsd
-    se almacenará en base_out / 'catalogos' / 'catCFDI.xsd'
-    Si URL es relativo (ej. 'catalogos/catCFDI.xsd') lo tratamos relativo.
+    Lee un manifiesto con líneas:
+      <url>
+    o
+      <url> <relative-path>
+    Devuelve lista de (url, relative_path)
     """
-    up = urlparse(url)
-    if up.scheme in ("http", "https"):
-        # use path after the host
-        parts = Path(up.path.lstrip("/"))
-        return base_out.joinpath(parts)
-    else:
-        # relative path -> keep as relative under base_out
-        return base_out.joinpath(Path(url))
-
-def fetch_recursive(url: str, out_dir: Path, seen: set[str], base_url: str | None = None, force: bool = False):
-    # Resolve absolute URL using base_url if provided and url is relative
-    if base_url and not urlparse(url).scheme:
-        abs_url = urljoin(base_url, url)
-    else:
-        abs_url = url
-    if abs_url in seen:
-        return
-    seen.add(abs_url)
-    local_path = normalize_local_path_for_url(out_dir, abs_url)
-    if local_path.exists() and not force:
-        print(f"Usando existente: {local_path}")
-        try:
-            text = local_path.read_text(encoding="utf-8")
-        except Exception:
-            text = ""
-    else:
-        print(f"Descargando {abs_url} -> {local_path}")
-        download(abs_url, local_path)
-        try:
-            text = local_path.read_text(encoding="utf-8")
-        except Exception:
-            text = ""
-    # buscar imports/includes
-    for schema_loc in find_schema_locations(text):
-        # resolver la URL relativa respecto a abs_url
-        next_url = urljoin(abs_url, schema_loc)
-        fetch_recursive(next_url, out_dir, seen, base_url=None, force=force)
+    if not path.exists():
+        return []
+    pairs = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split(None, 1)
+        url = parts[0]
+        rel = parts[1] if len(parts) > 1 else os.path.basename(url)
+        pairs.append((url, rel))
+    return pairs
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--url", required=True, help="URL del XSD principal (ej. cfdv40.xsd)")
-    p.add_argument("--out", default="datos/xsds", help="Directorio destino (por defecto datos/xsds)")
-    p.add_argument("--force", action="store_true", help="Forzar re-descarga y sobreescritura")
+    p.add_argument("--manifest", type=str, help="Archivo con URLs (una por línea).")
+    p.add_argument("--verify", action="store_true", help="Verificar SHA y escribir manifiesto de sha.")
+    p.add_argument("--shafile", type=str, help="Ruta para fichero de sha256 (por defecto datos/xsds/sha256.txt).")
     args = p.parse_args()
 
-    out = Path(args.out)
-    out.mkdir(parents=True, exist_ok=True)
-    print(f"Directorio destino: {out.resolve()}")
+    manifest_path = pathlib.Path(args.manifest) if args.manifest else DEFAULT_MANIFEST
+    pairs = parse_manifest(manifest_path)
+    if not pairs:
+        print("No se encontraron URLs a descargar. Crea", manifest_path, "con una URL por línea.")
+        return
 
-    seen = set()
-    try:
-        fetch_recursive(args.url, out, seen, base_url=None, force=args.force)
-    except Exception as e:
-        print(f"Error durante la descarga recursiva: {e}")
-        raise SystemExit(2)
+    outdir = DEFAULT_OUTDIR
+    outdir.mkdir(parents=True, exist_ok=True)
+    shafile = pathlib.Path(args.shafile) if args.shafile else outdir / "sha256.txt"
+    manifest_lines = []
 
-    print("Descarga completada. Archivos guardados:")
-    for pth in sorted(out.rglob("*.xsd")):
-        print(" -", pth.relative_to(out))
+    for url, rel in pairs:
+        dest = outdir / rel
+        try:
+            if dest.exists() and args.verify:
+                # Si se verifica, intentar descargar y comparar SHA de remoto por paso extra (no siempre posible).
+                # Estrategia: descargar remoto a temp y comparar con local para idempotencia.
+                print("Verificando", rel)
+                with tempfile.NamedTemporaryFile(delete=False, dir=str(dest.parent)) as tmp:
+                    tmp_path = pathlib.Path(tmp.name)
+                try:
+                    download_url(url, tmp_path)
+                    remote_sha = sha256_of_file(tmp_path)
+                    local_sha = sha256_of_file(dest)
+                    if remote_sha == local_sha:
+                        print("Sin cambios:", rel)
+                        tmp_path.unlink()
+                    else:
+                        print("Actualizando:", rel)
+                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.move(str(tmp_path), str(dest))
+                except Exception as e:
+                    if tmp_path.exists():
+                        tmp_path.unlink()
+                    print("Advertencia descargando", url, ":", e)
+            else:
+                # Si no existe o no se verifica, descargar si hace falta
+                if dest.exists():
+                    print("Ya existe (no -verify):", rel)
+                else:
+                    print("Descargando:", url, "->", dest)
+                    download_url(url, dest)
+        except Exception as e:
+            print("Error procesando", url, ":", e)
+            continue
+        # Calcular sha del archivo final si existe
+        if dest.exists():
+            sha = sha256_of_file(dest)
+            # Escribir ruta relativa respecto a datos/xsds
+            relpath = os.path.relpath(dest, outdir)
+            manifest_lines.append(f"{sha}  {relpath}")
+
+    if args.verify:
+        # Escribe manifiesto shafile
+        shafile.parent.mkdir(parents=True, exist_ok=True)
+        shafile.write_text("\n".join(manifest_lines) + ("\n" if manifest_lines else ""), encoding="utf-8")
+        print("Manifiesto SHA escrito en", shafile)
 
 if __name__ == "__main__":
     main()
