@@ -58,7 +58,6 @@ def cmd_generate_cfdi(args):
 
 def cmd_fetch_xsds(args):
     """Fetch XSD schemas from SAT website."""
-    import subprocess
     cmd = [
         sys.executable,
         "scripts/fetch_xsds.py",
