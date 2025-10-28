@@ -1,0 +1,7 @@
+2025-10-28 12:19:44,149 INFO: Logger inicializado para Libro
+2025-10-28 12:19:44,472 INFO: Asiento 1 exportado a /tmp/pytest-of-draco/pytest-8/test_export_asiento_csv_and_xl0/asiento_1.csv (csv)
+2025-10-28 12:19:45,101 INFO: Asiento 1 exportado a /tmp/pytest-of-draco/pytest-8/test_export_asiento_csv_and_xl0/asiento_1.xlsx (xlsx)
+2025-10-28 12:19:45,108 INFO: Se creó asiento 1 fecha 2025-10-01 - Cargo:1000.0 Abono:1000.0 lineas:2
+2025-10-28 12:19:45,109 INFO: Se creó asiento 2 fecha 2025-10-01 - Cargo:1000.0 Abono:1000.0 lineas:2
+2025-10-28 12:19:45,129 INFO: Se creó asiento 1 fecha 2025-10-01 - Cargo:500.0 Abono:500.0 lineas:2
+2025-10-28 12:19:45,131 INFO: Se creó asiento 2 fecha 2025-10-01 - Cargo:500.0 Abono:500.0 lineas:2
