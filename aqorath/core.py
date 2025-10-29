@@ -47,18 +47,33 @@ def percent_expr(rate: float):
 def total_with_vat_expr(vat_key: str = "vat_rate", amount_is_net: bool = True):
     """
     Si amount_is_net True: devuelve amount + amount*vat_rate.
-    Si amount_is_net False: interpreta amount como bruto e intenta extraer base.
+    Si amount_is_net False: interpreta amount como bruto y retorna el bruto (caller decidirá base/vat).
     """
     def fn(amount, ctx):
         vat = float(ctx.get(vat_key, 0.0))
         if amount_is_net:
             return round(float(amount) + (float(amount) * vat), 2)
         else:
-            # amount is gross: base = amount / (1 + vat)
-            if vat == 0:
-                return round(float(amount), 2)
-            base = float(amount) / (1.0 + vat)
-            return round(float(amount), 2)  # return gross for debit; templates decide which to use
+            return round(float(amount), 2)
+    return fn
+
+def gross_base_expr(vat_key: str = "vat_rate"):
+    """Si amount es bruto, base = amount / (1 + vat)"""
+    def fn(amount, ctx):
+        vat = float(ctx.get(vat_key, 0.0))
+        if vat == 0:
+            return round(float(amount), 2)
+        return round(float(amount) / (1.0 + vat), 2)
+    return fn
+
+def gross_vat_expr(vat_key: str = "vat_rate"):
+    """Si amount es bruto, vat = amount - base"""
+    def fn(amount, ctx):
+        vat = float(ctx.get(vat_key, 0.0))
+        if vat == 0:
+            return 0.0
+        base = float(amount) / (1.0 + vat)
+        return round(float(amount) - base, 2)
     return fn
 
 def net_from_gross_expr(vat_key: str = "vat_rate"):
@@ -91,6 +106,26 @@ register_template(OperationTemplate(
     )
 ))
 
+# Ingreso cuando el importe recibido ya es bruto (incluye IVA)
+register_template(OperationTemplate(
+    key="ingreso_venta_bruto",
+    description="Ingreso por venta (importe bruto; incluye IVA): banco (debit = bruto) / ventas (credit = base) + IVA trasladado",
+    create_lines=lambda amount, ctx: (
+        [
+            # banco recibe el bruto (importe tal cual)
+            LineSpec(account_code=ctx.get("account_codes", {}).get("bank", "1000"),
+                     side="debit", amount_expr=base_amount_expr(), description=ctx.get("desc")),
+            # ventas por la base (calculated from gross)
+            LineSpec(account_code=ctx.get("account_codes", {}).get("sales", "4000"),
+                     side="credit", amount_expr=gross_base_expr("vat_rate"), description=ctx.get("desc")),
+        ] + (
+            ([LineSpec(account_code=ctx.get("account_codes", {}).get("vat_tr", "2100"),
+                       side="credit", amount_expr=gross_vat_expr("vat_rate"),
+                       description="IVA trasladado")] if ctx.get("vat_rate", 0.0) else [])
+        )
+    )
+))
+
 # Egreso: amount param NET by default; bank credit = base+vat; expense debit = base; vat_ac debit = vat
 register_template(OperationTemplate(
     key="egreso_compra",
@@ -112,7 +147,7 @@ register_template(OperationTemplate(
 # Pago a proveedor: reducir pasivo/pagar con banco (payment template)
 register_template(OperationTemplate(
     key="pago_proveedor",
-    description="Pago a proveedor: pago de pasivo (credit banco) y disminución de proveedor (debit)",
+    description="Pago a proveedor: pago de pasivo (debit proveedor) y salida banco (credit banco)",
     create_lines=lambda amount, ctx: (
         [
             LineSpec(account_code=ctx.get("account_codes", {}).get("payable", "2000"),
@@ -146,7 +181,7 @@ register_template(OperationTemplate(
     create_lines=honorarios_create
 ))
 
-# Preview & post (unchanged logic, same as before)
+# Preview & post
 def generate_preview(template_key: str, amount: float, ctx: Optional[Dict[str, Any]] = None):
     ctx = ctx or {}
     tpl = get_template(template_key)
