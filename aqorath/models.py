@@ -69,6 +69,7 @@ class Asset(SQLModel, table=True):
     salvage_value: valor residual (si aplica)
     depreciation_method: 'straight_line' (por ahora)
     start_date: fecha de inicio de depreciación
+    depreciation_period: 'monthly' or 'annual' (default monthly)
     """
     id: Optional[int] = Field(default=None, primary_key=True)
     code: str
@@ -78,5 +79,6 @@ class Asset(SQLModel, table=True):
     salvage_value: float = 0.0
     life_years: int = 5
     depreciation_method: str = "straight_line"
+    depreciation_period: str = "monthly"
     active: bool = True
     created_at: datetime = Field(default_factory=datetime.utcnow)
