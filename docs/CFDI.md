@@ -138,4 +138,56 @@ Antes de generar y enviar al PAC, el sistema realiza una pre-validación que com
 - Importar timbrado:
   python main.py import-timbrado --id 3 --file datos/cfdi/asiento_3_timbrado.xml --out datos/cfdi/timbrados
 
+```# CFDI — Guía rápida y ejemplos
+
+Este documento describe cómo utilizar las utilidades para manejar XSDs, generar esqueletos CFDI y procesar timbrado en este repositorio.
+
+## 1) Descargar XSDs
+
+El script para descargar XSDs está en `scripts/fetch_xsds.py`. Para usarlo, crea un manifiesto con las URLs (una por línea), por ejemplo `datos/xsds_urls.txt`:
+
+https://example.org/path/to/schema1.xsd
+https://example.org/path/to/schema2.xsd local_name.xsd
+
+Uso:
 ```
+python scripts/fetch_xsds.py --manifest datos/xsds_urls.txt --verify --shafile datos/xsds/sha256.txt
+```
+
+- `--verify`: descargará temporalmente y comprobará si hay cambios; si no hay cambios no reemplaza el fichero.
+- `--shafile`: ruta para escribir el manifiesto con SHA256 (formato: `<sha256>  <relative-path>`).
+
+El CLI general `main.py` ofrece el atajo:
+```
+python main.py fetch-xsds --manifest datos/xsds_urls.txt --verify --shafile datos/xsds/sha256.txt
+```
+
+## 2) Generar esqueletos CFDI (ejemplos)
+El comando `generate-cfdi` genera esqueletos para tipos comunes (RESICO, PM, AC):
+
+```
+python main.py generate-cfdi --kind RESICO
+```
+
+Genera archivos en `datos/cfdi_examples/` con ejemplos básicos que puedes usar como punto de partida.
+
+## 3) Importar timbrado
+Para importar resultados de timbrado (XML), usa:
+
+```
+python main.py import-timbrado datos/timbrado/resultado_timbrado.xml
+```
+
+Los archivos se copiarán a `datos/timbrado_imported/`.
+
+## 4) Seguridad: tokens y revocación
+- Nunca incluyas tokens en commits o issues públicos.
+- Si generas un PAT o token para automatizar acciones, revócalo cuando ya no lo necesites y almacénalo únicamente en Secrets del repo.
+- Instrucción rápida para revocar un PAT: GitHub > Settings > Developer settings > Personal access tokens.
+
+## 5) Mantener XSDs actualizados
+- Programar ejecuciones periódicas del script (por ejemplo, con GitHub Actions o cron) para mantener los XSDs actualizados.
+- Mantener el archivo `datos/xsds/sha256.txt` en un lugar seguro o usarlo solo como referencia local.
+
+## 6) Tests
+- Se recomienda ejecutar `pytest` localmente. Si los tests fallan por falta de red o servicios externos, ejecútalos offline o mockea las dependencias tal como se documenta en los tests.
