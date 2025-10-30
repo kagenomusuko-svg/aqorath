@@ -1,7 +1,8 @@
 from dataclasses import dataclass
-from typing import Any, Dict, List, Callable, Optional
+from typing import Any, Dict, List, Callable, Optional, cast
 from datetime import date, datetime
-from .models import Account, AppConfig
+# import for runtime; add a small type-ignore to silence Pylance if it fails to resolve
+from .models import Account, AppConfig  # type: ignore[attr-defined]
 from .storage import get_session
 from sqlmodel import select
 import math
@@ -88,7 +89,8 @@ def net_from_gross_expr(vat_key: str = "vat_rate"):
 def _load_default_account_codes() -> Dict[str, str]:
     """Carga AppConfig keys que empiezan con 'default_account.' y retorna mapping lógico->code."""
     with get_session() as s:
-        rows = s.exec(select(AppConfig)).all()
+        # use scalars() and cast for better static typing
+        rows = cast(List[AppConfig], s.exec(select(AppConfig)).scalars().all())
     cfg = {}
     for r in rows:
         if r.key.startswith("default_account."):
