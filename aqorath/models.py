@@ -13,6 +13,16 @@ class Account(SQLModel, table=True):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class AppConfig(SQLModel, table=True):
+    """
+    Key/value config table used by templates._load_default_account_codes()
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    key: str
+    value: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class JournalEntry(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     date: datetime
@@ -26,7 +36,8 @@ class JournalEntry(SQLModel, table=True):
 
 class JournalLine(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    entry_id: int
+    # entry_id puede llegar a ser None hasta que se añada la línea; usar Optional evita errores de tipo
+    entry_id: Optional[int] = Field(default=None)
     account_id: Optional[int] = None
     debit: float = 0.0
     credit: float = 0.0
