@@ -1,40 +1,40 @@
-# Virtualenv
+# Entornos virtuales
 .venv/
 venv/
 env/
 ENV/
 
-# Python cache / bytecode
+# Archivos compilados de Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 
-# Editor / IDE
+# Configuración de editores / IDE
 .vscode/
 *.sublime-project
 *.sublime-workspace
 
-# Logs and data
+# Logs y archivos de ejecución
 logs/
 nohup.out
 uvicorn.log
 *.log
 
-# Local data / DB
+# Bases de datos y datos locales
 *.db
+*.sqlite3
 datos/
 data/
-*.sqlite3
 
-# Build / packaging
+# Archivos de construcción / distribución
 build/
 dist/
 *.egg-info/
 
-# Test cache
+# Caché de pruebas
 .pytest_cache/
 
-# System files
+# Archivos del sistema
 .DS_Store
 Thumbs.db
