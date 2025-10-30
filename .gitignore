@@ -1,0 +1,40 @@
+# Virtualenv
+.venv/
+venv/
+env/
+ENV/
+
+# Python cache / bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Editor / IDE
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# Logs and data
+logs/
+nohup.out
+uvicorn.log
+*.log
+
+# Local data / DB
+*.db
+datos/
+data/
+*.sqlite3
+
+# Build / packaging
+build/
+dist/
+*.egg-info/
+
+# Test cache
+.pytest_cache/
+
+# System files
+.DS_Store
+Thumbs.db
