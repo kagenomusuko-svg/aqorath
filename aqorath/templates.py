@@ -90,7 +90,7 @@ def _load_default_account_codes() -> Dict[str, str]:
     """Carga AppConfig keys que empiezan con 'default_account.' y retorna mapping lógico->code."""
     with get_session() as s:
         # use scalars() and cast for better static typing
-        rows = cast(List[AppConfig], s.exec(select(AppConfig)).scalars().all())
+        rows = cast(List[AppConfig], s.exec(select(AppConfig)).all())
     cfg = {}
     for r in rows:
         if r.key.startswith("default_account."):
