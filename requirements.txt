@@ -10,3 +10,5 @@ sqlmodel
 sqlalchemy
 python-dateutil
 pytest
+fastapi
+uvicorn
