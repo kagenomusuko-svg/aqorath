@@ -1,2 +1,10 @@
 {
+  "python.defaultInterpreterPath": ".venv/bin/python",
+  "python.analysis.autoImportCompletions": true,
+  "python.analysis.typeCheckingMode": "basic",
+  "editor.formatOnSave": true,
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/*.pyc": true
+  }
 }
