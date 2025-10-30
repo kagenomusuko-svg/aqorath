@@ -1,7 +1,7 @@
 from contextlib import contextmanager
 import os
 from sqlmodel import SQLModel, create_engine, Session
-from typing import Optional
+from typing import Iterator
 from pathlib import Path
 
 DB_DIR = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "aqorath"
@@ -17,7 +17,7 @@ def init_db():
 
 
 @contextmanager
-def get_session() -> Session:
+def get_session() -> Iterator[Session]:
     with Session(_engine) as session:
         yield session
 

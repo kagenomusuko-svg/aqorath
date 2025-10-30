@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Any, Dict, List, Callable, Optional
 from datetime import date, datetime
-from .models import JournalEntry, JournalLine, Account
+from .models import JournalEntry, JournalLine, Account, AppConfig
 from .storage import get_session
 from sqlmodel import select
 import math
@@ -47,7 +47,7 @@ def percent_expr(rate: float):
 def total_with_vat_expr(vat_key: str = "vat_rate", amount_is_net: bool = True):
     """
     Si amount_is_net True: devuelve amount + amount*vat_rate.
-    Si amount_is_net False: interpreta amount como bruto y retorna el bruto (caller decidirá base/vat).
+    Si amount_is_net False: interpreta amount como bruto y retorna el bruto (caller decide).
     """
     def fn(amount, ctx):
         vat = float(ctx.get(vat_key, 0.0))
@@ -85,6 +85,28 @@ def net_from_gross_expr(vat_key: str = "vat_rate"):
         return round(base, 2)
     return fn
 
+def _load_default_account_codes() -> Dict[str, str]:
+    """Carga AppConfig keys que empiezan con 'default_account.' y retorna mapping lógico->code."""
+    with get_session() as s:
+        rows = s.exec(select(AppConfig)).all()
+    cfg = {}
+    for r in rows:
+        if r.key.startswith("default_account."):
+            logical = r.key.split(".", 1)[1]
+            cfg[logical] = r.value
+    return cfg
+
+# Ensures ctx has account_codes by merging provided ctx with defaults
+def _ensure_account_codes(ctx: Dict[str, Any]):
+    if "account_codes" not in ctx or not isinstance(ctx.get("account_codes"), dict) or not ctx.get("account_codes"):
+        defaults = _load_default_account_codes()
+        ctx["account_codes"] = defaults.copy()
+    else:
+        # fill missing keys from defaults
+        defaults = _load_default_account_codes()
+        for k, v in defaults.items():
+            ctx["account_codes"].setdefault(k, v)
+
 # Templates
 
 # Ingreso: amount param treated as NET by default (base), bank debit = base + vat
@@ -112,10 +134,8 @@ register_template(OperationTemplate(
     description="Ingreso por venta (importe bruto; incluye IVA): banco (debit = bruto) / ventas (credit = base) + IVA trasladado",
     create_lines=lambda amount, ctx: (
         [
-            # banco recibe el bruto (importe tal cual)
             LineSpec(account_code=ctx.get("account_codes", {}).get("bank", "1000"),
                      side="debit", amount_expr=base_amount_expr(), description=ctx.get("desc")),
-            # ventas por la base (calculated from gross)
             LineSpec(account_code=ctx.get("account_codes", {}).get("sales", "4000"),
                      side="credit", amount_expr=gross_base_expr("vat_rate"), description=ctx.get("desc")),
         ] + (
@@ -144,7 +164,7 @@ register_template(OperationTemplate(
     )
 ))
 
-# Pago a proveedor: reducir pasivo/pagar con banco (payment template)
+# Pago a proveedor simple (sin retenciones)
 register_template(OperationTemplate(
     key="pago_proveedor",
     description="Pago a proveedor: pago de pasivo (debit proveedor) y salida banco (credit banco)",
@@ -158,14 +178,67 @@ register_template(OperationTemplate(
     )
 ))
 
-# Honorarios (ya con retención possible)
+# Pago a proveedor con retención IVA: genera asiento de factura + asiento de pago en una sola entrada
+def pago_con_retencion_create(amount, ctx):
+    """
+    amount: base (sin IVA)
+    genera:
+      - reconocimiento factura: gasto (debit base), IVA acreditable (debit vat), proveedor (credit base+vat)
+      - pago que liquida proveedor: proveedor (debit base+vat), banco (credit base+vat - vat_ret), vat_ret_payable (credit vat_ret)
+    """
+    vat_rate = float(ctx.get("vat_rate", 0.0))
+    vat = round(amount * vat_rate, 2)
+    vat_ret_rate = float(ctx.get("vat_ret_rate", 0.0))
+    vat_ret = round(vat * vat_ret_rate, 2)
+    paid = round(amount + vat - vat_ret, 2)
+    lines = []
+    acct = ctx.get("account_codes", {})
+    # reconocimiento factura
+    lines.append(LineSpec(account_code=acct.get("expense", "5000"), side="debit", amount_expr=base_amount_expr(), description=ctx.get("desc")))
+    if vat > 0:
+        lines.append(LineSpec(account_code=acct.get("vat_ac", "2200"), side="debit", amount_expr=lambda a, c: round(a * float(c.get("vat_rate", 0.0)),2), description="IVA acreditable"))
+    lines.append(LineSpec(account_code=acct.get("payable", "2000"), side="credit", amount_expr=lambda a,c: round(a + (a * float(c.get("vat_rate",0.0))),2), description=ctx.get("desc")))
+    # asiento de pago
+    lines.append(LineSpec(account_code=acct.get("payable", "2000"), side="debit", amount_expr=lambda a,c: round(a + (a * float(c.get("vat_rate",0.0))),2), description="Liquidación proveedor"))
+    lines.append(LineSpec(account_code=acct.get("bank", "1000"), side="credit", amount_expr=lambda a,c: round(a + (a * float(c.get("vat_rate",0.0))) - round((a * float(c.get("vat_rate",0.0))) * float(c.get("vat_ret_rate",0.0)),2),2), description="Pago proveedor"))
+    if vat_ret > 0:
+        lines.append(LineSpec(account_code=acct.get("vat_ret", "2400"), side="credit", amount_expr=lambda a,c: round((a * float(c.get("vat_rate",0.0))) * float(c.get("vat_ret_rate",0.0)),2), description="Retención IVA"))
+    return lines
+
+register_template(OperationTemplate(
+    key="pago_proveedor_con_retencion_iva",
+    description="Registro de compra + pago con retención de IVA integrada",
+    create_lines=pago_con_retencion_create
+))
+
+# Nota de crédito (descuento / devolución de venta)
+register_template(OperationTemplate(
+    key="nota_credito",
+    description="Nota de crédito: reduce ventas y la cuenta por cobrar (o banco si hubo devolución)",
+    create_lines=lambda amount, ctx: (
+        [
+            # debita ventas (reduce ingresos)
+            LineSpec(account_code=ctx.get("account_codes", {}).get("sales", "4000"),
+                     side="debit", amount_expr=base_amount_expr(), description=ctx.get("desc")),
+        ] + (
+            ([LineSpec(account_code=ctx.get("account_codes", {}).get("vat_tr", "2100"),
+                       side="debit", amount_expr=percent_expr(ctx.get("vat_rate", 0.0)),
+                       description="Reversión IVA")] if ctx.get("vat_rate", 0.0) else [])
+        ) + [
+            # acredita (reduce) la cuenta por cobrar o banco por el total bruto
+            LineSpec(account_code=ctx.get("account_codes", {}).get("receivable", "1100"),
+                     side="credit", amount_expr=total_with_vat_expr("vat_rate", amount_is_net=True), description=ctx.get("desc")),
+        ]
+    )
+))
+
+# Honorarios (retención ISR)
 def honorarios_create(amount, ctx):
     lines = [
         LineSpec(account_code=ctx.get("account_codes", {}).get("expense", "5000"),
                  side="debit", amount_expr=base_amount_expr(), description=ctx.get("desc")),
     ]
     isr_rate = ctx.get("isr_ret_rate", 0.0)
-    # net to bank = amount * (1 - isr_rate)
     lines.append(LineSpec(account_code=ctx.get("account_codes", {}).get("bank", "1000"),
                           side="credit", amount_expr=percent_expr(1.0 - isr_rate),
                           description=ctx.get("desc")))
@@ -181,9 +254,49 @@ register_template(OperationTemplate(
     create_lines=honorarios_create
 ))
 
+# Nómina (salario bruto)
+def nomina_create(amount, ctx):
+    """
+    amount: sueldo bruto
+    crea:
+      - debit sueldo_gasto = gross
+      - debit carga_patronal = gross * imss_patronal_rate
+      - credit banco (neto pagado) = gross * (1 - isr_rate - imss_obrero_rate)
+      - credit isr_ret (liability) = gross * isr_rate
+      - credit imss_obrero (liability) = gross * imss_obrero_rate
+      - credit imss_patronal_payable (liability) = gross * imss_patronal_rate
+    """
+    isr = float(ctx.get("isr_ret_rate", 0.15))
+    imss_obr = float(ctx.get("imss_obrero_rate", 0.0275))
+    imss_pat = float(ctx.get("imss_patronal_rate", 0.10))
+    acct = ctx.get("account_codes", {})
+    lines = []
+    # Debits
+    lines.append(LineSpec(account_code=acct.get("salary_expense", "7000"), side="debit", amount_expr=base_amount_expr(), description=ctx.get("desc")))
+    lines.append(LineSpec(account_code=acct.get("employer_social_expense", "7010"), side="debit", amount_expr=lambda a,c: round(a * imss_pat,2), description="Carga patronal"))
+    # Credits
+    # net paid
+    net_expr = lambda a,c: round(a * (1.0 - isr - imss_obr), 2)
+    lines.append(LineSpec(account_code=acct.get("bank", "1000"), side="credit", amount_expr=net_expr, description="Pago neto"))
+    # ISR retenido
+    lines.append(LineSpec(account_code=acct.get("isr_ret", "2300"), side="credit", amount_expr=lambda a,c: round(a * isr,2), description="ISR retenido"))
+    # IMSS obrero (liability)
+    lines.append(LineSpec(account_code=acct.get("imss_obrero_payable", "2310"), side="credit", amount_expr=lambda a,c: round(a * imss_obr,2), description="IMSS obrero"))
+    # IMSS patronal payable (liability)
+    lines.append(LineSpec(account_code=acct.get("imss_patronal_payable", "2320"), side="credit", amount_expr=lambda a,c: round(a * imss_pat,2), description="IMSS patronal"))
+    return lines
+
+register_template(OperationTemplate(
+    key="nomina",
+    description="Asiento de nómina básico: sueldo bruto, retenciones ISR e IMSS, carga patronal",
+    create_lines=nomina_create
+))
+
 # Preview & post
 def generate_preview(template_key: str, amount: float, ctx: Optional[Dict[str, Any]] = None):
     ctx = ctx or {}
+    # ensure account codes merged with defaults
+    _ensure_account_codes(ctx)
     tpl = get_template(template_key)
     line_specs = tpl.create_lines(amount, ctx)
     with get_session() as s:
@@ -218,12 +331,12 @@ def generate_preview(template_key: str, amount: float, ctx: Optional[Dict[str, A
 
 
 def post_entry(template_key: str, amount: float, ctx: Optional[Dict[str, Any]] = None, user: Optional[str] = None):
-    preview = generate_preview(template_key, amount, ctx)
+    preview = generate_preview(template_key, amount, ctx or {})
     if not preview["balanced"]:
         raise ValueError("El asiento no está balanceado. Revisa las reglas del template.")
     with get_session() as s:
-        entry = JournalEntry(date=preview["date"], concept=ctx.get("desc"),
-                             doc_ref=ctx.get("doc_ref"), period_id=ctx.get("period_id"),
+        entry = JournalEntry(date=preview["date"], concept=(ctx or {}).get("desc"),
+                             doc_ref=(ctx or {}).get("doc_ref"), period_id=(ctx or {}).get("period_id"),
                              posted_by=user, state="posted")
         s.add(entry)
         s.commit()
