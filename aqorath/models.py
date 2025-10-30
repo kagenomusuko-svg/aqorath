@@ -81,4 +81,15 @@ class Asset(SQLModel, table=True):
     depreciation_method: str = "straight_line"
     depreciation_period: str = "monthly"
     active: bool = True
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=datetime.utcnow)from datetime import datetime, timezone
+from pydantic import Field
+...
+# Antes:
+# created_at: datetime = Field(default_factory=datetime.utcnow)
+# Después:
+created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+...
+# Aplica lo mismo para todas las ocurrencias listadas por grepsed -i "s/from datetime import datetime/from datetime import datetime, timezone/" aqorath/models.py
+
+# reemplazar Field(default_factory=datetime.utcnow) por lambda que usa timezone
+sed -i "s/Field(default_factory=datetime.utcnow)/Field(default_factory=lambda: datetime.now(timezone.utc))/g" aqorath/models.py

@@ -354,3 +354,26 @@ def post_entry(template_key: str, amount: float, ctx: Optional[Dict[str, Any]] =
             s.add(jl)
         s.commit()
         return entry.id
+    # Antes (ejemplo)
+from datetime import datetime
+...
+    "date": datetime.utcnow().date(),
+...
+
+# Reemplazar por (sugerido)
+from datetime import datetime, timezone
+...
+    "date": datetime.now(timezone.utc).date(),
+...from datetime import datetime, timezone
+...
+# Antes:
+# "date": datetime.utcnow().date(),
+# Después (timezone-aware):
+"date": datetime.now(timezone.utc).date(),
+...
+# Repite la sustitución en la otra ocurrencia similar
+# "date": datetime.utcnow().date(),  ->  "date": datetime.now(timezone.utc).date()# añadir timezone al import si no existe ya
+sed -i "s/from datetime import datetime/from datetime import datetime, timezone/" aqorath/core.py
+
+# reemplazar utcnow().date() -> now(timezone.utc).date()
+sed -i "s/datetime\.utcnow()\.date()/datetime.now(timezone.utc).date()/g" aqorath/core.py
