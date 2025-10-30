@@ -1,0 +1,14 @@
+2025-10-29 21:57:24,734 INFO: Logger inicializado para Libro
+2025-10-29 21:57:24,735 INFO: Se creó asiento 1 fecha 2025-10-28 - Cargo:100.0 Abono:116.0 lineas:3
+2025-10-29 21:57:25,293 WARNING: Error guardando Catalogo: cannot insert Codigo, already exists
+2025-10-29 21:57:25,396 INFO: Libro guardado en /tmp/pytest-of-draco/pytest-21/test_asientos_persisten_guarda0/test_libro_asientos.xlsx
+2025-10-29 21:57:25,640 INFO: Asiento 1 exportado a /tmp/pytest-of-draco/pytest-21/test_export_asiento_csv_and_xl0/asiento_1.csv (csv)
+2025-10-29 21:57:25,736 INFO: Asiento 1 exportado a /tmp/pytest-of-draco/pytest-21/test_export_asiento_csv_and_xl0/asiento_1.xlsx (xlsx)
+2025-10-29 21:57:25,743 INFO: Se creó asiento 1 fecha 2025-10-01 - Cargo:1000.0 Abono:1000.0 lineas:2
+2025-10-29 21:57:25,744 INFO: Se creó asiento 2 fecha 2025-10-01 - Cargo:1000.0 Abono:1000.0 lineas:2
+2025-10-29 21:57:25,771 INFO: Se creó asiento 1 fecha 2025-10-01 - Cargo:500.0 Abono:500.0 lineas:2
+2025-10-29 21:57:25,772 INFO: Se creó asiento 2 fecha 2025-10-01 - Cargo:500.0 Abono:500.0 lineas:2
+2025-10-29 21:57:25,811 INFO: Se creó asiento 1 fecha 2025-10-28 - Cargo:1160.0 Abono:1100.0 lineas:4
+2025-10-29 21:57:25,824 INFO: Se creó asiento 1 fecha 2025-10-28 - Cargo:232.0 Abono:200.0 lineas:3
+2025-10-29 21:57:25,834 INFO: Se creó asiento 1 fecha 2025-10-28 - Cargo:150.0 Abono:150.0 lineas:2
+2025-10-29 21:57:25,856 INFO: Se creó asiento 1 fecha 2025-10-28 - Cargo:100.0 Abono:116.0 lineas:3
