@@ -1,34 +1,6 @@
-"""
-Importador mejorado de Catálogo.xlsx a la base SQLite de aqorath.
-
-Soporta importar ambas columnas (OSC y Comercial) y guarda metadatos por cuenta
-en AppConfig para usarse en tiempo de ejecución sin cambiar el modelo Account.
-
-Uso:
-  python -m aqorath.import_catalog assets/Catálogo.xlsx --mode both
-  python -m aqorath.import_catalog assets/Catálogo.xlsx --mode osc
-  python -m aqorath.import_catalog assets/Catálogo.xlsx --mode comercial
-
-- mode=both: importa nombres y metadatos de ambas columnas, no cambia el nombre por defecto.
-- mode=osc: importa y además asigna Account.name = Nombre_OSC si está vacío o se desea.
-- mode=comercial: similar, pero usa Nombre_Comercial como default.
-
-Guarda metadatos en AppConfig con claves:
-  account.<codigo>.name_osc
-  account.<codigo>.name_comercial
-  account.<codigo>.tipo
-  account.<codigo>.subtipo
-  account.<codigo>.naturaleza
-  account.<codigo>.descripcion
-  account.<codigo>.report_osc
-  account.<codigo>.report_comercial
-
-También puede preguntar para mapear las claves lógicas (bank, sales, vat_tr, ...).
-"""
 from pathlib import Path
 import argparse
 from openpyxl import load_workbook
-import json
 
 from sqlmodel import select
 from typing import Optional
@@ -44,6 +16,9 @@ LOGICAL_KEYS = [
 
 
 def _set_appconfig(key: str, value: str):
+    """
+    Guarda o actualiza un AppConfig (usa su propia sesión).
+    """
     with get_session() as s:
         existing = s.exec(select(AppConfig).where(AppConfig.key == key)).one_or_none()
         if existing:
@@ -52,6 +27,23 @@ def _set_appconfig(key: str, value: str):
         else:
             s.add(AppConfig(key=key, value=str(value)))
         s.commit()
+
+
+def normalize_nature(raw: Optional[str]) -> str:
+    """
+    Normaliza la columna 'Naturaleza' a los valores que queremos guardar en DB.
+    Se devuelve la cadena en español estandarizada: 'Deudora' o 'Acreedora'.
+    Si no hay información, por seguridad devolvemos 'Deudora' (puedes cambiar el default).
+    """
+    if not raw:
+        return "Deudora"
+    r = str(raw).strip().lower()
+    if "deud" in r or "debe" in r:
+        return "Deudora"
+    if "acre" in r or "acreedor" in r or "acreedora" in r:
+        return "Acreedora"
+    # fallback: capitalizar primera letra
+    return str(raw).strip().capitalize()
 
 
 def import_catalog(path: Path, mode: str = "both") -> None:
@@ -79,7 +71,7 @@ def import_catalog(path: Path, mode: str = "both") -> None:
             name_com = row[2] if len(row) >= 3 else None
             tipo = row[3] if len(row) >= 4 else None
             subtipo = row[4] if len(row) >= 5 else None
-            naturaleza = row[5] if len(row) >= 6 else None
+            naturaleza_raw = row[5] if len(row) >= 6 else None
             descripcion = row[6] if len(row) >= 7 else None
             report_osc = row[7] if len(row) >= 8 else None
             report_com = row[8] if len(row) >= 9 else None
@@ -100,35 +92,52 @@ def import_catalog(path: Path, mode: str = "both") -> None:
             name_com = _norm(name_com)
             tipo = _norm(tipo)
             subtipo = _norm(subtipo)
-            naturaleza = _norm(naturaleza)
+            naturaleza_raw = _norm(naturaleza_raw)
             descripcion = _norm(descripcion)
             report_osc = _norm(report_osc)
             report_com = _norm(report_com)
 
-            existing = s.exec(select(Account).where(Account.code == code)).one_or_none()
+            # Consultas dentro de no_autoflush para evitar que SQLAlchemy intente flush
+            # objetos inválidos que aún no hemos terminado de construir.
+            with s.no_autoflush:
+                existing = s.exec(select(Account).where(Account.code == code)).one_or_none()
+
             if existing:
-                # actualizar solo campos básicos si están vacíos
+                # actualizar solo campos básicos si están vacíos o si se pide según mode
                 if mode == "osc" and name_osc:
                     existing.name = name_osc
                 elif mode == "comercial" and name_com:
                     existing.name = name_com
-                # no tocamos otros campos del modelo Account para evitar romper integridad
+                # actualizar naturaleza si es sensible y no está definida
+                if getattr(existing, "nature", None) is None:
+                    existing.nature = normalize_nature(naturaleza_raw)
                 s.add(existing)
                 updated += 1
             else:
-                # crear Account; como name ponemos según mode o preferencia (si both -> prefer comercial si existe, sino osc)
-                chosen_name = ""
+                # elegir nombre por defecto según mode
                 if mode == "osc":
                     chosen_name = name_osc or name_com or f"Cuenta {code}"
                 elif mode == "comercial":
                     chosen_name = name_com or name_osc or f"Cuenta {code}"
                 else:  # both
                     chosen_name = name_com or name_osc or f"Cuenta {code}"
-                acc = Account(code=code, name=chosen_name)
+
+                # asegurar naturaleza no nula
+                nature_val = normalize_nature(naturaleza_raw)
+
+                # Crear Account con 'nature' garantizado
+                try:
+                    acc = Account(code=code, name=chosen_name, nature=nature_val)
+                except TypeError:
+                    # si el constructor no acepta 'nature', lo asignamos después
+                    acc = Account(code=code, name=chosen_name)
+                    if hasattr(acc, "nature"):
+                        setattr(acc, "nature", nature_val)
+
                 s.add(acc)
                 created += 1
 
-            # guardar metadatos en AppConfig
+            # guardar metadatos en AppConfig (se hace con función separada/propia)
             meta_prefix = f"account.{code}"
             if name_osc:
                 _set_appconfig(f"{meta_prefix}.name_osc", name_osc)
@@ -138,16 +147,17 @@ def import_catalog(path: Path, mode: str = "both") -> None:
                 _set_appconfig(f"{meta_prefix}.tipo", tipo)
             if subtipo:
                 _set_appconfig(f"{meta_prefix}.subtipo", subtipo)
-            if naturaleza:
-                _set_appconfig(f"{meta_prefix}.naturaleza", naturaleza)
+            if naturaleza_raw:
+                # guardamos la naturaleza tal cual (normalizada) en AppConfig para referencia
+                _set_appconfig(f"{meta_prefix}.naturaleza", normalize_nature(naturaleza_raw))
             if descripcion:
-                # truncar o limpiar si muy largo
                 _set_appconfig(f"{meta_prefix}.descripcion", descripcion)
             if report_osc:
                 _set_appconfig(f"{meta_prefix}.report_osc", report_osc)
             if report_com:
                 _set_appconfig(f"{meta_prefix}.report_comercial", report_com)
 
+        # commit de todos los cambios hechos en esta sesión
         s.commit()
 
     print(f"Import terminado: creadas={created}, actualizadas={updated}, saltadas={skipped}")
