@@ -1,62 +1,62 @@
-Codigo,Nombre_OSC,Nombre_Comercial,Tipo_cuenta,Subtipo,Naturaleza,Descripción/uso,Reporte_OSC,Reporte_Comercial
-1101,Bancos,Bancos,Activo,Circulante,Deudora,"Dinero en cuentas bancarias de la Asociación",Estado de situación financiera,Balance General
-1102,Caja chica,Caja chica,Activo,Circulante,Deudora,"Efectivo disponible para gastos menores",Estado de situación financiera,Balance General
-1103,Cuentas por cobrar,Clientes,Activo,Circulante,Deudora,"Importes pendientes de cobro por ventas o servicios",Estado de situación financiera,Balance General
-1104,Inventarios de materiales,Inventario,Activo,Circulante,Deudora,"Materiales y suministros disponibles para operación",Estado de situación financiera,Balance General
-1105,Anticipos a proveedores,Anticipos a proveedores,Activo,Circulante,Deudora,"Pagos adelantados a proveedores",Estado de situación financiera,Balance General
-1106,Donativos en especie por aplicar,"Mercancía en tránsito/otros activos circulantes",Activo,Circulante,Deudora,"Bienes recibidos como donativos pendientes de asignación",Estado de situación financiera,Balance General
-1201,Mobiliario y equipo,"Mobiliario y equipo de oficina",Activo,No circulante,Deudora,"Mesas, sillas y otros bienes de oficina",Estado de situación financiera,Balance General
-1202,Equipo de cómputo,Equipo de cómputo,Activo,No circulante,Deudora,"Computadoras y accesorios",Estado de situación financiera,Balance General
-1203,Maquinaria y herramientas,Maquinaria y herramientas,Activo,No circulante,Deudora,"Equipos de talleres y producción",Estado de situación financiera,Balance General
-1204,Terrenos y edificios,Terrenos y edificios,Activo,No circulante,Deudora,"Inmuebles propiedad de la Asociación",Estado de situación financiera,Balance General
-1205,Depreciación acumulada,Depreciación acumulada,Activo,No circulante,Acreedora,"Depreciación total acumulada de los activos fijos",Estado de situación financiera,Balance General
-2101,Proveedores,Proveedores,Pasivo,Corto plazo,Acreedora,"Cuentas pendientes de pago a proveedores",Estado de situación financiera,Balance General
-2102,Acreedores diversos,Acreedores diversos,Pasivo,Corto plazo,Acreedora,"Obligaciones con terceros distintos a proveedores",Estado de situación financiera,Balance General
-2103,Impuestos por pagar,Impuestos por pagar,Pasivo,Corto plazo,Acreedora,"Impuestos retenidos o causados pendientes de pago",Estado de situación financiera,Balance General
-2104,Sueldos y prestaciones por pagar,"Nómina por pagar",Pasivo,Corto plazo,Acreedora,"Obligaciones laborales pendientes",Estado de situación financiera,Balance General
-2201,Préstamos bancarios,Préstamos bancarios,Pasivo,Largo plazo,Acreedora,"Créditos otorgados por instituciones financieras",Estado de situación financiera,Balance General
-2202,Otros pasivos a largo plazo,Otros pasivos a largo plazo,Pasivo,Largo plazo,Acreedora,"Compromisos financieros no corrientes",Estado de situación financiera,Balance General
-3101,Aportaciones de asociados,Capital social,Patrimonio,,Acreedora,"Aportaciones de miembros fundadores o asociados",Estado de situación financiera,Balance General
-3102,Donativos acumulados,Utilidades retenidas,Patrimonio,,Acreedora,"Donativos recibidos acumulados de ejercicios anteriores",Estado de situación financiera,Balance General
-3103,Resultados del ejercicio,Utilidad o pérdida del ejercicio,Patrimonio,,Acreedora,"Resultado (superávit o déficit) del ejercicio actual",Estado de situación financiera,Balance General
-3104,Reservas patrimoniales,Reservas de capital,Patrimonio,,Acreedora,"Recursos destinados a fines específicos o contingencias",Estado de situación financiera,Balance General
-4101,Donativos en efectivo,Ventas al contado,Ingreso,Donativos,Acreedora,"Donaciones recibidas en efectivo",Estado de actividades,Estado de resultados
-4102,Donativos en especie,Ventas en especie,Ingreso,Donativos,Acreedora,"Bienes materiales donados",Estado de actividades,Estado de resultados
-4103,Donativos recurrentes,Ventas recurrentes,Ingreso,Donativos,Acreedora,"Aportaciones periódicas o programadas",Estado de actividades,Estado de resultados
-4104,Donativos institucionales,"Ingresos por convenio o contratos",Ingreso,Donativos,Acreedora,"Donativos de fundaciones, empresas o gobiernos",Estado de actividades,Estado de resultados
-4201,Ventas de productos elaborados,"Venta de productos elaborados",Ingreso,"Actividades con causa",Acreedora,"Ingresos por productos confeccionados o artesanales",Estado de actividades,Estado de resultados
-4202,Servicios de capacitación,Prestación de servicios,Ingreso,"Actividades con causa",Acreedora,"Cursos, talleres o asesorías",Estado de actividades,Estado de resultados
-4203,Ingresos por eventos o ferias,Ingresos por eventos,Ingreso,"Actividades con causa",Acreedora,"Recursos generados en eventos",Estado de actividades,Estado de resultados
-4301,Recuperación de gastos,Otros ingresos,Ingreso,Otros,Acreedora,"Reintegros o reembolsos de gastos",Estado de actividades,Estado de resultados
-4302,Intereses bancarios,Intereses ganados,Ingreso,Otros,Acreedora,"Intereses generados por cuentas bancarias",Estado de actividades,Estado de resultados
-5101,Materiales y suministros,Materiales y suministros,Gasto,Operación,Deudora,"Compra de materiales y suministros generales",Estado de actividades,Estado de resultados
-5102,Servicios básicos,Servicios básicos,Gasto,Operación,Deudora,"Servicios básicos de operación",Estado de actividades,Estado de resultados
-5103,Arrendamientos,Arrendamientos,Gasto,Operación,Deudora,"Rentas de inmuebles o equipo",Estado de actividades,Estado de resultados
-5104,Mantenimiento y reparaciones,Mantenimiento y reparaciones,Gasto,Operación,Deudora,"Conservación y reparación de activos",Estado de actividades,Estado de resultados
-5105,Transporte y mensajería,Fletes y transporte,Gasto,Operación,Deudora,"Movilidad y envío de materiales",Estado de actividades,Estado de resultados
-5201,Sueldos,Sueldos,Gasto,Personal,Deudora,"Pagos de nómina al personal operativo",Estado de actividades,Estado de resultados
-5202,Honorarios asimilados,Honorarios profesionales,Gasto,Personal,Deudora,"Pagos a colaboradores externos",Estado de actividades,Estado de resultados
-5203,Cuotas IMSS e impuestos laborales,Cuotas IMSS e impuestos laborales,Gasto,Personal,Deudora,"Obligaciones patronales",Estado de actividades,Estado de resultados
-5301,Papelería y útiles,Papelería y útiles,Gasto,Administrativo,Deudora,"Material de oficina",Estado de actividades,Estado de resultados
-5302,Viáticos y representación,Viáticos y representación,Gasto,Administrativo,Deudora,"Gastos de viajes y representación institucional",Estado de actividades,Estado de resultados
-5303,Servicios profesionales,Servicios profesionales,Gasto,Administrativo,Deudora,"Honorarios contables, legales u otros",Estado de actividades,Estado de resultados
-5401,Becas o apoyos sociales,Apoyos y donativos,Gasto,Programas,Deudora,"Apoyos económicos o materiales a beneficiarios",Estado de actividades,Estado de resultados
-5402,Capacitación de aprendices,Capacitación de personal,Gasto,Programas,Deudora,"Formación técnica o laboral de beneficiarios",Estado de actividades,Estado de resultados
-5403,Material para talleres productivos,Material de producción,Gasto,Programas,Deudora,"Suministros para talleres de confección u otros",Estado de actividades,Estado de resultados
-5404,Publicidad o difusión institucional,Publicidad y promoción,Gasto,Programas,Deudora,"Promoción de actividades con causa",Estado de actividades,Estado de resultados
-5405,Beneficios y apoyos al personal operativo,Prestaciones al personal,Gasto,Programas,Deudora,"Apoyos en especie o servicios otorgados al personal operativo",Estado de actividades,Estado de resultados
-1180,IVA acreditable,IVA acreditable,Activo,Circulante,Deudora,"IVA pagado en compras o gastos deducibles que puede acreditarse ante el SAT.",Estado de situación financiera,Balance General
-1181,IVA acreditable no deducible,IVA no deducible,Activo,Circulante,Deudora,"IVA pagado en gastos no deducibles o sin CFDI válido.",Estado de situación financiera,Balance General
-1182,IVA pendiente de acreditar,IVA pendiente de acreditar,Activo,Circulante,Deudora,"IVA de compras aún no acreditado por falta de pago o comprobante.",Estado de situación financiera,Balance General
-2080,IVA trasladado,IVA trasladado,Pasivo,Corto plazo,Acreedora,"IVA cobrado en ventas o servicios, pendiente de enterar al SAT.",Estado de situación financiera,Balance General
-2081,IVA trasladado pendiente de cobro,IVA por cobrar,Pasivo,Corto plazo,Acreedora,"IVA facturado en ventas aún no cobradas; se convierte en IVA trasladado cuando se recibe el pago.",Estado de situación financiera,Balance General
-2160,ISR retenido a terceros,ISR retenido,Pasivo,Corto plazo,Acreedora,"ISR retenido a prestadores de servicios o personas físicas, pendiente de enterar.",Estado de situación financiera,Balance General
-2170,IVA retenido a terceros,IVA retenido,Pasivo,Corto plazo,Acreedora,"IVA retenido en pagos a personas físicas o arrendadores, pendiente de enterar.",Estado de situación financiera,Balance General
-2180,ISR retenido por terceros,ISR retenido acreditable,Activo,Circulante,Deudora,"ISR que clientes retuvieron y puede acreditarse en declaraciones.",Estado de situación financiera,Balance General
-2181,IVA retenido por terceros,IVA retenido acreditable,Activo,Circulante,Deudora,"IVA retenido por clientes al pagarte servicios, acreditable ante el SAT.",Estado de situación financiera,Balance General
-5204,ISR del ejercicio,ISR causado,Gasto,Impuesto,Deudora,"Impuesto sobre la renta generado al cierre del ejercicio.",Estado de actividades,Estado de resultados
-5205,Pagos provisionales ISR,ISR provisional,Gasto,Impuesto,Deudora,"Pagos mensuales o bimestrales de ISR efectuados durante el ejercicio.",Estado de actividades,Estado de resultados
-5206,ISR por pagar,ISR por pagar,Pasivo,Corto plazo,Acreedora,"Diferencia entre ISR causado y pagado, pendiente de liquidar.",Estado de situación financiera,Balance General
-5207,Recargos y actualizaciones fiscales,Recargos y actualizaciones,Gasto,Impuesto,Deudora,"Intereses o actualizaciones por pagos fuera de plazo.",Estado de actividades,Estado de resultados
-5208,Multas y sanciones fiscales,Multas fiscales,Gasto,Impuesto,Deudora,"Sanciones impuestas por incumplimientos fiscales.",Estado de actividades,Estado de resultados
-5304,Impuestos locales y derechos,Impuestos locales,Gasto,Impuesto,Deudora,"Contribuciones estatales o municipales (por ejemplo, nómina o predial).",Estado de actividades,Estado de resultados
+Codigo	Nombre_OSC	Nombre_Comercial	Tipo_cuenta	Subtipo	Naturaleza	Descripción/uso
+1101	Bancos	Bancos	Activo	Circulante	Deudora	Dinero en cuentas bancarias de la Asociación
+1102	Caja chica	Caja chica	Activo	Circulante	Deudora	Efectivo disponible para gastos menores
+1103	Cuentas por cobrar	Clientes	Activo	Circulante	Deudora	Importes pendientes de cobro por ventas o servicios
+1104	Inventarios de materiales	Inventario	Activo	Circulante	Deudora	Materiales y suministros disponibles para operación
+1105	Anticipos a proveedores	Anticipos a proveedores	Activo	Circulante	Deudora	Pagos adelantados a proveedores
+1106	Donativos en especie por aplicar	Mercancía en tránsito/otros activos circulantes	Activo	Circulante	Deudora	Bienes recibidos como donativos pendientes de asignación
+1201	Mobiliario y equipo	Mobiliario y equipo de oficina	Activo	No circulante	Deudora	Mesas, sillas y otros bienes de oficina
+1202	Equipo de cómputo	Equipo de cómputo	Activo	No circulante	Deudora	Computadoras y accesorios
+1203	Maquinaria y herramientas	Maquinaria y herramientas	Activo	No circulante	Deudora	Equipos de talleres y producción
+1204	Terrenos y edificios	Terrenos y edificios	Activo	No circulante	Deudora	Inmuebles propiedad de la Asociación
+1205	Depreciación acumulada	Depreciación acumulada	Activo	No circulante	Acreedora	Depreciación total acumulada de los activos fijos
+2101	Proveedores	Proveedores	Pasivo	Corto plazo	Acreedora	Cuentas pendientes de pago a proveedores
+2102	Acreedores diversos	Acreedores diversos	Pasivo	Corto plazo	Acreedora	Obligaciones con terceros distintos a proveedores
+2103	Impuestos por pagar	Impuestos por pagar	Pasivo	Corto plazo	Acreedora	Impuestos retenidos o causados pendientes de pago
+2104	Sueldos y prestaciones por pagar	Nómina por pagar	Pasivo	Corto plazo	Acreedora	Obligaciones laborales pendientes
+2201	Préstamos bancarios	Préstamos bancarios	Pasivo	Largo plazo	Acreedora	Créditos otorgados por instituciones financieras
+2202	Otros pasivos a largo plazo	Otros pasivos a largo plazo	Pasivo	Largo plazo	Acreedora	Compromisos financieros no corrientes
+3101	Aportaciones de asociados	Capital social	Patrimonio		Acreedora	Aportaciones de miembros fundadores o asociados
+3102	Donativos acumulados	Utilidades retenidas	Patrimonio		Acreedora	Donativos recibidos acumulados de ejercicios anteriores
+3103	Resultados del ejercicio	Utilidad o pérdida del ejercicio	Patrimonio		Acreedora	Resultado (superávit o déficit) del ejercicio actual
+3104	Reservas patrimoniales	Reservas de capital	Patrimonio		Acreedora	Recursos destinados a fines específicos o contingencias
+4101	Donativos en efectivo	Ventas al contado	Ingreso	Donativos	Acreedora	Donaciones recibidas en efectivo
+4102	Donativos en especie	Ventas en especie	Ingreso	Donativos	Acreedora	Bienes materiales donados
+4103	Donativos recurrentes	Ventas recurrentes	Ingreso	Donativos	Acreedora	Aportaciones periódicas o programadas
+4104	Donativos institucionales	Ingresos por convenio o contratos	Ingreso	Donativos	Acreedora	Donativos de fundaciones, empresas o gobiernos
+4201	Ventas de productos elaborados	Venta de productos elaborados	Ingreso	Actividades con causa	Acreedora	Ingresos por productos confeccionados o artesanales
+4202	Servicios de capacitación	Prestación de servicios	Ingreso	Actividades con causa	Acreedora	Cursos, talleres o asesorías
+4203	Ingresos por eventos o ferias	Ingresos por eventos	Ingreso	Actividades con causa	Acreedora	Recursos generados en eventos
+4301	Recuperación de gastos	Otros ingresos	Ingreso	Otros	Acreedora	Reintegros o reembolsos de gastos
+4302	Intereses bancarios	Intereses ganados	Ingreso	Otros	Acreedora	Intereses generados por cuentas bancarias
+5101	Materiales y suministros	Materiales y suministros	Gasto	Operación	Deudora	Compra de materiales y suministros generales
+5102	Servicios básicos	Servicios básicos	Gasto	Operación	Deudora	Servicios básicos de operación
+5103	Arrendamientos	Arrendamientos	Gasto	Operación	Deudora	Rentas de inmuebles o equipo
+5104	Mantenimiento y reparaciones	Mantenimiento y reparaciones	Gasto	Operación	Deudora	Conservación y reparación de activos
+5105	Transporte y mensajería	Fletes y transporte	Gasto	Operación	Deudora	Movilidad y envío de materiales
+5201	Sueldos	Sueldos	Gasto	Personal	Deudora	Pagos de nómina al personal operativo
+5202	Honorarios asimilados	Honorarios profesionales	Gasto	Personal	Deudora	Pagos a colaboradores externos
+5203	Cuotas IMSS e impuestos laborales	Cuotas IMSS e impuestos laborales	Gasto	Personal	Deudora	Obligaciones patronales
+5301	Papelería y útiles	Papelería y útiles	Gasto	Administrativo	Deudora	Material de oficina
+5302	Viáticos y representación	Viáticos y representación	Gasto	Administrativo	Deudora	Gastos de viajes y representación institucional
+5303	Servicios profesionales	Servicios profesionales	Gasto	Administrativo	Deudora	Honorarios contables, legales u otros
+5401	Becas o apoyos sociales	Apoyos y donativos	Gasto	Programas	Deudora	Apoyos económicos o materiales a beneficiarios
+5402	Capacitación de aprendices	Capacitación de personal	Gasto	Programas	Deudora	Formación técnica o laboral de beneficiarios
+5403	Material para talleres productivos	Material de producción	Gasto	Programas	Deudora	Suministros para talleres de confección u otros
+5404	Publicidad o difusión institucional	Publicidad y promoción	Gasto	Programas	Deudora	Promoción de actividades con causa
+5405	Beneficios y apoyos al personal operativo	Prestaciones al personal	Gasto	Programas	Deudora	Apoyos en especie o servicios otorgados al personal operativo
+1180	IVA acreditable	IVA acreditable	Activo	Circulante	Deudora	IVA pagado en compras o gastos deducibles que puede acreditarse ante el SAT.
+1181	IVA acreditable no deducible	IVA no deducible	Activo	Circulante	Deudora	IVA pagado en gastos no deducibles o sin CFDI válido.
+1182	IVA pendiente de acreditar	IVA pendiente de acreditar	Activo	Circulante	Deudora	IVA de compras aún no acreditado por falta de pago o comprobante.
+2080	IVA trasladado	IVA trasladado	Pasivo	Corto plazo	Acreedora	IVA cobrado en ventas o servicios, pendiente de enterar al SAT.
+2081	IVA trasladado pendiente de cobro	IVA por cobrar	Pasivo	Corto plazo	Acreedora	IVA facturado en ventas aún no cobradas; se convierte en IVA trasladado cuando se recibe el pago.
+2160	ISR retenido a terceros	ISR retenido	Pasivo	Corto plazo	Acreedora	ISR retenido a prestadores de servicios o personas físicas, pendiente de enterar.
+2170	IVA retenido a terceros	IVA retenido	Pasivo	Corto plazo	Acreedora	IVA retenido en pagos a personas físicas o arrendadores, pendiente de enterar.
+2180	ISR retenido por terceros	ISR retenido acreditable	Activo	Circulante	Deudora	ISR que clientes retuvieron y puede acreditarse en declaraciones.
+2181	IVA retenido por terceros	IVA retenido acreditable	Activo	Circulante	Deudora	IVA retenido por clientes al pagarte servicios, acreditable ante el SAT.
+5204	ISR del ejercicio	ISR causado	Gasto	Impuesto	Deudora	Impuesto sobre la renta generado al cierre del ejercicio.
+5205	Pagos provisionales ISR	ISR provisional	Gasto	Impuesto	Deudora	Pagos mensuales o bimestrales de ISR efectuados durante el ejercicio.
+5206	ISR por pagar	ISR por pagar	Pasivo	Corto plazo	Acreedora	Diferencia entre ISR causado y pagado, pendiente de liquidar.
+5207	Recargos y actualizaciones fiscales	Recargos y actualizaciones	Gasto	Impuesto	Deudora	Intereses o actualizaciones por pagos fuera de plazo.
+5208	Multas y sanciones fiscales	Multas fiscales	Gasto	Impuesto	Deudora	Sanciones impuestas por incumplimientos fiscales.
+5304	Impuestos locales y derechos	Impuestos locales	Gasto	Impuesto	Deudora	Contribuciones estatales o municipales (por ejemplo, nómina o predial).
