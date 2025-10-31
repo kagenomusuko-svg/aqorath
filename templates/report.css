@@ -1,0 +1,6 @@
+@page { size: A4; margin: 30pt; }
+body { font-family: "DejaVu Sans", Arial, sans-serif; color: #222; }
+header { margin-bottom: 18px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 6px; border-bottom: 1px solid #eee; }
+th { background-color: #f8fbff; }
