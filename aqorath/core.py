@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 import math
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, cast, List
 
 from sqlalchemy import select
 
@@ -36,8 +36,8 @@ def generate_preview(template_key: str, amount: float, ctx: Optional[Dict[str, A
     tpl = get_template(template_key)
     line_specs = tpl.create_lines(amount, ctx or {})
     with get_session() as s:
-        # use scalars() to get model instances
-        accounts = {a.code: a for a in s.exec(select(Account)).scalars().all()}
+        # Use scalars().all() and cast to help static type checkers (Pylance)
+        accounts = {a.code: a for a in cast(List[Account], s.exec(select(Account)).scalars().all())}
 
     lines_preview = []
     total_debit = 0.0
@@ -96,8 +96,8 @@ def post_entry(template_key: str, amount: float, ctx: Optional[Dict[str, Any]] =
         for l in preview["lines"]:
             acc_id = l["account_id"]
             if acc_id is None:
-                # use scalars().one_or_none() to get the Account instance (or None)
-                acc = s.exec(select(Account).where(Account.code == l["account_code"])).scalars().one_or_none()
+                # use scalars().one_or_none() and cast for type-checkers
+                acc = cast(Optional[Account], s.exec(select(Account).where(Account.code == l["account_code"])).scalars().one_or_none())
                 if acc:
                     acc_id = acc.id
             jl = JournalLine(
