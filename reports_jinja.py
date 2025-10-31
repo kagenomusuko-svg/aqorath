@@ -47,7 +47,7 @@ def generate_pdf_for_entry(entry_id: int, company_id: Optional[int] = None) -> P
             raise ValueError("Entry not found")
         # If you have template-based preview call generate_preview(template_key, amount, ctx)
         # But here we'll produce a simple preview-like dict from DB
-        lines = s.exec(select(je.__class__)).scalars().all()  # placeholder, better to query JournalLine
+        lines = s.exec(select(je.__class__)).all()  # placeholder, better to query JournalLine
         # Use generate_preview externally when possible
     # For real use, prefer:
     # preview = generate_preview("ingreso_venta", amount, ctx)

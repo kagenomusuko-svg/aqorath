@@ -37,7 +37,7 @@ def generate_preview(template_key: str, amount: float, ctx: Optional[Dict[str, A
     line_specs = tpl.create_lines(amount, ctx or {})
     with get_session() as s:
         # Use scalars().all() and cast to help static type checkers (Pylance)
-        accounts = {a.code: a for a in cast(List[Account], s.exec(select(Account)).scalars().all())}
+        accounts = {a.code: a for a in cast(List[Account], s.exec(select(Account)).all())}
 
     lines_preview = []
     total_debit = 0.0
@@ -97,7 +97,7 @@ def post_entry(template_key: str, amount: float, ctx: Optional[Dict[str, Any]] =
             acc_id = l["account_id"]
             if acc_id is None:
                 # use scalars().one_or_none() and cast for type-checkers
-                acc = cast(Optional[Account], s.exec(select(Account).where(Account.code == l["account_code"])).scalars().one_or_none())
+                acc = cast(Optional[Account], s.exec(select(Account).where(Account.code == l["account_code"])).one_or_none())
                 if acc:
                     acc_id = acc.id
             jl = JournalLine(

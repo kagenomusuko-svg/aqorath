@@ -9,7 +9,7 @@ init_db()
 
 # crear company demo (si no existe)
 with get_session() as s:
-    existing = s.exec(select(Company)).scalars().first()
+    existing = s.exec(select(Company)).first()
     if not existing:
         c = Company(name="Mi Empresa S.A. de C.V.", rfc="XAXX010101000", denominacion="Deno. Ejemplo", phrase="La fuerza interior nos impulsa")
         s.add(c)

@@ -45,7 +45,7 @@ LOGICAL_KEYS = [
 
 def _set_appconfig(key: str, value: str):
     with get_session() as s:
-        existing = s.exec(select(AppConfig).where(AppConfig.key == key)).scalars().one_or_none()
+        existing = s.exec(select(AppConfig).where(AppConfig.key == key)).one_or_none()
         if existing:
             existing.value = str(value)
             s.add(existing)
@@ -105,7 +105,7 @@ def import_catalog(path: Path, mode: str = "both") -> None:
             report_osc = _norm(report_osc)
             report_com = _norm(report_com)
 
-            existing = s.exec(select(Account).where(Account.code == code)).scalars().one_or_none()
+            existing = s.exec(select(Account).where(Account.code == code)).one_or_none()
             if existing:
                 # actualizar solo campos básicos si están vacíos
                 if mode == "osc" and name_osc:
@@ -159,7 +159,7 @@ def import_catalog(path: Path, mode: str = "both") -> None:
 def _interactive_map_logical_keys():
     print("Listado de cuentas (primeras 200):")
     with get_session() as s:
-        rows = s.exec(select(Account).limit(200)).scalars().all()
+        rows = s.exec(select(Account).limit(200)).all()
     for r in rows[:200]:
         print(f"  {r.code} — {r.name}")
     print("\nPara cada clave lógica te pediré que escribas el código correspondiente tal como aparece en la lista.")
@@ -177,7 +177,7 @@ def _interactive_map_logical_keys():
     with get_session() as s:
         for k, v in mappings.items():
             cfg_key = f"default_account.{k}"
-            cfg = s.exec(select(AppConfig).where(AppConfig.key == cfg_key)).scalars().one_or_none()
+            cfg = s.exec(select(AppConfig).where(AppConfig.key == cfg_key)).one_or_none()
             if cfg:
                 cfg.value = v
                 s.add(cfg)

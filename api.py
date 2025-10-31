@@ -61,7 +61,7 @@ def main_page(request: Request):
     """
     company = None
     with get_session() as s:
-        company = s.exec(select(Company)).scalars().first()
+        company = s.exec(select(Company)).first()
     return templates.TemplateResponse("main.html", {"request": request, "company": company})
 
 
