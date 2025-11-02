@@ -1,0 +1,71 @@
+"""
+Módulo de catálogo para aqorath.
+
+Provee funciones para leer el catálogo JSON embebido en:
+  aqorath/data/catalogo_base.json
+
+Funciones exportadas:
+ - load_catalog() -> dict
+ - load_catalog_codes() -> set[str]
+ - resolve_account_by_code(code: str) -> dict | None
+"""
+from __future__ import annotations
+
+from pathlib import Path
+import json
+from typing import Dict, Optional, Set
+
+# Ruta por defecto al JSON del catálogo dentro del paquete
+_DEFAULT_CATALOG_PATH = Path(__file__).resolve().parent / "data" / "catalogo_base.json"
+
+
+def get_catalog_path() -> Path:
+    """
+    Devuelve la ruta al JSON del catálogo que se usará.
+    Se busca en aqorath/data/catalogo_base.json (relativo al paquete).
+    """
+    return _DEFAULT_CATALOG_PATH
+
+
+def load_catalog(path: Optional[Path] = None) -> Dict:
+    """
+    Carga y devuelve el contenido completo del catálogo como dict.
+    Si no existe el archivo en disco lanza FileNotFoundError.
+    """
+    p = Path(path) if path else get_catalog_path()
+    if not p.exists():
+        raise FileNotFoundError(f"Catálogo no encontrado: {p}")
+    text = p.read_text(encoding="utf-8")
+    return json.loads(text)
+
+
+def load_catalog_codes(path: Optional[Path] = None) -> Set[str]:
+    """
+    Devuelve el conjunto de códigos (strings) definidos en el catálogo.
+    """
+    data = load_catalog(path)
+    accounts = data.get("accounts", {}) if isinstance(data, dict) else {}
+    return {str(k).strip() for k in accounts.keys()}
+
+
+def resolve_account_by_code(code: str, path: Optional[Path] = None) -> Optional[Dict]:
+    """
+    Devuelve la metadata (dict) del account con el código dado, o None si no existe.
+    El dict devuelto corresponde a la entrada de "accounts" en el JSON del catálogo.
+    """
+    if code is None:
+        return None
+    code_str = str(code).strip()
+    data = load_catalog(path)
+    accounts = data.get("accounts") or {}
+    # Normalizar claves a strings por si acaso
+    return accounts.get(code_str)
+
+
+# Export API
+__all__ = [
+    "get_catalog_path",
+    "load_catalog",
+    "load_catalog_codes",
+    "resolve_account_by_code",
+]

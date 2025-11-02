@@ -1,15 +1,62 @@
 import os
-import subprocess
+import importlib
 from pathlib import Path
+import json
 
-def pytest_sessionstart(session):
-    """
-    Antes de ejecutar tests, fijar AQORATH_DB a tests/test.db y ejecutar el script
-    init_catalog_db.py para poblar la DB con el catálogo embebido.
-    """
-    test_db = Path.cwd() / "tests" / "test.db"
-    os.environ.setdefault("AQORATH_DB", str(test_db))
-    # Asegurar carpeta tests/ existe
-    test_db.parent.mkdir(parents=True, exist_ok=True)
-    # Ejecutar el init (no fallará si ya está poblada)
-    subprocess.run(["python", "scripts/init_catalog_db.py"], check=True)
+# Fijar la ruta de la DB de tests lo antes posible
+TEST_DB = Path.cwd() / "tests" / "test.db"
+os.environ["AQORATH_DB"] = str(TEST_DB.resolve())
+
+# Borrar DB antigua para partir limpio
+if TEST_DB.exists():
+    try:
+        TEST_DB.unlink()
+    except Exception:
+        pass
+
+# Importar/recargar storage (usa AQORATH_DB que acabamos de fijar)
+import aqorath.storage as storage
+importlib.reload(storage)
+
+# IMPORTAR MODELOS ANTES de crear tablas para que metadata incluya las definiciones
+# Importar aqorath.models asegura que SQLModel.metadata conozca Account, AppConfig, etc.
+import aqorath.models as _models  # noqa: F401
+
+# Crear esquema en la test DB (ahora metadata ya contiene los modelos)
+storage.init_db(str(TEST_DB), create_tables=True)
+
+# Cargar catálogo embebido y asegurar cuentas en la DB antes de que los tests se importen
+from sqlmodel import select, text
+from aqorath.models import Account
+from aqorath.storage import get_session
+
+CAT_PATH = Path("aqorath/data/catalogo_base.json")
+if not CAT_PATH.exists():
+    raise FileNotFoundError(f"Catálogo no encontrado: {CAT_PATH}")
+
+catalog = json.loads(CAT_PATH.read_text(encoding="utf-8"))
+accounts = catalog.get("accounts", {})
+
+with get_session() as s:
+    # Insertar solo los códigos que no existan (no modifica existentes)
+    added = 0
+    for code, meta in accounts.items():
+        existing = s.exec(select(Account).where(Account.code == str(code))).one_or_none()
+        if not existing:
+            a = Account(
+                code=str(code),
+                name=meta.get("name_comercial") or meta.get("name_osc") or "",
+                nature=meta.get("naturaleza") or None
+            )
+            s.add(a)
+            added += 1
+    if added:
+        s.commit()
+
+    # Deduplicar por si acaso (mantener la fila con menor id por code) usando SQL directo
+    try:
+        s.exec(text("DELETE FROM account WHERE id NOT IN (SELECT MIN(id) FROM account GROUP BY code);"))
+        s.commit()
+    except Exception:
+        # si falla la dedup, permitimos que los tests sigan y lo reporten
+        pass
