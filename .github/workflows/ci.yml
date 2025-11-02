@@ -1,4 +1,3 @@
-# URL: https://github.com/kagenomusuko-svg/aqorath/blob/feat/catalog-appconfig/.github/workflows/ci.yml
 name: CI
 
 on:
@@ -29,7 +28,7 @@ jobs:
           echo "Check for catalog JSON:"
           if [ -f "aqorath/data/catalogo_base.json" ]; then
             echo "FOUND: aqorath/data/catalogo_base.json"
-            ls -l aqorath/data/catalogo_base.json || true
+            head -n 20 aqorath/data/catalogo_base.json || true
           else
             echo "NOT FOUND: aqorath/data/catalogo_base.json"
           fi
@@ -45,35 +44,19 @@ jobs:
           if [ -f "requirements.txt" ]; then
             pip install -r requirements.txt
           fi
-          # Install package in editable mode so imports work
           pip install -e .
 
-      - name: Initialize catalog JSON / DB if missing
-        env:
-          AQORATH_DB: ${{ github.workspace }}/tests/test.db
-          PYTHONPATH: ${{ github.workspace }}
+      - name: Ensure catalog JSON exists
         run: |
-          set -e
-          echo "Ensure aqorath/data/catalogo_base.json exists (or generate DB)..."
+          set -euo pipefail
           if [ -f "aqorath/data/catalogo_base.json" ]; then
             echo "Catalog JSON already present"
           else
-            echo "Catalog JSON missing — attempting to generate via script"
-            if [ -f "scripts/init_catalog_db.py" ]; then
-              python scripts/init_catalog_db.py
-            else
-              echo "scripts/init_catalog_db.py not found — creating minimal JSON to satisfy tests"
-              mkdir -p aqorath/data
-              cat > aqorath/data/catalogo_base.json <<'CAT'
-{
-  "version": "generated-for-ci",
-  "notes": "Auto-generated minimal catalog to allow tests to run in CI",
-  "accounts": {}
-}
-CAT
-            fi
+            echo "Catalog JSON missing — creating minimal JSON"
+            mkdir -p aqorath/data
+            python -c 'import json,os; os.makedirs("aqorath/data", exist_ok=True); json.dump({"version":"generated-for-ci","notes":"Auto-generated minimal catalog to allow tests in CI","accounts":{}}, open("aqorath/data/catalogo_base.json","w"))'
           fi
-          echo "Listing aqorath/data after init:"
+          echo "Listing aqorath/data:"
           ls -la aqorath/data || true
 
       - name: Run tests
