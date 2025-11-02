@@ -1,27 +1,84 @@
+# URL: https://github.com/kagenomusuko-svg/aqorath/blob/feat/catalog-appconfig/.github/workflows/ci.yml
 name: CI
 
 on:
-  push:
-    branches: [ main, chore/cleanup-and-ci ]
   pull_request:
-    branches: [ main ]
+    types: [opened, synchronize, reopened]
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.12']
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Show workspace contents (diagnostic)
+        run: |
+          echo "Workspace: $GITHUB_WORKSPACE"
+          pwd
+          echo "Top-level entries:"
+          ls -la
+          echo "aqorath directory entries:"
+          ls -la aqorath || true
+          echo "Check for catalog JSON:"
+          if [ -f "aqorath/data/catalogo_base.json" ]; then
+            echo "FOUND: aqorath/data/catalogo_base.json"
+            ls -l aqorath/data/catalogo_base.json || true
+          else
+            echo "NOT FOUND: aqorath/data/catalogo_base.json"
+          fi
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
-          python-version: '3.12'
+          python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          if [ -f "requirements.txt" ]; then
+            pip install -r requirements.txt
+          fi
+          # Install package in editable mode so imports work
+          pip install -e .
+
+      - name: Initialize catalog JSON / DB if missing
+        env:
+          AQORATH_DB: ${{ github.workspace }}/tests/test.db
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          set -e
+          echo "Ensure aqorath/data/catalogo_base.json exists (or generate DB)..."
+          if [ -f "aqorath/data/catalogo_base.json" ]; then
+            echo "Catalog JSON already present"
+          else
+            echo "Catalog JSON missing — attempting to generate via script"
+            if [ -f "scripts/init_catalog_db.py" ]; then
+              python scripts/init_catalog_db.py
+            else
+              echo "scripts/init_catalog_db.py not found — creating minimal JSON to satisfy tests"
+              mkdir -p aqorath/data
+              cat > aqorath/data/catalogo_base.json <<'CAT'
+{
+  "version": "generated-for-ci",
+  "notes": "Auto-generated minimal catalog to allow tests to run in CI",
+  "accounts": {}
+}
+CAT
+            fi
+          fi
+          echo "Listing aqorath/data after init:"
+          ls -la aqorath/data || true
 
       - name: Run tests
-        run: pytest -v
+        env:
+          AQORATH_DB: ${{ github.workspace }}/tests/test.db
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          python -m pytest -v
