@@ -1,0 +1,38 @@
+diff --git a/aqorath/templates.py b/aqorath/templates.py
+index 1234567..abcdef0 100644
+--- a/aqorath/templates.py
++++ b/aqorath/templates.py
+@@ -XXX,7 +XXX,64 @@ def nomina_create(amount: float, ctx: Dict[str, Any]):
+-    # IMSS patronal (carga patronal) - como pasivo o gasto patronal, si se requiere incluir:
+-    if imss_pat and imss_pat > 0:
+-        # cargar a cuenta de gasto patronal o pasivo patronal si está mapeada
+-        try:
+-            acct_employer = _get_account_code(ctx, "employer_social_expense")
+-            lines.append(LineSpec(account_code=acct_employer,
+-                                  side="credit", amount_expr=percent_expr(imss_pat),
+-                                  description="IMSS patronal"))
+-        except ValueError:
+-            # no hay cuenta configurada para employer social expense; omitimos la línea
+-            pass
++    # Carga patronal: registrar como gasto (DEBIT) y como pasivo (CREDIT)
++    if imss_pat and imss_pat > 0:
++        # Debitar gasto patronal (employer_social_expense)
++        try:
++            acct_employer = _get_account_code(ctx, "employer_social_expense")
++            lines.append(LineSpec(account_code=acct_employer,
++                                  side="debit", amount_expr=percent_expr(imss_pat),
++                                  description="IMSS patronal (gasto patronal)"))
++        except ValueError:
++            # si no hay cuenta configurada para employer social expense, no agregamos el gasto
++            acct_employer = None
++
++    # IMSS patronal (pasivo): si existe cuenta de pasivo la acreditamos (CREDIT)
++    if imss_pat and imss_pat > 0:
++        try:
++            acct_pat_payable = _get_account_code(ctx, "imss_patronal_payable")
++            lines.append(LineSpec(account_code=acct_pat_payable,
++                                  side="credit", amount_expr=percent_expr(imss_pat),
++                                  description="IMSS patronal (por pagar)"))
++        except ValueError:
++            # si no hay cuenta pasivo para IMSS patronal, omitimos la línea del pasivo
++            pass
