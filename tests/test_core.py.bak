@@ -10,12 +10,9 @@ def test_generate_preview_and_post(tmp_path, monkeypatch):
     init_db()
     # seed minimal accounts
     with get_session() as s:
-        # BLOCKED_NON_CATALOG_INSERT: removed insert of Account(code='1000')
-# \n#         s.add(Account(code="1000", name="Bancos", nature="DEBIT"))
-        # BLOCKED_NON_CATALOG_INSERT: removed insert of Account(code='4000')
-# \n#         s.add(Account(code="4000", name="Ventas", nature="CREDIT"))
-        # BLOCKED_NON_CATALOG_INSERT: removed insert of Account(code='2100')
-# \n#         s.add(Account(code="2100", name="IVA trasladado", nature="CREDIT"))
+        s.add(Account(code="1000", name="Bancos", nature="DEBIT"))
+        s.add(Account(code="4000", name="Ventas", nature="CREDIT"))
+        s.add(Account(code="2100", name="IVA trasladado", nature="CREDIT"))
         s.commit()
     preview = generate_preview("ingreso_venta", 1000.0, ctx={"account_codes": {"bank":"1000","sales":"4000","vat_tr":"2100"}, "vat_rate": 0.16, "desc":"Venta prueba"})
     assert preview["balanced"] is True

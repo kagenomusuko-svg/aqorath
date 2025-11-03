@@ -38,3 +38,6 @@ dist/
 # Archivos del sistema
 .DS_Store
 Thumbs.db
+# Permitimos el catálogo dentro del paquete para CI/tests
+!/aqorath/data/
+!/aqorath/data/catalogo_base.json

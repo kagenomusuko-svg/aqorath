@@ -1,18 +1,15 @@
 from datetime import datetime, timezone
 import math
-from typing import Any, Dict, Optional, cast, List
+from typing import Any, Dict, Optional
 from types import SimpleNamespace
 
 from sqlalchemy import select
 
 from .storage import get_session
 from .models import Account, JournalEntry, JournalLine
-
-# resolver cuentas según catálogo / AppConfig
 from .catalog import resolve_account_by_code
 
-# get_template / list of templates come from the templates module if present
-# keep the import lazy/guarded to avoid import-time errors if the module is absent
+# get_template / list of templates from templates module if present
 try:
     from .templates import get_template, list_templates as _list_templates
 except Exception:
@@ -32,11 +29,11 @@ def list_templates():
 
 def _row_to_obj(row):
     """
-    Convierte un resultado devuelto por Session.exec(select(Account)).all()
+    Convierte un resultado de Session.exec(select(Account)).all()
     a un objeto con atributos accesibles (.code, .name, .nature, ...).
 
-    - Si ya es instancia de Account, la devuelve tal cual.
-    - Si es un Row/RowMapping, extrae el mapping y construye un SimpleNamespace.
+    - Si ya es instancia de Account, se devuelve tal cual.
+    - Si es Row/RowMapping, construye un SimpleNamespace.
     - Si no puede extraer nada, devuelve None.
     """
     if row is None:
@@ -81,14 +78,7 @@ def generate_preview(template_key: str, amount: float, ctx: Optional[Dict[str, A
             obj = _row_to_obj(r)
             if obj is None:
                 continue
-            code = None
-            if hasattr(obj, "code"):
-                code = getattr(obj, "code")
-            else:
-                try:
-                    code = obj["code"]  # type: ignore
-                except Exception:
-                    code = None
+            code = getattr(obj, "code", None)
             if code is not None:
                 accounts[str(code)] = obj
 
@@ -104,8 +94,8 @@ def generate_preview(template_key: str, amount: float, ctx: Optional[Dict[str, A
         total_credit += credit
         lines_preview.append({
             "account_code": ls.account_code,
-            "account_id": acc.id if acc and hasattr(acc, "id") else None,
-            "account_name": acc.name if acc and hasattr(acc, "name") else None,
+            "account_id": acc.id if acc else None,
+            "account_name": acc.name if acc else None,
             "debit": round(debit, 2),
             "credit": round(credit, 2),
             "description": ls.description or ""
@@ -127,7 +117,8 @@ def generate_preview(template_key: str, amount: float, ctx: Optional[Dict[str, A
 def post_entry(template_key: str, amount: float, ctx: Optional[Dict[str, Any]] = None, user: Optional[str] = None):
     """
     Persist the previewed journal entry and its lines into the DB.
-    Returns the created journal entry id.
+    Saves account_code in all JournalLine; sets account_id if the code exists in DB.
+    Does NOT create Account automatically.
     """
     preview = generate_preview(template_key, amount, ctx or {})
     if not preview["balanced"]:
@@ -147,20 +138,20 @@ def post_entry(template_key: str, amount: float, ctx: Optional[Dict[str, Any]] =
         s.refresh(entry)
 
         for l in preview["lines"]:
-            acc_id = l["account_id"]
-            if acc_id is None:
-                # usar resolución canónica/contextual: prefer viene de ctx["mode"] ('osc'|'comercial'|None)
-                acc = resolve_account_by_code(s, l["account_code"], prefer=(ctx or {}).get("mode"))
-                if acc:
-                    acc_id = getattr(acc, "id", None)
-            jl = JournalLine(
+            code = l.get("account_code")
+            # resolver account_id usando el catálogo / BD; no crear cuentas
+            acc_row = resolve_account_by_code(s, code)
+            acc_id = acc_row.id if acc_row else None
+
+            line = JournalLine(
                 entry_id=entry.id,
-                account_id=acc_id or None,
-                debit=l["debit"],
-                credit=l["credit"],
-                description=l["description"]
+                account_code=code,
+                account_id=acc_id,
+                debit=l.get("debit", 0.0),
+                credit=l.get("credit", 0.0),
+                description=l.get("description")
             )
-            s.add(jl)
+            s.add(line)
 
         s.commit()
         return entry.id

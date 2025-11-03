@@ -1,0 +1,494 @@
+{
+  "version": "2025-11-01T03:11:26Z",
+  "notes": "Generado desde assets/catalogo.xlsx",
+  "accounts": {
+    "1101": {
+      "name_osc": "Bancos",
+      "name_comercial": "Bancos",
+      "tipo": "Activo",
+      "subtipo": "Circulante",
+      "naturaleza": "Deudora",
+      "descripcion": "Dinero en cuentas bancarias de la Asociación"
+    },
+    "1102": {
+      "name_osc": "Caja chica",
+      "name_comercial": "Caja chica",
+      "tipo": "Activo",
+      "subtipo": "Circulante",
+      "naturaleza": "Deudora",
+      "descripcion": "Efectivo disponible para gastos menores"
+    },
+    "1103": {
+      "name_osc": "Cuentas por cobrar",
+      "name_comercial": "Clientes",
+      "tipo": "Activo",
+      "subtipo": "Circulante",
+      "naturaleza": "Deudora",
+      "descripcion": "Importes pendientes de cobro por ventas o servicios"
+    },
+    "1104": {
+      "name_osc": "Inventarios de materiales",
+      "name_comercial": "Inventario",
+      "tipo": "Activo",
+      "subtipo": "Circulante",
+      "naturaleza": "Deudora",
+      "descripcion": "Materiales y suministros disponibles para operación"
+    },
+    "1105": {
+      "name_osc": "Anticipos a proveedores",
+      "name_comercial": "Anticipos a proveedores",
+      "tipo": "Activo",
+      "subtipo": "Circulante",
+      "naturaleza": "Deudora",
+      "descripcion": "Pagos adelantados a proveedores"
+    },
+    "1106": {
+      "name_osc": "Donativos en especie por aplicar",
+      "name_comercial": "Mercancía en tránsito/otros activos circulantes",
+      "tipo": "Activo",
+      "subtipo": "Circulante",
+      "naturaleza": "Deudora",
+      "descripcion": "Bienes recibidos como donativos pendientes de asignación"
+    },
+    "1201": {
+      "name_osc": "Mobiliario y equipo",
+      "name_comercial": "Mobiliario y equipo de oficina",
+      "tipo": "Activo",
+      "subtipo": "No circulante",
+      "naturaleza": "Deudora",
+      "descripcion": "Mesas, sillas y otros bienes de oficina"
+    },
+    "1202": {
+      "name_osc": "Equipo de cómputo",
+      "name_comercial": "Equipo de cómputo",
+      "tipo": "Activo",
+      "subtipo": "No circulante",
+      "naturaleza": "Deudora",
+      "descripcion": "Computadoras y accesorios"
+    },
+    "1203": {
+      "name_osc": "Maquinaria y herramientas",
+      "name_comercial": "Maquinaria y herramientas",
+      "tipo": "Activo",
+      "subtipo": "No circulante",
+      "naturaleza": "Deudora",
+      "descripcion": "Equipos de talleres y producción"
+    },
+    "1204": {
+      "name_osc": "Terrenos y edificios",
+      "name_comercial": "Terrenos y edificios",
+      "tipo": "Activo",
+      "subtipo": "No circulante",
+      "naturaleza": "Deudora",
+      "descripcion": "Inmuebles propiedad de la Asociación"
+    },
+    "1205": {
+      "name_osc": "Depreciación acumulada",
+      "name_comercial": "Depreciación acumulada",
+      "tipo": "Activo",
+      "subtipo": "No circulante",
+      "naturaleza": "Acreedora",
+      "descripcion": "Depreciación total acumulada de los activos fijos"
+    },
+    "2101": {
+      "name_osc": "Proveedores",
+      "name_comercial": "Proveedores",
+      "tipo": "Pasivo",
+      "subtipo": "Corto plazo",
+      "naturaleza": "Acreedora",
+      "descripcion": "Cuentas pendientes de pago a proveedores"
+    },
+    "2102": {
+      "name_osc": "Acreedores diversos",
+      "name_comercial": "Acreedores diversos",
+      "tipo": "Pasivo",
+      "subtipo": "Corto plazo",
+      "naturaleza": "Acreedora",
+      "descripcion": "Obligaciones con terceros distintos a proveedores"
+    },
+    "2103": {
+      "name_osc": "Impuestos por pagar",
+      "name_comercial": "Impuestos por pagar",
+      "tipo": "Pasivo",
+      "subtipo": "Corto plazo",
+      "naturaleza": "Acreedora",
+      "descripcion": "Impuestos retenidos o causados pendientes de pago"
+    },
+    "2104": {
+      "name_osc": "Sueldos y prestaciones por pagar",
+      "name_comercial": "Nómina por pagar",
+      "tipo": "Pasivo",
+      "subtipo": "Corto plazo",
+      "naturaleza": "Acreedora",
+      "descripcion": "Obligaciones laborales pendientes"
+    },
+    "2201": {
+      "name_osc": "Préstamos bancarios",
+      "name_comercial": "Préstamos bancarios",
+      "tipo": "Pasivo",
+      "subtipo": "Largo plazo",
+      "naturaleza": "Acreedora",
+      "descripcion": "Créditos otorgados por instituciones financieras"
+    },
+    "2202": {
+      "name_osc": "Otros pasivos a largo plazo",
+      "name_comercial": "Otros pasivos a largo plazo",
+      "tipo": "Pasivo",
+      "subtipo": "Largo plazo",
+      "naturaleza": "Acreedora",
+      "descripcion": "Compromisos financieros no corrientes"
+    },
+    "3101": {
+      "name_osc": "Aportaciones de asociados",
+      "name_comercial": "Capital social",
+      "tipo": "Patrimonio",
+      "subtipo": "",
+      "naturaleza": "Acreedora",
+      "descripcion": "Aportaciones de miembros fundadores o asociados"
+    },
+    "3102": {
+      "name_osc": "Donativos acumulados",
+      "name_comercial": "Utilidades retenidas",
+      "tipo": "Patrimonio",
+      "subtipo": "",
+      "naturaleza": "Acreedora",
+      "descripcion": "Donativos recibidos acumulados de ejercicios anteriores"
+    },
+    "3103": {
+      "name_osc": "Resultados del ejercicio",
+      "name_comercial": "Utilidad o pérdida del ejercicio",
+      "tipo": "Patrimonio",
+      "subtipo": "",
+      "naturaleza": "Acreedora",
+      "descripcion": "Resultado (superávit o déficit) del ejercicio actual"
+    },
+    "3104": {
+      "name_osc": "Reservas patrimoniales",
+      "name_comercial": "Reservas de capital",
+      "tipo": "Patrimonio",
+      "subtipo": "",
+      "naturaleza": "Acreedora",
+      "descripcion": "Recursos destinados a fines específicos o contingencias"
+    },
+    "4101": {
+      "name_osc": "Donativos en efectivo",
+      "name_comercial": "Ventas al contado",
+      "tipo": "Ingreso",
+      "subtipo": "Donativos",
+      "naturaleza": "Acreedora",
+      "descripcion": "Donaciones recibidas en efectivo"
+    },
+    "4102": {
+      "name_osc": "Donativos en especie",
+      "name_comercial": "Ventas en especie",
+      "tipo": "Ingreso",
+      "subtipo": "Donativos",
+      "naturaleza": "Acreedora",
+      "descripcion": "Bienes materiales donados"
+    },
+    "4103": {
+      "name_osc": "Donativos recurrentes",
+      "name_comercial": "Ventas recurrentes",
+      "tipo": "Ingreso",
+      "subtipo": "Donativos",
+      "naturaleza": "Acreedora",
+      "descripcion": "Aportaciones periódicas o programadas"
+    },
+    "4104": {
+      "name_osc": "Donativos institucionales",
+      "name_comercial": "Ingresos por convenio o contratos",
+      "tipo": "Ingreso",
+      "subtipo": "Donativos",
+      "naturaleza": "Acreedora",
+      "descripcion": "Donativos de fundaciones, empresas o gobiernos"
+    },
+    "4201": {
+      "name_osc": "Ventas de productos elaborados",
+      "name_comercial": "Venta de productos elaborados",
+      "tipo": "Ingreso",
+      "subtipo": "Actividades con causa",
+      "naturaleza": "Acreedora",
+      "descripcion": "Ingresos por productos confeccionados o artesanales"
+    },
+    "4202": {
+      "name_osc": "Servicios de capacitación",
+      "name_comercial": "Prestación de servicios",
+      "tipo": "Ingreso",
+      "subtipo": "Actividades con causa",
+      "naturaleza": "Acreedora",
+      "descripcion": "Cursos, talleres o asesorías"
+    },
+    "4203": {
+      "name_osc": "Ingresos por eventos o ferias",
+      "name_comercial": "Ingresos por eventos",
+      "tipo": "Ingreso",
+      "subtipo": "Actividades con causa",
+      "naturaleza": "Acreedora",
+      "descripcion": "Recursos generados en eventos"
+    },
+    "4301": {
+      "name_osc": "Recuperación de gastos",
+      "name_comercial": "Otros ingresos",
+      "tipo": "Ingreso",
+      "subtipo": "Otros",
+      "naturaleza": "Acreedora",
+      "descripcion": "Reintegros o reembolsos de gastos"
+    },
+    "4302": {
+      "name_osc": "Intereses bancarios",
+      "name_comercial": "Intereses ganados",
+      "tipo": "Ingreso",
+      "subtipo": "Otros",
+      "naturaleza": "Acreedora",
+      "descripcion": "Intereses generados por cuentas bancarias"
+    },
+    "5101": {
+      "name_osc": "Materiales y suministros",
+      "name_comercial": "Materiales y suministros",
+      "tipo": "Gasto",
+      "subtipo": "Operación",
+      "naturaleza": "Deudora",
+      "descripcion": "Compra de materiales y suministros generales"
+    },
+    "5102": {
+      "name_osc": "Servicios básicos",
+      "name_comercial": "Servicios básicos",
+      "tipo": "Gasto",
+      "subtipo": "Operación",
+      "naturaleza": "Deudora",
+      "descripcion": "Servicios básicos de operación"
+    },
+    "5103": {
+      "name_osc": "Arrendamientos",
+      "name_comercial": "Arrendamientos",
+      "tipo": "Gasto",
+      "subtipo": "Operación",
+      "naturaleza": "Deudora",
+      "descripcion": "Rentas de inmuebles o equipo"
+    },
+    "5104": {
+      "name_osc": "Mantenimiento y reparaciones",
+      "name_comercial": "Mantenimiento y reparaciones",
+      "tipo": "Gasto",
+      "subtipo": "Operación",
+      "naturaleza": "Deudora",
+      "descripcion": "Conservación y reparación de activos"
+    },
+    "5105": {
+      "name_osc": "Transporte y mensajería",
+      "name_comercial": "Fletes y transporte",
+      "tipo": "Gasto",
+      "subtipo": "Operación",
+      "naturaleza": "Deudora",
+      "descripcion": "Movilidad y envío de materiales"
+    },
+    "5201": {
+      "name_osc": "Sueldos",
+      "name_comercial": "Sueldos",
+      "tipo": "Gasto",
+      "subtipo": "Personal",
+      "naturaleza": "Deudora",
+      "descripcion": "Pagos de nómina al personal operativo"
+    },
+    "5202": {
+      "name_osc": "Honorarios asimilados",
+      "name_comercial": "Honorarios profesionales",
+      "tipo": "Gasto",
+      "subtipo": "Personal",
+      "naturaleza": "Deudora",
+      "descripcion": "Pagos a colaboradores externos"
+    },
+    "5203": {
+      "name_osc": "Cuotas IMSS e impuestos laborales",
+      "name_comercial": "Cuotas IMSS e impuestos laborales",
+      "tipo": "Gasto",
+      "subtipo": "Personal",
+      "naturaleza": "Deudora",
+      "descripcion": "Obligaciones patronales"
+    },
+    "5301": {
+      "name_osc": "Papelería y útiles",
+      "name_comercial": "Papelería y útiles",
+      "tipo": "Gasto",
+      "subtipo": "Administrativo",
+      "naturaleza": "Deudora",
+      "descripcion": "Material de oficina"
+    },
+    "5302": {
+      "name_osc": "Viáticos y representación",
+      "name_comercial": "Viáticos y representación",
+      "tipo": "Gasto",
+      "subtipo": "Administrativo",
+      "naturaleza": "Deudora",
+      "descripcion": "Gastos de viajes y representación institucional"
+    },
+    "5303": {
+      "name_osc": "Servicios profesionales",
+      "name_comercial": "Servicios profesionales",
+      "tipo": "Gasto",
+      "subtipo": "Administrativo",
+      "naturaleza": "Deudora",
+      "descripcion": "Honorarios contables, legales u otros"
+    },
+    "5401": {
+      "name_osc": "Becas o apoyos sociales",
+      "name_comercial": "Apoyos y donativos",
+      "tipo": "Gasto",
+      "subtipo": "Programas",
+      "naturaleza": "Deudora",
+      "descripcion": "Apoyos económicos o materiales a beneficiarios"
+    },
+    "5402": {
+      "name_osc": "Capacitación de aprendices",
+      "name_comercial": "Capacitación de personal",
+      "tipo": "Gasto",
+      "subtipo": "Programas",
+      "naturaleza": "Deudora",
+      "descripcion": "Formación técnica o laboral de beneficiarios"
+    },
+    "5403": {
+      "name_osc": "Material para talleres productivos",
+      "name_comercial": "Material de producción",
+      "tipo": "Gasto",
+      "subtipo": "Programas",
+      "naturaleza": "Deudora",
+      "descripcion": "Suministros para talleres de confección u otros"
+    },
+    "5404": {
+      "name_osc": "Publicidad o difusión institucional",
+      "name_comercial": "Publicidad y promoción",
+      "tipo": "Gasto",
+      "subtipo": "Programas",
+      "naturaleza": "Deudora",
+      "descripcion": "Promoción de actividades con causa"
+    },
+    "5405": {
+      "name_osc": "Beneficios y apoyos al personal operativo",
+      "name_comercial": "Prestaciones al personal",
+      "tipo": "Gasto",
+      "subtipo": "Programas",
+      "naturaleza": "Deudora",
+      "descripcion": "Apoyos en especie o servicios otorgados al personal operativo"
+    },
+    "1180": {
+      "name_osc": "IVA acreditable",
+      "name_comercial": "IVA acreditable",
+      "tipo": "Activo",
+      "subtipo": "Circulante",
+      "naturaleza": "Deudora",
+      "descripcion": "IVA pagado en compras o gastos deducibles que puede acreditarse ante el SAT."
+    },
+    "1181": {
+      "name_osc": "IVA acreditable no deducible",
+      "name_comercial": "IVA no deducible",
+      "tipo": "Activo",
+      "subtipo": "Circulante",
+      "naturaleza": "Deudora",
+      "descripcion": "IVA pagado en gastos no deducibles o sin CFDI válido."
+    },
+    "1182": {
+      "name_osc": "IVA pendiente de acreditar",
+      "name_comercial": "IVA pendiente de acreditar",
+      "tipo": "Activo",
+      "subtipo": "Circulante",
+      "naturaleza": "Deudora",
+      "descripcion": "IVA de compras aún no acreditado por falta de pago o comprobante."
+    },
+    "2080": {
+      "name_osc": "IVA trasladado",
+      "name_comercial": "IVA trasladado",
+      "tipo": "Pasivo",
+      "subtipo": "Corto plazo",
+      "naturaleza": "Acreedora",
+      "descripcion": "IVA cobrado en ventas o servicios, pendiente de enterar al SAT."
+    },
+    "2081": {
+      "name_osc": "IVA trasladado pendiente de cobro",
+      "name_comercial": "IVA por cobrar",
+      "tipo": "Pasivo",
+      "subtipo": "Corto plazo",
+      "naturaleza": "Acreedora",
+      "descripcion": "IVA facturado en ventas aún no cobradas; se convierte en IVA trasladado cuando se recibe el pago."
+    },
+    "2160": {
+      "name_osc": "ISR retenido a terceros",
+      "name_comercial": "ISR retenido",
+      "tipo": "Pasivo",
+      "subtipo": "Corto plazo",
+      "naturaleza": "Acreedora",
+      "descripcion": "ISR retenido a prestadores de servicios o personas físicas, pendiente de enterar."
+    },
+    "2170": {
+      "name_osc": "IVA retenido a terceros",
+      "name_comercial": "IVA retenido",
+      "tipo": "Pasivo",
+      "subtipo": "Corto plazo",
+      "naturaleza": "Acreedora",
+      "descripcion": "IVA retenido en pagos a personas físicas o arrendadores, pendiente de enterar."
+    },
+    "2180": {
+      "name_osc": "ISR retenido por terceros",
+      "name_comercial": "ISR retenido acreditable",
+      "tipo": "Activo",
+      "subtipo": "Circulante",
+      "naturaleza": "Deudora",
+      "descripcion": "ISR que clientes retuvieron y puede acreditarse en declaraciones."
+    },
+    "2181": {
+      "name_osc": "IVA retenido por terceros",
+      "name_comercial": "IVA retenido acreditable",
+      "tipo": "Activo",
+      "subtipo": "Circulante",
+      "naturaleza": "Deudora",
+      "descripcion": "IVA retenido por clientes al pagarte servicios, acreditable ante el SAT."
+    },
+    "5204": {
+      "name_osc": "ISR del ejercicio",
+      "name_comercial": "ISR causado",
+      "tipo": "Gasto",
+      "subtipo": "Impuesto",
+      "naturaleza": "Deudora",
+      "descripcion": "Impuesto sobre la renta generado al cierre del ejercicio."
+    },
+    "5205": {
+      "name_osc": "Pagos provisionales ISR",
+      "name_comercial": "ISR provisional",
+      "tipo": "Gasto",
+      "subtipo": "Impuesto",
+      "naturaleza": "Deudora",
+      "descripcion": "Pagos mensuales o bimestrales de ISR efectuados durante el ejercicio."
+    },
+    "5206": {
+      "name_osc": "ISR por pagar",
+      "name_comercial": "ISR por pagar",
+      "tipo": "Pasivo",
+      "subtipo": "Corto plazo",
+      "naturaleza": "Acreedora",
+      "descripcion": "Diferencia entre ISR causado y pagado, pendiente de liquidar."
+    },
+    "5207": {
+      "name_osc": "Recargos y actualizaciones fiscales",
+      "name_comercial": "Recargos y actualizaciones",
+      "tipo": "Gasto",
+      "subtipo": "Impuesto",
+      "naturaleza": "Deudora",
+      "descripcion": "Intereses o actualizaciones por pagos fuera de plazo."
+    },
+    "5208": {
+      "name_osc": "Multas y sanciones fiscales",
+      "name_comercial": "Multas fiscales",
+      "tipo": "Gasto",
+      "subtipo": "Impuesto",
+      "naturaleza": "Deudora",
+      "descripcion": "Sanciones impuestas por incumplimientos fiscales."
+    },
+    "5304": {
+      "name_osc": "Impuestos locales y derechos",
+      "name_comercial": "Impuestos locales",
+      "tipo": "Gasto",
+      "subtipo": "Impuesto",
+      "naturaleza": "Deudora",
+      "descripcion": "Contribuciones estatales o municipales (por ejemplo, nómina o predial)."
+    }
+  }
+}
