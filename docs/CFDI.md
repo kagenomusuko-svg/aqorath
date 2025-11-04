@@ -69,6 +69,76 @@ Buenas prácticas
 - Revisar el PDF resumen antes de enviar el XML al PAC/contador.
 - Guardar los XML timbrados devueltos por el PAC en `datos/cfdi/timbrados` y adjuntarlos al asiento correspondiente.
 
+## Validación de Campos Fiscales
+
+El sistema incluye validadores automáticos para movimientos marcados con `has_cfdi` o `has_invoice`:
+
+### Campos Requeridos
+Cuando un movimiento está marcado como factura/CFDI, se requieren los siguientes campos:
+
+- **emitter_rfc**: RFC del emisor (mínimo 12 caracteres)
+- **receiver_rfc**: RFC del receptor (mínimo 12 caracteres)
+- **serie**: Serie del comprobante (ej. "A", "B")
+- **folio**: Folio del comprobante (número consecutivo)
+- **subtotal**: Subtotal antes de impuestos (debe ser > 0)
+- **total**: Total incluyendo impuestos (debe ser > 0)
+- **tax_breakdown**: Desglose de impuestos aplicados
+
+### Uso en la UI
+
+La interfaz de usuario verifica automáticamente estos campos antes de permitir guardar un movimiento marcado como CFDI. Si falta algún campo o el formato es inválido, se mostrará un mensaje descriptivo al usuario.
+
+### Uso Programático
+
+```python
+from modelos.registro import Registro
+
+reg = Registro.create(
+    fecha="2024-01-01",
+    cuenta="4101",
+    cantidad=1000.0,
+    descripcion="Venta con factura"
+)
+
+# Marcar como CFDI y agregar campos fiscales
+reg.extra.update({
+    "has_cfdi": True,
+    "emitter_rfc": "XAXX010101000",
+    "receiver_rfc": "VECJ880128KM5",
+    "serie": "A",
+    "folio": "001234",
+    "subtotal": 1000.0,
+    "total": 1160.0,
+    "tax_breakdown": {"IVA_16": 160.0}
+})
+
+# Validar
+ok, msgs = reg.validate()
+if not ok:
+    for msg in msgs:
+        print(f"Error: {msg}")
+```
+
+## Sincronización de Esquema
+
+El sistema incluye una herramienta para sincronizar el esquema de la base de datos con los modelos definidos en el código:
+
+```bash
+# Vista previa de cambios (dry-run)
+python scripts/sync_schema.py --dry-run
+
+# Aplicar cambios
+python scripts/sync_schema.py
+```
+
+Esta herramienta:
+- Detecta columnas faltantes en las tablas existentes
+- Añade columnas automáticamente cuando es posible
+- Reporta columnas que requieren migración manual (ej. NOT NULL sin default)
+- Crea logs de las operaciones realizadas
+
+**Nota**: Ejecute esta herramienta después de actualizar los modelos de datos para mantener el esquema sincronizado.
+
 Siguientes pasos (opcional, para implementaciones futuras)
 - Integrar API de PAC para timbrado automático (requerirá credenciales del proveedor).
 - Validar contra catálogos oficiales del SAT (ClaveProdServ, ClaveUnidad).
