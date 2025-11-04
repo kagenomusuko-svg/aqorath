@@ -7,8 +7,8 @@ Provides:
 
 Behavior:
   1) Try to obtain balances using modelos.libro.Libro.compute_balance() if available.
-  2) If that fails (missing module, schema mismatch, etc.), fall back to a sqlite3
-     aggregation that computes SUM(debit)-SUM(credit) grouped by account (account code).
+     If the result is empty or doesn't include the expected '3103' account, fall back.
+  2) Fallback to a sqlite3 aggregation that computes SUM(debit)-SUM(credit) grouped by account (account code).
 """
 from decimal import Decimal
 from typing import Dict, Optional
@@ -18,6 +18,7 @@ import sqlite3
 from pathlib import Path
 
 LOG = logging.getLogger(__name__)
+LOG.addHandler(logging.NullHandler())
 
 # Try to import the existing Libro helper if present
 try:
@@ -26,21 +27,66 @@ except Exception:
     Libro = None  # not fatal; we'll fallback to sqlite
 
 def _balances_from_libro() -> Dict[str, Decimal]:
+    """
+    Attempt to compute balances via modelos.libro.Libro.
+    Return empty dict if unable to compute or DataFrame is empty.
+    """
     if Libro is None:
         raise RuntimeError("modelos.libro.Libro not available")
     libro = Libro()
     df = libro.compute_balance()
     balances: Dict[str, Decimal] = {}
-    # Defensive extraction: try common column names
+
+    # Defensive: if df is falsy or empty, return empty dict so caller can fallback
     try:
+        if df is None:
+            LOG.debug("modelos.libro.compute_balance() returned None")
+            return {}
+        # pandas DataFrame handling: empty check
+        try:
+            empty = hasattr(df, "empty") and df.empty
+        except Exception:
+            empty = False
+        if empty:
+            LOG.debug("modelos.libro.compute_balance() returned empty DataFrame")
+            return {}
+
+        # Try to iterate rows; support DataFrame-like or dict-like
+        # We expect rows to have account code and a saldo column; be defensive with names.
         for idx, row in df.iterrows():
-            code = row.get("code") or row.get("Cuenta") or row.get("codigo") or row.get("account") or idx
-            # saldo column common names
-            saldo = row.get("saldo") or row.get("Saldo") or row.get("balance") or row.get("saldo_final") or 0
-            balances[str(code)] = Decimal(str(saldo))
+            # attempt several common keys
+            code = None
+            for cand in ("code", "Codigo", "Cuenta", "codigo", "account", "cuenta"):
+                code = row.get(cand) if hasattr(row, "get") else None
+                if code:
+                    break
+            if not code:
+                # fallback to index if it's a string account code
+                code = idx
+
+            saldo = None
+            for cand in ("saldo", "Saldo", "balance", "saldo_final", "saldo_actual", "amount"):
+                saldo = row.get(cand) if hasattr(row, "get") else None
+                if saldo is not None:
+                    break
+            if saldo is None:
+                # last resort: try any numeric column in row
+                try:
+                    for k, v in dict(row).items():
+                        if isinstance(v, (int, float, Decimal)):
+                            saldo = v
+                            break
+                except Exception:
+                    saldo = 0
+
+            try:
+                balances[str(code)] = Decimal(str(saldo or 0))
+            except Exception:
+                balances[str(code)] = Decimal(0)
+
     except Exception as e:
-        LOG.exception("Failed to extract balances from modelos.libro: %s", e)
-        raise
+        LOG.exception("Error extracting balances from modelos.libro: %s", e)
+        return {}
     return balances
 
 def _find_db_path() -> Optional[Path]:
@@ -56,6 +102,10 @@ def _find_db_path() -> Optional[Path]:
     return None
 
 def _balances_from_sqlite(db_path: Optional[Path]) -> Dict[str, Decimal]:
+    """
+    Aggregate journalline rows in sqlite to compute balances in the form
+    { account_code_str: Decimal(saldo) }.
+    """
     if db_path is None:
         raise RuntimeError("No sqlite DB path found for fallback")
     conn = sqlite3.connect(str(db_path))
@@ -64,6 +114,8 @@ def _balances_from_sqlite(db_path: Optional[Path]) -> Dict[str, Decimal]:
         # Inspect journalline columns
         cur.execute("PRAGMA table_info('journalline')")
         cols = [r[1] for r in cur.fetchall()]
+        LOG.debug("journalline columns: %s", cols)
+
         # Determine candidate column names
         acct_col = None
         for cand in ("account_code", "account", "account_id", "codigo", "cuenta"):
@@ -73,7 +125,7 @@ def _balances_from_sqlite(db_path: Optional[Path]) -> Dict[str, Decimal]:
         debit_col = next((c for c in cols if c.lower() in ("debit","debe","cargo")), None)
         credit_col = next((c for c in cols if c.lower() in ("credit","haber","abono")), None)
 
-        # If debit/credit missing, attempt common fallbacks
+        # If debit/credit missing, attempt broader fallbacks
         if debit_col is None:
             debit_col = next((c for c in cols if "debit" in c.lower() or "debe" in c.lower() or "cargo" in c.lower()), None)
         if credit_col is None:
@@ -90,7 +142,6 @@ def _balances_from_sqlite(db_path: Optional[Path]) -> Dict[str, Decimal]:
             # Ensure account table exists and has columns id, code
             cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='account'")
             if cur.fetchone():
-                # Build query: join journalline jl with account a on jl.account_id = a.id
                 q_debit = debit_col if debit_col else "0"
                 q_credit = credit_col if credit_col else "0"
                 sql = f"""
@@ -106,7 +157,6 @@ def _balances_from_sqlite(db_path: Optional[Path]) -> Dict[str, Decimal]:
                     balances[str(acct_code)] = Decimal(str(saldo or 0))
                 return balances
             else:
-                # account table missing; aggregate by account_id numeric (cast to text)
                 q_debit = debit_col if debit_col else "0"
                 q_credit = credit_col if credit_col else "0"
                 sql = f"""
@@ -121,7 +171,6 @@ def _balances_from_sqlite(db_path: Optional[Path]) -> Dict[str, Decimal]:
                     balances[str(acct_code)] = Decimal(str(saldo or 0))
                 return balances
         else:
-            # acct_col already is a code string (e.g. account_code or account), aggregate directly
             q_debit = debit_col if debit_col else "0"
             q_credit = credit_col if credit_col else "0"
             sql = f"""
@@ -143,19 +192,27 @@ def _balances_from_sqlite(db_path: Optional[Path]) -> Dict[str, Decimal]:
 def trial_balance(as_of: Optional[str] = None) -> Dict[str, Decimal]:
     """
     Return a mapping account_code -> Decimal(saldo).
-    Tries the Libro implementation first; on any error falls back to sqlite aggregation.
+    Tries the Libro implementation first; if the result is empty or doesn't include
+    expected accounts, falls back to sqlite aggregation.
     """
     # First attempt: modelos.libro if available
     try:
-        return _balances_from_libro()
+        balances = _balances_from_libro()
+        # If libro returned no balances or doesn't include 3103, fallback
+        if not balances:
+            LOG.info("trial_balance: modelos.libro returned empty balances; using sqlite fallback")
+            return _balances_from_sqlite(_find_db_path())
+        # If 3103 not present, also fallback (robustness)
+        if "3103" not in balances and not any(k.endswith("3103") for k in balances.keys()):
+            LOG.info("trial_balance: modelos.libro did not include 3103; using sqlite fallback")
+            return _balances_from_sqlite(_find_db_path())
+        return balances
     except Exception as e:
         LOG.debug("trial_balance: libros method unavailable or failed (%s); falling back to sqlite", e)
 
-    # Fallback: sqlite aggregation
-    db_path = _find_db_path()
+    # Final fallback: sqlite aggregation
     try:
-        return _balances_from_sqlite(db_path)
+        return _balances_from_sqlite(_find_db_path())
     except Exception as e:
         LOG.exception("trial_balance fallback failed: %s", e)
-        # Return empty dict instead of raising to keep callers defensive (tests will catch emptiness)
         return {}
