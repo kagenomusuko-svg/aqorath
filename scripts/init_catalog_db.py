@@ -7,14 +7,31 @@ Comportamiento:
  - Deduplica (opcional, mantiene MIN(id) por code).
  - Inserta filas faltantes del catálogo (no modifica filas existentes).
  - Registra la versión del catálogo en AppConfig.
+ - Respeta la selección del modelo de contabilidad al elegir nombres de cuentas.
 """
 from pathlib import Path
 import os
+import sys
 import json
+import logging
 from datetime import datetime
 from sqlmodel import SQLModel, create_engine, Session, select, text
 
+# Add parent directory to path so we can import aqorath.config
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from aqorath.models import Account, AppConfig
+
+# Import config helpers with fallback
+try:
+    from aqorath.config import get_accounting_model
+except ImportError:
+    # Fallback if config module doesn't exist yet
+    def get_accounting_model():
+        return None
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 # ruta por defecto (igual que en storage.py)
 DEFAULT_DB = Path.home() / ".local" / "share" / "aqorath" / "aqorath.db"
@@ -48,6 +65,22 @@ def main():
     version = data.get("version", "")
     accounts = data.get("accounts", {})
 
+    # Get saved accounting model preference
+    saved_model = get_accounting_model()
+    if saved_model:
+        if saved_model == "sin_fines":
+            logger.info("Using saved accounting model preference: sin_fines (OSC)")
+            name_preference = "osc"
+        elif saved_model == "comercial":
+            logger.info("Using saved accounting model preference: comercial")
+            name_preference = "comercial"
+        else:
+            logger.warning(f"Unknown accounting model '{saved_model}', using comercial as default")
+            name_preference = "comercial"
+    else:
+        logger.info("No saved accounting model, using comercial as default")
+        name_preference = "comercial"
+
     with Session(engine) as s:
         # deduplicar: mantener la fila con MIN(id) por code si hay duplicados
         try:
@@ -61,9 +94,15 @@ def main():
         for code, meta in accounts.items():
             rows = s.exec(select(Account).where(Account.code == str(code))).all()
             if len(rows) == 0:
+                # Choose name based on accounting model preference
+                if name_preference == "osc":
+                    chosen_name = meta.get("name_osc") or meta.get("name_comercial") or ""
+                else:  # comercial
+                    chosen_name = meta.get("name_comercial") or meta.get("name_osc") or ""
+                
                 a = Account(
                     code=str(code),
-                    name=meta.get("name_comercial") or meta.get("name_osc") or "",
+                    name=chosen_name,
                     nature=meta.get("naturaleza") or None
                 )
                 s.add(a)

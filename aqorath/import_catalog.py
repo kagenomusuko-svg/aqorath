@@ -1,5 +1,6 @@
 from pathlib import Path
 import argparse
+import logging
 from openpyxl import load_workbook
 
 from sqlmodel import select
@@ -7,6 +8,9 @@ from typing import Optional
 
 from .storage import get_session, init_db
 from .models import Account, AppConfig
+from .config import get_accounting_model
+
+logger = logging.getLogger(__name__)
 
 LOGICAL_KEYS = [
     "bank", "cash", "receivable", "payable", "sales", "donations",
@@ -49,6 +53,21 @@ def normalize_nature(raw: Optional[str]) -> str:
 def import_catalog(path: Path, mode: str = "both") -> None:
     if not path.exists():
         raise SystemExit(f"Archivo no encontrado: {path}")
+
+    # Check if we have a saved accounting model preference
+    saved_model = get_accounting_model()
+    if saved_model:
+        # Override mode with saved preference
+        if saved_model == "sin_fines":
+            mode = "osc"
+            logger.info(f"Using saved accounting model preference: sin_fines (OSC)")
+        elif saved_model == "comercial":
+            mode = "comercial"
+            logger.info(f"Using saved accounting model preference: comercial")
+        else:
+            logger.warning(f"Unknown accounting model '{saved_model}', using mode={mode}")
+    else:
+        logger.info(f"No saved accounting model, using mode={mode}")
 
     print(f"Importando catálogo desde {path} (mode={mode})")
     wb = load_workbook(filename=str(path), read_only=True, data_only=True)
