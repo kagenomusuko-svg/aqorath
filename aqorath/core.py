@@ -155,3 +155,103 @@ def post_entry(template_key: str, amount: float, ctx: Optional[Dict[str, Any]] =
 
         s.commit()
         return entry.id
+
+
+def trial_balance(as_of: Optional[datetime] = None) -> Dict[str, Any]:
+    """
+    Compute trial balance (balance of accounts) as of a given date.
+    Returns dict mapping account_code to Decimal balance.
+    
+    Uses SQLModel-based aggregation when possible; falls back to direct
+    sqlite read strategy if there are schema mismatches.
+    
+    Args:
+        as_of: Optional date to compute balance as of. If None, uses all entries.
+    
+    Returns:
+        Dict with account_code as keys and Decimal balance as values.
+        Also includes metadata: {"balances": {...}, "total_debit": Decimal, "total_credit": Decimal}
+    """
+    from decimal import Decimal
+    
+    balances = {}
+    total_debit = Decimal("0.00")
+    total_credit = Decimal("0.00")
+    
+    try:
+        # Try SQLModel-based approach
+        with get_session() as s:
+            query = select(JournalLine)
+            
+            # Filter by date if provided
+            if as_of:
+                # Join with JournalEntry to filter by date
+                from sqlalchemy import and_
+                query = query.join(JournalEntry).where(JournalEntry.date <= as_of)
+            
+            lines = s.exec(query).all()
+            
+            for line in lines:
+                code = line.account_code
+                if not code:
+                    continue
+                
+                debit = Decimal(str(line.debit or 0))
+                credit = Decimal(str(line.credit or 0))
+                
+                if code not in balances:
+                    balances[code] = Decimal("0.00")
+                
+                balances[code] += (debit - credit)
+                total_debit += debit
+                total_credit += credit
+    
+    except Exception as e:
+        # Fallback to direct sqlite read (similar to exercise.py strategy)
+        import sqlite3
+        from .storage import get_db_path
+        
+        db_path = get_db_path()
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        try:
+            if as_of:
+                # With date filter
+                cursor.execute("""
+                    SELECT jl.account_code, jl.debit, jl.credit
+                    FROM journalline jl
+                    JOIN journalentry je ON jl.entry_id = je.id
+                    WHERE je.date <= ?
+                """, (as_of.isoformat() if hasattr(as_of, 'isoformat') else str(as_of),))
+            else:
+                # All entries
+                cursor.execute("""
+                    SELECT account_code, debit, credit
+                    FROM journalline
+                """)
+            
+            for row in cursor.fetchall():
+                code = row[0]
+                if not code:
+                    continue
+                
+                debit = Decimal(str(row[1] or 0))
+                credit = Decimal(str(row[2] or 0))
+                
+                if code not in balances:
+                    balances[code] = Decimal("0.00")
+                
+                balances[code] += (debit - credit)
+                total_debit += debit
+                total_credit += credit
+        
+        finally:
+            conn.close()
+    
+    return {
+        "balances": balances,
+        "total_debit": total_debit,
+        "total_credit": total_credit,
+        "as_of": as_of.isoformat() if as_of else None
+    }

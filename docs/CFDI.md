@@ -48,6 +48,41 @@ Qué hacer para timbrar (opciones)
    - El usuario debe tener CSD (archivo .cer/.key y contraseña) y credenciales PAC o servicio de timbrado.
    - Firmar y timbrar mediante el PAC (fuera del alcance de este software en esta versión).
 
+Validación de campos fiscales
+- El sistema incluye validadores automáticos para movimientos que requieren factura (has_invoice=True o has_cfdi=True).
+- Campos requeridos cuando se marca un movimiento como factura:
+  - emitter_rfc (o emisor_rfc): RFC del emisor
+  - receiver_rfc (o receptor_rfc): RFC del receptor
+  - folio o serie: al menos uno debe estar presente
+  - subtotal: importe antes de impuestos (debe ser > 0)
+  - total: importe total incluyendo impuestos (debe ser > 0)
+  - tax_breakdown: desglose de impuestos (dict con tipos de impuesto y montos)
+- Los validadores se ejecutan automáticamente al guardar registros con banderas de factura.
+- En la UI, los formularios mostrarán mensajes claros si faltan campos requeridos.
+
+Motor de cálculo de impuestos
+- El sistema incluye un motor de cálculo fiscal (`aqorath/tax.py`) que calcula automáticamente:
+  - IVA 16% (trasladado)
+  - IVA 0% (tasa cero)
+  - IVA exento
+  - IVA retenido (retención de IVA, común en servicios profesionales)
+  - ISR retenido (retención de ISR)
+- Uso: `from aqorath.tax import calculate_taxes, calculate_simple_iva, calculate_with_retentions`
+- Todos los cálculos siguen reglas SAT con redondeo a 2 decimales.
+
+Cierre de ejercicio
+- El sistema permite cerrar el ejercicio fiscal desde la UI (Menú Ejercicio > Cerrar ejercicio fiscal).
+- El cierre de ejercicio:
+  1. Calcula el saldo de la cuenta 3103 (Resultado del ejercicio)
+  2. Transfiere el saldo a la cuenta 3104 (Resultados acumulados)
+  3. Crea un asiento contable de cierre que deja 3103 en cero
+  4. Es una operación IRREVERSIBLE - debe realizarse con cuidado
+- Requisitos para cerrar:
+  - Las cuentas 3103 y 3104 deben existir en el catálogo
+  - Debe haber saldo en 3103 para transferir
+  - Se recomienda hacer respaldo de la base de datos antes de cerrar
+- El sistema mostrará el saldo actual de 3103 antes de confirmar el cierre.
+
 Importar XML timbrado (flujo)
 - Cuando el PAC/proveedor devuelva el XML timbrado, importar el archivo en el sistema:
   - CLI: `python main.py import-timbrado --id <id_asiento> --file path/to/timbrado.xml`

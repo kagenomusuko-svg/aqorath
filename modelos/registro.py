@@ -150,6 +150,7 @@ class Registro:
          - cantidad > 0
          - cuenta no vacía
          - si cfdi=True, valida que exista método de pago en extra (claves aceptadas)
+         - si has_invoice o has_cfdi, valida campos fiscales requeridos
         Devuelve (ok, mensajes).
         """
         msgs: List[str] = []
@@ -181,6 +182,12 @@ class Registro:
             if not has_metodo:
                 ok = False
                 msgs.append("Falta método de pago para CFDI (metodo_pago).")
+        
+        # Validate invoice fields if has_invoice or has_cfdi flag is set
+        invoice_ok, invoice_msgs = validate_invoice_fields(self)
+        if not invoice_ok:
+            ok = False
+            msgs.extend(invoice_msgs)
 
         return ok, msgs
 
@@ -270,3 +277,91 @@ class Registro:
 
     def __repr__(self) -> str:
         return f"<Registro fecha={self.fecha} cuenta={self.cuenta} cantidad={self.cantidad} desc={self.descripcion[:20]}>"
+
+
+def validate_invoice_fields(registro: Registro) -> Tuple[bool, List[str]]:
+    """
+    Validate fiscal fields when a movement is flagged as having an invoice.
+    Checks if has_invoice or has_cfdi flags are set in extra dict.
+    
+    Required fields when has_invoice=True or has_cfdi=True:
+    - emitter_rfc (or emisor_rfc)
+    - receiver_rfc (or receptor_rfc)
+    - folio or serie (at least one)
+    - subtotal
+    - total
+    - tax_breakdown (dict or present)
+    
+    Args:
+        registro: Registro instance to validate
+    
+    Returns:
+        Tuple of (success: bool, messages: List[str])
+    """
+    msgs: List[str] = []
+    ok = True
+    
+    # Check if invoice validation is needed
+    has_invoice = registro.extra.get("has_invoice", False)
+    has_cfdi = registro.extra.get("has_cfdi", False)
+    
+    if not (has_invoice or has_cfdi):
+        # No invoice validation needed
+        return True, []
+    
+    # Validate emitter RFC
+    emitter_rfc = registro.extra.get("emitter_rfc") or registro.extra.get("emisor_rfc")
+    if not emitter_rfc:
+        ok = False
+        msgs.append("Campo requerido para factura: emitter_rfc (o emisor_rfc)")
+    
+    # Validate receiver RFC
+    receiver_rfc = registro.extra.get("receiver_rfc") or registro.extra.get("receptor_rfc")
+    if not receiver_rfc:
+        ok = False
+        msgs.append("Campo requerido para factura: receiver_rfc (o receptor_rfc)")
+    
+    # Validate folio or serie
+    folio = registro.extra.get("folio") or registro.folio
+    serie = registro.extra.get("serie")
+    if not (folio or serie):
+        ok = False
+        msgs.append("Campo requerido para factura: folio o serie")
+    
+    # Validate subtotal
+    subtotal = registro.extra.get("subtotal")
+    if subtotal is None:
+        ok = False
+        msgs.append("Campo requerido para factura: subtotal")
+    else:
+        try:
+            subtotal_dec = Decimal(str(subtotal))
+            if subtotal_dec <= 0:
+                ok = False
+                msgs.append("El subtotal debe ser mayor que cero")
+        except Exception:
+            ok = False
+            msgs.append("El subtotal debe ser un valor numérico válido")
+    
+    # Validate total
+    total = registro.extra.get("total")
+    if total is None:
+        ok = False
+        msgs.append("Campo requerido para factura: total")
+    else:
+        try:
+            total_dec = Decimal(str(total))
+            if total_dec <= 0:
+                ok = False
+                msgs.append("El total debe ser mayor que cero")
+        except Exception:
+            ok = False
+            msgs.append("El total debe ser un valor numérico válido")
+    
+    # Validate tax_breakdown exists
+    tax_breakdown = registro.extra.get("tax_breakdown")
+    if not tax_breakdown:
+        ok = False
+        msgs.append("Campo requerido para factura: tax_breakdown (desglose de impuestos)")
+    
+    return ok, msgs

@@ -34,6 +34,7 @@ class MainWindow(QMainWindow):
         menu = self.menuBar()
         menu_reportes = menu.addMenu("Reportes")
         menu_catalogo = menu.addMenu("Catálogo")
+        menu_ejercicio = menu.addMenu("Ejercicio")
         menu_conf = menu.addMenu("Configuración")
 
         gen_report_action = QAction("Generar reporte", self)
@@ -43,6 +44,11 @@ class MainWindow(QMainWindow):
         catalog_action = QAction("Ver catálogo", self)
         catalog_action.triggered.connect(lambda: QMessageBox.information(self, "Catálogo", "Abrir catálogo - pendiente"))
         menu_catalogo.addAction(catalog_action)
+
+        # Exercise closing menu
+        close_exercise_action = QAction("Cerrar ejercicio fiscal", self)
+        close_exercise_action.triggered.connect(self.handle_close_exercise)
+        menu_ejercicio.addAction(close_exercise_action)
 
         conf_action = QAction("Ajustes", self)
         conf_action.triggered.connect(lambda: QMessageBox.information(self, "Configuración", "Configuración - pendiente"))
@@ -89,6 +95,73 @@ class MainWindow(QMainWindow):
         h.addLayout(right_layout, 0)
 
         self.setCentralWidget(central)
+    
+    def handle_close_exercise(self):
+        """
+        Handle fiscal year closing from menu.
+        Shows warning, fetches current 3103 balance, and executes closing if confirmed.
+        """
+        from datetime import datetime
+        try:
+            from ..exercise import finish_exercise
+            from ..core import trial_balance
+        except ImportError as e:
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"No se pudo cargar el módulo de cierre de ejercicio: {e}"
+            )
+            return
+        
+        # Determine current year (or ask user)
+        current_year = datetime.now().year
+        
+        # Get trial balance to show current 3103 balance
+        try:
+            tb = trial_balance()
+            balance_3103 = tb.get("balances", {}).get("3103", 0.0)
+            balance_info = f"\n\nSaldo actual de cuenta 3103: {balance_3103:.2f}"
+        except Exception:
+            balance_info = "\n\n(No se pudo obtener el saldo actual de 3103)"
+        
+        # First call to get warning text
+        success, message, details = finish_exercise(current_year, user_confirmed=False)
+        
+        if details.get("requires_confirmation"):
+            # Show warning with balance info
+            full_message = message + balance_info
+            
+            reply = QMessageBox.question(
+                self,
+                f"Cerrar ejercicio {current_year}",
+                full_message,
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            
+            if reply == QMessageBox.Yes:
+                # User confirmed, execute closing
+                success, result_msg, result_details = finish_exercise(current_year, user_confirmed=True)
+                
+                if success:
+                    QMessageBox.information(
+                        self,
+                        "Éxito",
+                        result_msg + f"\n\nDetalles:\n{result_details}"
+                    )
+                else:
+                    QMessageBox.critical(
+                        self,
+                        "Error",
+                        result_msg
+                    )
+            # else: user cancelled
+        else:
+            # Shouldn't reach here, but handle anyway
+            if success:
+                QMessageBox.information(self, "Éxito", message)
+            else:
+                QMessageBox.critical(self, "Error", message)
 
 
 if __name__ == "__main__":

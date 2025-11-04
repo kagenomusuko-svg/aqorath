@@ -19,4 +19,15 @@ Uso en tiempo de ejecución
 
 Razonamiento
 - Mantener catálogo inmutable asegura consistencia y reduce posibilidad de errores por parte de usuarios sin formación contable.
+
+Schema Synchronization
+- El sistema incluye un helper de sincronización de esquema (`scripts/sync_schema.py`) que detecta columnas faltantes en la base de datos comparando con los modelos SQLModel.
+- Para sincronizar el esquema: `python scripts/sync_schema.py` o `python scripts/sync_schema.py --dry-run` para ver los cambios sin aplicarlos.
+- SQLite tiene limitaciones: solo soporta ALTER TABLE ADD COLUMN. No se pueden eliminar o modificar columnas existentes sin recrear la tabla.
+- Si una migración requiere cambios complejos, puede ser necesario realizar pasos manuales (consultar la documentación del script).
+
+Accounting Model Selection
+- La selección del modelo contable (OSC vs Comercial) debe realizarse al inicio y es inmutable durante el ejercicio.
+- Una vez seleccionado el modelo y cargado el catálogo, no debe cambiarse sin cerrar el ejercicio actual.
+- Esta restricción asegura consistencia en los reportes fiscales y previene errores contables.
 ```
