@@ -150,6 +150,7 @@ class Registro:
          - cantidad > 0
          - cuenta no vacía
          - si cfdi=True, valida que exista método de pago en extra (claves aceptadas)
+         - si has_invoice/has_cfdi, valida campos fiscales requeridos
         Devuelve (ok, mensajes).
         """
         msgs: List[str] = []
@@ -182,6 +183,87 @@ class Registro:
                 ok = False
                 msgs.append("Falta método de pago para CFDI (metodo_pago).")
 
+        # Validar campos fiscales si está marcado como factura/invoice
+        has_invoice = self.extra.get("has_cfdi") or self.extra.get("has_invoice") or self.cfdi
+        if has_invoice:
+            fiscal_ok, fiscal_msgs = self.validate_fiscal_fields()
+            if not fiscal_ok:
+                ok = False
+                msgs.extend(fiscal_msgs)
+
+        return ok, msgs
+    
+    def validate_fiscal_fields(self) -> Tuple[bool, List[str]]:
+        """
+        Valida que los campos fiscales requeridos estén presentes cuando
+        un movimiento está marcado como has_cfdi/has_invoice.
+        
+        Campos requeridos:
+        - emitter_rfc (RFC del emisor)
+        - receiver_rfc (RFC del receptor)
+        - serie (Serie del comprobante)
+        - folio (Folio del comprobante)
+        - subtotal (Subtotal antes de impuestos)
+        - total (Total incluyendo impuestos)
+        - tax_breakdown (Desglose de impuestos)
+        
+        Returns:
+            Tuple[bool, List[str]]: (ok, mensajes de error)
+        """
+        msgs: List[str] = []
+        ok = True
+        
+        required_fields = {
+            "emitter_rfc": "RFC del emisor",
+            "receiver_rfc": "RFC del receptor",
+            "serie": "Serie del comprobante",
+            "folio": "Folio del comprobante",
+            "subtotal": "Subtotal",
+            "total": "Total",
+            "tax_breakdown": "Desglose de impuestos"
+        }
+        
+        for field_key, field_name in required_fields.items():
+            # Check in multiple possible locations: extra dict, or direct attributes
+            value = self.extra.get(field_key)
+            if value is None or value == "":
+                ok = False
+                msgs.append(f"Falta campo fiscal requerido: {field_name} ({field_key})")
+        
+        # Validate RFC format (basic check)
+        emitter_rfc = self.extra.get("emitter_rfc", "")
+        if emitter_rfc and len(str(emitter_rfc)) < 12:
+            ok = False
+            msgs.append(f"RFC del emisor inválido: debe tener al menos 12 caracteres")
+        
+        receiver_rfc = self.extra.get("receiver_rfc", "")
+        if receiver_rfc and len(str(receiver_rfc)) < 12:
+            ok = False
+            msgs.append(f"RFC del receptor inválido: debe tener al menos 12 caracteres")
+        
+        # Validate numeric fields
+        try:
+            subtotal = self.extra.get("subtotal")
+            if subtotal is not None:
+                subtotal_dec = Decimal(str(subtotal))
+                if subtotal_dec <= Decimal("0.00"):
+                    ok = False
+                    msgs.append("Subtotal debe ser mayor a cero")
+        except Exception:
+            ok = False
+            msgs.append("Subtotal inválido")
+        
+        try:
+            total = self.extra.get("total")
+            if total is not None:
+                total_dec = Decimal(str(total))
+                if total_dec <= Decimal("0.00"):
+                    ok = False
+                    msgs.append("Total debe ser mayor a cero")
+        except Exception:
+            ok = False
+            msgs.append("Total inválido")
+        
         return ok, msgs
 
     def aplicar_impuestos(self, parametros, mapeo_fiscal_row: Optional[Dict[str, Any]] = None) -> Dict[str, Decimal]:
