@@ -11,13 +11,26 @@ import datetime
 
 # --- IMPORTS requeridos por el parche ---
 from sqlmodel import select, Session
-from aqorath.core import trial_balance
 from aqorath.accounting_rules import load_catalog, compute_resultado_ejercicio
 from decimal import Decimal
 # ------------------------------------------------------------------------------
 
 LOG = logging.getLogger(__name__)
 LOG.addHandler(logging.NullHandler())
+
+# Defensive imports to avoid circular imports and to allow sqlite fallback
+try:
+    from aqorath.storage import get_session
+except Exception:
+    get_session = None
+
+try:
+    from aqorath.models import Account, JournalEntry, JournalLine  # type: ignore
+except Exception:
+    Account = None
+    JournalEntry = None
+    JournalLine = None
+
 
 # -----------------------------------------------------------------------------
 # generate_preview: compatibilidad con llamadas de tests (amount posicional + ctx=...)
