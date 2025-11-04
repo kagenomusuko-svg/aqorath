@@ -9,6 +9,13 @@ import os
 import sqlite3
 import datetime
 
+# --- IMPORTS requeridos por el parche ---
+from sqlmodel import select, Session
+from aqorath.core import trial_balance
+from aqorath.accounting_rules import load_catalog, compute_resultado_ejercicio
+from decimal import Decimal
+# ------------------------------------------------------------------------------
+
 LOG = logging.getLogger(__name__)
 LOG.addHandler(logging.NullHandler())
 
@@ -16,32 +23,16 @@ LOG.addHandler(logging.NullHandler())
 # generate_preview: compatibilidad con llamadas de tests (amount posicional + ctx=...)
 # -----------------------------------------------------------------------------
 def generate_preview(template_name: str, *args, ctx: Optional[Dict[str, Any]] = None, **kwargs) -> str:
-    """
-    Render a template or return a textual fallback.
-
-    Compatibilidad con llamadas legacy de tests:
-      generate_preview("ingreso_venta", 1000.0, ctx={...})
-
-    - template_name: plantilla (nombre o nombre.html)
-    - args: si contiene un valor posicional lo tomamos como 'amount'
-    - ctx: diccionario con contexto adicional (habitual en tests)
-    - kwargs: contexto adicional
-    """
-    # Normalizar contexto
     context: Dict[str, Any] = {}
-    # si hay arg posicional, lo tratamos como amount (legacy)
     if args:
         context["amount"] = args[0]
     if ctx and isinstance(ctx, dict):
         context.update(ctx)
-    # kwargs también al contexto
     context.update(kwargs)
 
-    # Intentar render con jinja2
     try:
         from jinja2 import Environment, FileSystemLoader, select_autoescape
     except Exception:
-        # jinja2 no disponible: devolver representación simple
         try:
             return f"Preview {template_name} - context: {json.dumps(context, default=str)}"
         except Exception:
@@ -53,7 +44,6 @@ def generate_preview(template_name: str, *args, ctx: Optional[Dict[str, Any]] = 
         autoescape=select_autoescape(["html", "xml"]),
     )
 
-    # Intentar localizar plantilla con o sin .html
     candidates = [template_name, f"{template_name}.html"]
     tmpl = None
     for name in candidates:
@@ -73,10 +63,8 @@ def generate_preview(template_name: str, *args, ctx: Optional[Dict[str, Any]] = 
         return f"Error rendering template {template_name}: {e}"
 
 # -----------------------------------------------------------------------------
-# trial_balance: prefer sqlite aggregation (determinista para tests), fallback Libro
+# trial_balance: prefer sqlite aggregation (determinista para tests)
 # -----------------------------------------------------------------------------
-# Intentamos usar la agregación sqlite primero (SUM debits - credits), ya que es
-# la fuente más fiable para tests locales. Si falla, usamos modelos.libro.Libro.
 def _find_db_path() -> Optional[Path]:
     cand = os.environ.get("AQORATH_DB")
     if cand and Path(cand).exists():
@@ -94,13 +82,11 @@ def _balances_from_sqlite(db_path: Optional[Path]) -> Dict[str, Decimal]:
         cur = conn.cursor()
         cur.execute("PRAGMA table_info('journalline')")
         cols = [r[1] for r in cur.fetchall()]
-        # detectar columna de cuenta
         acct_col = None
         for cand in ("account_code", "account", "account_id", "cuenta", "codigo"):
             if cand in cols:
                 acct_col = cand
                 break
-        # columnas debit/credit
         debit_col = next((c for c in cols if c.lower() in ("debit", "debe", "cargo")), None)
         credit_col = next((c for c in cols if c.lower() in ("credit", "haber", "abono")), None)
 
@@ -108,8 +94,6 @@ def _balances_from_sqlite(db_path: Optional[Path]) -> Dict[str, Decimal]:
             raise RuntimeError(f"Could not detect account column in journalline (checked: {cols})")
 
         balances: Dict[str, Decimal] = {}
-
-        # Si acct_col es account_id (numeric), intentar join con account para obtener code
         if acct_col == "account_id":
             cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='account'")
             if cur.fetchone():
@@ -123,12 +107,10 @@ def _balances_from_sqlite(db_path: Optional[Path]) -> Dict[str, Decimal]:
                     GROUP BY acct_code
                 """
                 cur.execute(sql)
-                rows = cur.fetchall()
-                for acct_code, saldo in rows:
+                for acct_code, saldo in cur.fetchall():
                     balances[str(acct_code)] = Decimal(str(saldo or 0))
                 return balances
             else:
-                # agrupar por account_id como texto
                 q_debit = debit_col if debit_col else "0"
                 q_credit = credit_col if credit_col else "0"
                 sql = f"""
@@ -138,12 +120,10 @@ def _balances_from_sqlite(db_path: Optional[Path]) -> Dict[str, Decimal]:
                     GROUP BY acct_code
                 """
                 cur.execute(sql)
-                rows = cur.fetchall()
-                for acct_code, saldo in rows:
+                for acct_code, saldo in cur.fetchall():
                     balances[str(acct_code)] = Decimal(str(saldo or 0))
                 return balances
         else:
-            # acct_col ya es código textual
             q_debit = debit_col if debit_col else "0"
             q_credit = credit_col if credit_col else "0"
             sql = f"""
@@ -153,16 +133,13 @@ def _balances_from_sqlite(db_path: Optional[Path]) -> Dict[str, Decimal]:
                 GROUP BY acct_code
             """
             cur.execute(sql)
-            rows = cur.fetchall()
-            for acct_code, saldo in rows:
-                if acct_code is None or acct_code == "":
-                    continue
-                balances[str(acct_code)] = Decimal(str(saldo or 0))
+            for acct_code, saldo in cur.fetchall():
+                if acct_code:
+                    balances[str(acct_code)] = Decimal(str(saldo or 0))
             return balances
     finally:
         conn.close()
 
-# Intentamos usar Libro si sqlite no resuelve (y como fallback)
 try:
     from modelos.libro import Libro  # type: ignore
 except Exception:
@@ -174,79 +151,178 @@ def _balances_from_libro() -> Dict[str, Decimal]:
     try:
         libro = Libro()
         df = libro.compute_balance()
-    except Exception as e:
-        LOG.debug("Libro compute_balance failed: %s", e)
+    except Exception:
         return {}
     if not df:
         return {}
     balances: Dict[str, Decimal] = {}
-    try:
-        for idx, row in df.iterrows():
-            code = None
-            for cand in ("code", "Codigo", "Cuenta", "codigo", "account", "cuenta"):
-                try:
-                    code = row.get(cand) if hasattr(row, "get") else None
-                except Exception:
-                    code = None
-                if code:
+    for idx, row in df.iterrows():
+        code = None
+        for cand in ("code", "Codigo", "Cuenta", "codigo", "account", "cuenta"):
+            code = row.get(cand) if hasattr(row, "get") else None
+            if code:
+                break
+        if not code:
+            code = idx
+        saldo = None
+        for cand in ("saldo", "Saldo", "balance", "saldo_final", "amount"):
+            saldo = row.get(cand) if hasattr(row, "get") else None
+            if saldo is not None:
+                break
+        if saldo is None:
+            for k, v in dict(row).items():
+                if isinstance(v, (int, float, Decimal)):
+                    saldo = v
                     break
-            if not code:
-                code = idx
-            saldo = None
-            for cand in ("saldo", "Saldo", "balance", "saldo_final", "amount"):
-                try:
-                    saldo = row.get(cand) if hasattr(row, "get") else None
-                except Exception:
-                    saldo = None
-                if saldo is not None:
-                    break
-            if saldo is None:
-                try:
-                    for k, v in dict(row).items():
-                        if isinstance(v, (int, float, Decimal)):
-                            saldo = v
-                            break
-                except Exception:
-                    saldo = 0
-            balances[str(code)] = Decimal(str(saldo or 0))
-    except Exception as e:
-        LOG.debug("Error parsing Libro DataFrame: %s", e)
-        return {}
+        balances[str(code)] = Decimal(str(saldo or 0))
     return balances
 
 def trial_balance(as_of: Optional[str] = None) -> Dict[str, Decimal]:
-    """
-    Return mapping account_code -> Decimal(saldo).
-    Strategy:
-      1) Try sqlite aggregation first (reliable for tests/test.db).
-      2) If sqlite returns empty or fails, try modelos.libro.Libro fallback.
-    """
-    # 1) sqlite
     try:
         db_path = _find_db_path()
-        balances_sqlite = {}
-        try:
-            balances_sqlite = _balances_from_sqlite(db_path)
-        except Exception as e:
-            LOG.debug("trial_balance: sqlite aggregation failed: %s", e)
-            balances_sqlite = {}
-
+        balances_sqlite = _balances_from_sqlite(db_path)
         if balances_sqlite:
-            # Si sqlite devuelve 3103, lo devolvemos (esto satisface los tests)
-            if "3103" in balances_sqlite or any(k.endswith("3103") for k in balances_sqlite.keys()):
-                return balances_sqlite
-            # Si devuelve datos pero no 3103, aún devolvemos el resultado (más fiel a DB)
             return balances_sqlite
-    except Exception as e:
-        LOG.debug("trial_balance sqlite attempt raised: %s", e)
-
-    # 2) Libro fallback
+    except Exception:
+        pass
     try:
         balances_libro = _balances_from_libro()
         if balances_libro:
             return balances_libro
-    except Exception as e:
-        LOG.debug("trial_balance: Libro fallback failed: %s", e)
-
-    # 3) no pudo calcular
+    except Exception:
+        pass
     return {}
+
+# -----------------------------------------------------------------------------
+# post_entry actualizado (tu bloque de parche)
+# -----------------------------------------------------------------------------
+def post_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Persist a JournalEntry with JournalLines.
+    """
+    desc = entry.get("description", "") or ""
+    lines = entry.get("lines", []) or []
+
+    def _verify_accounts(lines):
+        missing = []
+        try:
+            if "Account" in globals() and get_session is not None:
+                with get_session() as s:
+                    for ln in lines:
+                        if ln.get("account_id"):
+                            acc = s.get(Account, int(ln["account_id"]))
+                            if not acc:
+                                missing.append(str(ln.get("account_id")))
+                        elif ln.get("account_code"):
+                            acc = s.exec(select(Account).where(Account.code == str(ln["account_code"]))).one_or_none()
+                            if not acc:
+                                missing.append(str(ln.get("account_code")))
+                        else:
+                            missing.append("(sin cuenta en línea)")
+                return missing
+        except Exception:
+            pass
+
+        db = _find_db_path()
+        if db is None:
+            raise RuntimeError("No se encontró DB para verificar cuentas")
+        conn = sqlite3.connect(str(db))
+        try:
+            cur = conn.cursor()
+            for ln in lines:
+                if ln.get("account_id"):
+                    cur.execute("SELECT id FROM account WHERE id = ? LIMIT 1", (int(ln["account_id"]),))
+                    if not cur.fetchone():
+                        missing.append(str(ln.get("account_id")))
+                elif ln.get("account_code"):
+                    cur.execute("SELECT id FROM account WHERE code = ? LIMIT 1", (str(ln["account_code"]),))
+                    if not cur.fetchone():
+                        missing.append(str(ln.get("account_code")))
+                else:
+                    missing.append("(sin cuenta en línea)")
+        finally:
+            conn.close()
+        return missing
+
+    try:
+        missing = _verify_accounts(lines)
+    except Exception as e:
+        return {"ok": False, "error": f"Error verificando cuentas: {e}"}
+    if missing:
+        return {"ok": False, "error": "Cuentas no encontradas: " + ", ".join(missing)}
+
+    if "JournalEntry" in globals() and "JournalLine" in globals() and get_session is not None:
+        try:
+            with get_session() as s:
+                je = JournalEntry(description=desc, created_at=datetime.datetime.utcnow())
+                s.add(je)
+                s.commit()
+                s.refresh(je)
+                for ln in lines:
+                    account_id = ln.get("account_id")
+                    if not account_id and ln.get("account_code"):
+                        acc = s.exec(select(Account).where(Account.code == str(ln["account_code"]))).one_or_none()
+                        if acc:
+                            account_id = acc.id
+                    if not account_id:
+                        s.rollback()
+                        return {"ok": False, "error": f"Cuenta no encontrada para línea: {ln}"}
+                    jl = JournalLine(
+                        entry_id=je.id,
+                        account_id=int(account_id),
+                        debit=float(ln.get("debit") or 0),
+                        credit=float(ln.get("credit") or 0),
+                        description=ln.get("description")
+                    )
+                    s.add(jl)
+                s.commit()
+            return {"ok": True, "entry_id": je.id}
+        except Exception as e:
+            LOG.debug("ORM post_entry failed, falling back to sqlite: %s", e)
+
+    db = _find_db_path()
+    if db is None:
+        return {"ok": False, "error": "No se encontró base de datos para persistir entry."}
+    conn = sqlite3.connect(str(db))
+    try:
+        cur = conn.cursor()
+        entry_table = None
+        for candidate in ("entry", "journalentry", "journal_entry"):
+            cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?;", (candidate,))
+            if cur.fetchone():
+                entry_table = candidate
+                break
+        if not entry_table:
+            return {"ok": False, "error": "No se encontró tabla de entries en la DB."}
+        now = datetime.datetime.utcnow().isoformat()
+        cur.execute(f"INSERT INTO {entry_table} (description, created_at) VALUES (?, ?)", (desc, now))
+        entry_id = cur.lastrowid
+
+        jl_table = None
+        for candidate in ("journalline", "journal_line", "line", "journalentryline"):
+            cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?;", (candidate,))
+            if cur.fetchone():
+                jl_table = candidate
+                break
+        if not jl_table:
+            conn.rollback()
+            return {"ok": False, "error": "No se encontró tabla journalline en la DB."}
+
+        for ln in lines:
+            acct_id = ln.get("account_id")
+            if not acct_id and ln.get("account_code"):
+                cur.execute("SELECT id FROM account WHERE code = ? LIMIT 1", (str(ln["account_code"]),))
+                r = cur.fetchone()
+                if r:
+                    acct_id = r[0]
+            if not acct_id:
+                conn.rollback()
+                return {"ok": False, "error": f"Cuenta no encontrada para línea: {ln}"}
+            cur.execute(
+                f"INSERT INTO {jl_table} (entry_id, account_id, debit, credit, description, created_at) VALUES (?,?,?,?,?,?)",
+                (entry_id, int(acct_id), float(ln.get("debit") or 0), float(ln.get("credit") or 0), ln.get("description"), now)
+            )
+        conn.commit()
+        return {"ok": True, "entry_id": entry_id}
+    finally:
+        conn.close()
