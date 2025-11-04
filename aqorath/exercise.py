@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Utilities para el cierre del ejercicio contable.
 
@@ -8,8 +9,6 @@ Comportamiento principal:
 - Inserta el JournalEntry de traslado usando SQLModel si es posible; si falla, usa inserción sqlite directa.
 - Nunca crea cuentas automáticamente.
 """
-from __future__ import annotations
-
 import json
 import os
 import shutil
@@ -126,16 +125,24 @@ def _insert_transfer_sqlite(db_path: Path, amount: Decimal, id_3103: int, id_310
         if amount > 0:
             d = str(amount)
             # Débito 3103, Crédito 3104
-            cur.execute(f"INSERT INTO {jl_table} (entry_id, account_id, debit, credit, description, created_at) VALUES (?,?,?,?,?,?)",
-                        (entry_id, id_3103, d, "0", "Cierre: traslado a 3104", now))
-            cur.execute(f"INSERT INTO {jl_table} (entry_id, account_id, debit, credit, description, created_at) VALUES (?,?,?,?,?,?)",
-                        (entry_id, id_3104, "0", d, "Cierre: contrapartida desde 3103", now))
+            cur.execute(
+                f"INSERT INTO {jl_table} (entry_id, account_id, debit, credit, description, created_at) VALUES (?,?,?,?,?,?)",
+                (entry_id, id_3103, d, "0", "Cierre: traslado a 3104", now),
+            )
+            cur.execute(
+                f"INSERT INTO {jl_table} (entry_id, account_id, debit, credit, description, created_at) VALUES (?,?,?,?,?,?)",
+                (entry_id, id_3104, "0", d, "Cierre: contrapartida desde 3103", now),
+            )
         else:
             amt = str(abs(amount))
-            cur.execute(f"INSERT INTO {jl_table} (entry_id, account_id, debit, credit, description, created_at) VALUES (?,?,?,?,?,?)",
-                        (entry_id, id_3104, amt, "0", "Cierre pérdida: traslado a 3104", now))
-            cur.execute(f"INSERT INTO {jl_table} (entry_id, account_id, debit, credit, description, created_at) VALUES (?,?,?,?,?,?)",
-                        (entry_id, id_3103, "0", amt, "Cierre pérdida: contrapartida desde 3104", now))
+            cur.execute(
+                f"INSERT INTO {jl_table} (entry_id, account_id, debit, credit, description, created_at) VALUES (?,?,?,?,?,?)",
+                (entry_id, id_3104, amt, "0", "Cierre pérdida: traslado a 3104", now),
+            )
+            cur.execute(
+                f"INSERT INTO {jl_table} (entry_id, account_id, debit, credit, description, created_at) VALUES (?,?,?,?,?,?)",
+                (entry_id, id_3103, "0", amt, "Cierre pérdida: contrapartida desde 3104", now),
+            )
 
         conn.commit()
     finally:
@@ -164,7 +171,7 @@ def close_exercise(carry_over: bool = True, out_root: Optional[Path] = None) -> 
 
     # Calcular balances y resultado usando rules
     try:
-        balances = {}
+        balances: Dict[str, Decimal] = {}
         if trial_balance is not None:
             balances = trial_balance()
         else:
@@ -179,8 +186,8 @@ def close_exercise(carry_over: bool = True, out_root: Optional[Path] = None) -> 
                 cur.execute("PRAGMA table_info('journalline')")
                 cols = [r[1] for r in cur.fetchall()]
                 acct_col = next((c for c in cols if "account" in c.lower() or c.endswith("_id")), None)
-                debit_col = next((c for c in cols if c.lower() in ("debit","debe","cargo")), None)
-                credit_col = next((c for c in cols if c.lower() in ("credit","haber","abono")), None)
+                debit_col = next((c for c in cols if c.lower() in ("debit", "debe", "cargo")), None)
+                credit_col = next((c for c in cols if c.lower() in ("credit", "haber", "abono")), None)
                 if not acct_col:
                     return {"ok": False, "path": str(dest), "error": "No se pudo detectar columna de cuenta en journalline."}
                 q_debit = debit_col or "0"
@@ -189,26 +196,27 @@ def close_exercise(carry_over: bool = True, out_root: Optional[Path] = None) -> 
                 if acct_col == "account_id":
                     cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='account'")
                     if cur.fetchone():
-                        sql = f\"\"\"SELECT COALESCE(a.code, CAST(jl.account_id AS TEXT)) as acct_code,
-                                     SUM(COALESCE(jl.{q_debit},0) - COALESCE(jl.{q_credit},0)) as saldo
-                                     FROM journalline jl LEFT JOIN account a ON jl.account_id = a.id
-                                     GROUP BY acct_code\"\"\"
+                        sql = f'''SELECT COALESCE(a.code, CAST(jl.account_id AS TEXT)) as acct_code,
+                                       SUM(COALESCE(jl.{q_debit},0) - COALESCE(jl.{q_credit},0)) as saldo
+                                 FROM journalline jl
+                                 LEFT JOIN account a ON jl.account_id = a.id
+                                 GROUP BY acct_code'''
                         cur.execute(sql)
                         rows = cur.fetchall()
                         for acct_code, saldo in rows:
                             balances[str(acct_code)] = Decimal(str(saldo or 0))
                     else:
-                        sql = f\"\"\"SELECT CAST(account_id AS TEXT) as acct_code,
-                                     SUM(COALESCE({q_debit},0) - COALESCE({q_credit},0)) as saldo
-                                     FROM journalline GROUP BY acct_code\"\"\"
+                        sql = f'''SELECT CAST(account_id AS TEXT) as acct_code,
+                                       SUM(COALESCE({q_debit},0) - COALESCE({q_credit},0)) as saldo
+                                 FROM journalline GROUP BY acct_code'''
                         cur.execute(sql)
                         rows = cur.fetchall()
                         for acct_code, saldo in rows:
                             balances[str(acct_code)] = Decimal(str(saldo or 0))
                 else:
-                    sql = f\"\"\"SELECT COALESCE({acct_col}, '') as acct_code,
-                                 SUM(COALESCE({q_debit},0) - COALESCE({q_credit},0)) as saldo
-                                 FROM journalline GROUP BY acct_code\"\"\"
+                    sql = f'''SELECT COALESCE({acct_col}, '') as acct_code,
+                                   SUM(COALESCE({q_debit},0) - COALESCE({q_credit},0)) as saldo
+                             FROM journalline GROUP BY acct_code'''
                     cur.execute(sql)
                     rows = cur.fetchall()
                     for acct_code, saldo in rows:
@@ -219,7 +227,7 @@ def close_exercise(carry_over: bool = True, out_root: Optional[Path] = None) -> 
                 conn.close()
 
         # cargar catálogo
-        catalog = {}
+        catalog: Dict[str, dict] = {}
         if load_catalog is not None:
             catalog = load_catalog()
         else:
@@ -250,8 +258,8 @@ def close_exercise(carry_over: bool = True, out_root: Optional[Path] = None) -> 
         return {"ok": False, "path": str(dest), "error": f"No se pudo calcular resultado: {e}"}
 
     # Verificar existencia de cuentas 3103 y 3104 (NO crear)
-    id_3103 = None
-    id_3104 = None
+    id_3103: Optional[int] = None
+    id_3104: Optional[int] = None
     # Intentar resolver vía ORM si está disponible
     try:
         if Account is not None and get_session is not None:
