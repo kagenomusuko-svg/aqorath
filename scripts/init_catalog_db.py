@@ -15,6 +15,7 @@ from datetime import datetime
 from sqlmodel import SQLModel, create_engine, Session, select, text
 
 from aqorath.models import Account, AppConfig
+from aqorath.config import get_accounting_model
 
 # ruta por defecto (igual que en storage.py)
 DEFAULT_DB = Path.home() / ".local" / "share" / "aqorath" / "aqorath.db"
@@ -32,6 +33,13 @@ def load_catalog():
     if not CATALOG_PATH.exists():
         raise FileNotFoundError(f"Catálogo base no encontrado: {CATALOG_PATH}")
     return json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
+
+
+def _row_name_for_model(row):
+    model = get_accounting_model()
+    if model == "sin_fines":
+        return row.get("name_osc") or row.get("B") or row.get(1) or ""
+    return row.get("name_comercial") or row.get("C") or row.get(2) or ""
 
 
 def main():
@@ -63,7 +71,7 @@ def main():
             if len(rows) == 0:
                 a = Account(
                     code=str(code),
-                    name=meta.get("name_comercial") or meta.get("name_osc") or "",
+                    name=_row_name_for_model(meta),
                     nature=meta.get("naturaleza") or None
                 )
                 s.add(a)
