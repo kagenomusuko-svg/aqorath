@@ -28,6 +28,11 @@ try:
 except ImportError:
     # Fallback if config module doesn't exist yet
     def get_accounting_model():
+        """
+        Fallback implementation when aqorath.config module is not available.
+        Returns None to indicate no saved accounting model preference.
+        """
+        logger.warning("aqorath.config module not available, using default accounting model")
         return None
 
 logger = logging.getLogger(__name__)

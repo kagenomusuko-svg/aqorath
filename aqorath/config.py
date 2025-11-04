@@ -12,6 +12,12 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# Import sqlmodel select at module level, but handle import errors gracefully
+try:
+    from sqlmodel import select as _sqlmodel_select
+except ImportError:
+    _sqlmodel_select = None  # type: ignore
+
 # Fallback config file location
 CONFIG_PATH = Path.home() / ".local" / "share" / "aqorath" / "config.json"
 
@@ -28,12 +34,13 @@ def get_accounting_model() -> Optional[str]:
     """
     # Try database first
     try:
+        if _sqlmodel_select is None:
+            raise ImportError("sqlmodel not available")
         from aqorath.models import AppConfig
         from aqorath.storage import get_session
         
         with get_session() as s:
-            from sqlmodel import select
-            row = s.exec(select(AppConfig).where(AppConfig.key == "accounting_model")).one_or_none()
+            row = s.exec(_sqlmodel_select(AppConfig).where(AppConfig.key == "accounting_model")).one_or_none()
             if row:
                 value = getattr(row, "value", None)
                 logger.debug(f"Retrieved accounting_model from DB: {value}")
@@ -75,12 +82,13 @@ def set_accounting_model(value: str) -> bool:
     
     # Try database first
     try:
+        if _sqlmodel_select is None:
+            raise ImportError("sqlmodel not available")
         from aqorath.models import AppConfig
         from aqorath.storage import get_session
         
         with get_session() as s:
-            from sqlmodel import select
-            existing = s.exec(select(AppConfig).where(AppConfig.key == "accounting_model")).one_or_none()
+            existing = s.exec(_sqlmodel_select(AppConfig).where(AppConfig.key == "accounting_model")).one_or_none()
             if existing:
                 existing.value = value
                 s.add(existing)
