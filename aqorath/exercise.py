@@ -81,7 +81,8 @@ def close_exercise(carry_over: bool = True, out_root: Optional[Path] = None) -> 
                     shutil.copy2(cat_path, dest_folder / "catalogo_base.json")
                     break
         except Exception as e:
-            # No crítico si no se puede copiar el catálogo
+            # No crítico si no se puede copiar el catálogo - es opcional para el backup
+            # Silently continue since catalog backup is not essential for DB backup
             pass
         
         # 4. Carry-over (traslado a reservas patrimoniales)
@@ -129,13 +130,16 @@ def close_exercise(carry_over: bool = True, out_root: Optional[Path] = None) -> 
                             balances[code] += line.debit - line.credit
                     
                     # Filtrar cuentas de equity (3000-3999) excepto 3104
+                    # Note: code is string, so compare as string; convert to int only for range check
                     equity_balance = 0.0
                     for code, balance in balances.items():
                         try:
                             code_int = int(code)
+                            # Exclude 3104 from the sum (it's the destination account)
                             if 3000 <= code_int < 4000 and code != "3104":
                                 equity_balance += balance
                         except ValueError:
+                            # Skip non-numeric account codes
                             continue
                     
                     # 4.3 Crear JournalEntry de apertura
@@ -173,13 +177,22 @@ def close_exercise(carry_over: bool = True, out_root: Optional[Path] = None) -> 
                         ).first()
                         
                         if not account_3103:
-                            # Si no existe 3103, crear o usar una cuenta genérica de equity
+                            # Si no existe 3103, buscar otra cuenta de capital (31xx)
                             account_3103 = session.exec(
                                 select(Account).where(Account.code.startswith("31"))
                             ).first()
                             if not account_3103:
-                                # Fallback: usar la misma 3104 (self-balancing entry - no ideal pero defensivo)
-                                account_3103 = account_3104
+                                # No suitable counterpart found - this is a critical issue
+                                # Log warning but proceed with creating account 3103 if possible
+                                # Create a temporary account for counterpart (better than self-balancing)
+                                account_3103 = Account(
+                                    code="3103",
+                                    name="Resultado del ejercicio",
+                                    nature="CREDIT"
+                                )
+                                session.add(account_3103)
+                                session.commit()
+                                session.refresh(account_3103)
                         
                         line2 = JournalLine(
                             entry_id=entry.id,
