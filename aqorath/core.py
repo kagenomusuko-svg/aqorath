@@ -133,9 +133,16 @@ def _get_table_columns(db_path: str, table_name: str) -> List[Tuple[str, str, bo
     """
     Get table column information using PRAGMA table_info.
     Returns list of (column_name, data_type, is_not_null).
+    
+    Note: table_name is validated to be alphanumeric + underscore to prevent SQL injection.
     """
+    # Validate table_name to prevent SQL injection
+    if not table_name.replace("_", "").isalnum():
+        raise ValueError(f"Invalid table name: {table_name}")
+    
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
+    # PRAGMA statements are safe from SQL injection when table name is validated
     cursor.execute(f"PRAGMA table_info({table_name})")
     cols = cursor.fetchall()
     conn.close()
@@ -244,6 +251,9 @@ def _persist_entry(session, entry_data: Dict[str, Any], lines_data: List[Dict[st
         # Fill NOT NULL columns without defaults
         for col_name, col_type, is_not_null in entry_cols:
             if is_not_null and col_name not in entry_values and col_name != "id":
+                # Validate column name is safe (alphanumeric + underscore)
+                if not col_name.replace("_", "").isalnum():
+                    continue  # Skip invalid column names
                 # Provide reasonable defaults based on type
                 if "INT" in col_type.upper():
                     entry_values[col_name] = 0
@@ -252,12 +262,16 @@ def _persist_entry(session, entry_data: Dict[str, Any], lines_data: List[Dict[st
                 elif "REAL" in col_type.upper() or "FLOAT" in col_type.upper():
                     entry_values[col_name] = 0.0
                 elif "DATE" in col_type.upper() or "TIME" in col_type.upper():
-                    entry_values[col_name] = datetime.now(timezone.utc).isoformat() + "Z"
+                    entry_values[col_name] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
         
-        # Insert entry using text SQL
-        cols = ", ".join(entry_values.keys())
-        placeholders = ", ".join([f":{k}" for k in entry_values.keys()])
-        result = session.exec(text(f"INSERT INTO journalentry ({cols}) VALUES ({placeholders})"), entry_values)
+        # Validate all column names before building SQL
+        validated_cols = [k for k in entry_values.keys() if k.replace("_", "").isalnum()]
+        
+        # Insert entry using text SQL with validated column names
+        cols = ", ".join(validated_cols)
+        placeholders = ", ".join([f":{k}" for k in validated_cols])
+        validated_values = {k: entry_values[k] for k in validated_cols}
+        result = session.exec(text(f"INSERT INTO journalentry ({cols}) VALUES ({placeholders})"), validated_values)
         session.commit()
         
         # Get last insert id
@@ -298,6 +312,9 @@ def _persist_entry(session, entry_data: Dict[str, Any], lines_data: List[Dict[st
             # Fill NOT NULL columns
             for col_name, col_type, is_not_null in line_cols:
                 if is_not_null and col_name not in line_values and col_name != "id":
+                    # Validate column name is safe (alphanumeric + underscore)
+                    if not col_name.replace("_", "").isalnum():
+                        continue  # Skip invalid column names
                     if "INT" in col_type.upper():
                         line_values[col_name] = 0
                     elif "TEXT" in col_type.upper() or "VARCHAR" in col_type.upper():
@@ -305,11 +322,14 @@ def _persist_entry(session, entry_data: Dict[str, Any], lines_data: List[Dict[st
                     elif "REAL" in col_type.upper() or "FLOAT" in col_type.upper():
                         line_values[col_name] = 0.0
                     elif "DATE" in col_type.upper() or "TIME" in col_type.upper():
-                        line_values[col_name] = datetime.now(timezone.utc).isoformat() + "Z"
+                        line_values[col_name] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
             
-            cols = ", ".join(line_values.keys())
-            placeholders = ", ".join([f":{k}" for k in line_values.keys()])
-            session.exec(text(f"INSERT INTO journalline ({cols}) VALUES ({placeholders})"), line_values)
+            # Validate all column names before building SQL
+            validated_cols = [k for k in line_values.keys() if k.replace("_", "").isalnum()]
+            cols = ", ".join(validated_cols)
+            placeholders = ", ".join([f":{k}" for k in validated_cols])
+            validated_values = {k: line_values[k] for k in validated_cols}
+            session.exec(text(f"INSERT INTO journalline ({cols}) VALUES ({placeholders})"), validated_values)
         
         session.commit()
         return entry_id
@@ -505,5 +525,5 @@ def trial_balance(db_path: Optional[str] = None, include_zero_balance: bool = Fa
         "total_debit": total_debit_rounded,
         "total_credit": total_credit_rounded,
         "balanced": balanced,
-        "generated_at": datetime.now(timezone.utc).isoformat() + "Z"
+        "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
     }
