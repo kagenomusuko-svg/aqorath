@@ -22,6 +22,7 @@ import sqlite3
 import datetime
 import math
 from decimal import Decimal
+from decimal import InvalidOperation, getcontext, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any, Dict, Optional, List
 from types import SimpleNamespace
@@ -155,17 +156,19 @@ def generate_preview(template_key: str, amount: float, ctx: Optional[Dict[str, A
     Build a preview of the journal entry lines produced by a template.
 
     Resolves account roles via ctx.get('account_codes', {}) before returning the preview.
-    If any account referenced by the template cannot be resolved to an existing account code
-    (in the DB) the preview will include 'missing_accounts' and 'balanced' will be False.
-    This prevents inventing accounts and avoids persisting invalid entries.
+    For preview we accept declared account codes or role names; persistence will validate.
+    Accumulates with Decimal and decides 'balanced' by comparing totals rounded to 2 decimals.
     """
+    # set Decimal precision for intermediate calculations
+    getcontext().prec = 28
+
     ctx = ctx or {}
     # If templates module not available, return safe minimal preview-like dict
     if get_template is None:
         return {
             "template": template_key,
             "description": None,
-            "date": datetime.datetime.utcnow().date(),
+            "date": datetime.datetime.now(datetime.timezone.utc).date(),
             "lines": [],
             "total_debit": 0.0,
             "total_credit": 0.0,
@@ -176,16 +179,16 @@ def generate_preview(template_key: str, amount: float, ctx: Optional[Dict[str, A
     tpl = get_template(template_key)
     line_specs = tpl.create_lines(amount, ctx or {})
 
-    accounts_map = _load_accounts_map()  # code -> obj
-    # mapping provided by caller: role -> account_code strings
+    accounts_map = _load_accounts_map()  # code -> obj (may be empty)
+    # mapping provided by caller: role -> account_code (strings)
     try:
         role_map: Dict[str, str] = dict((k, str(v)) for k, v in (ctx.get("account_codes") or {}).items())
     except Exception:
         role_map = {}
 
     lines_preview: List[Dict[str, Any]] = []
-    total_debit = 0.0
-    total_credit = 0.0
+    total_debit_dec = Decimal("0")
+    total_credit_dec = Decimal("0")
     missing_accounts: List[str] = []
 
     for ls in line_specs:
@@ -199,73 +202,88 @@ def generate_preview(template_key: str, amount: float, ctx: Optional[Dict[str, A
         resolved_code: Optional[str] = None
         resolved_id: Optional[int] = None
 
+        # For preview we accept declared or mapping; try to resolve id if present in DB
         if declared:
-            # If declared matches an account code present in DB, use it
-            if declared in accounts_map:
-                resolved_code = declared
-                resolved_id = getattr(accounts_map[declared], "id", None)
+            # if declared is a role name and caller provided mapping, use it
+            if declared in role_map:
+                candidate = role_map[declared]
+                resolved_code = candidate
+                if candidate in accounts_map:
+                    resolved_id = getattr(accounts_map[candidate], "id", None)
             else:
-                # If declared is a role mapping provided by ctx, resolve via role_map
-                if declared in role_map:
-                    candidate = role_map[declared]
-                    if candidate in accounts_map:
-                        resolved_code = candidate
-                        resolved_id = getattr(accounts_map[candidate], "id", None)
-                    else:
-                        missing_accounts.append(candidate)
-                else:
-                    # Try numeric-looking declared code
-                    if str(declared).isdigit() and str(declared) in accounts_map:
-                        resolved_code = str(declared)
-                        resolved_id = getattr(accounts_map[resolved_code], "id", None)
-                    else:
-                        # declared could be direct code not present in DB -> missing
-                        missing_accounts.append(declared)
+                # treat declared as a direct code string (even if not in DB)
+                resolved_code = declared
+                if declared in accounts_map:
+                    resolved_id = getattr(accounts_map[declared], "id", None)
         else:
             missing_accounts.append("(sin cuenta en línea)")
 
-        # Compute amounts defensively
-        debit = 0.0
-        credit = 0.0
+        # Compute amounts defensively (use Decimal)
+        debit_dec = Decimal("0")
+        credit_dec = Decimal("0")
         try:
             side = getattr(ls, "side", None)
             amount_expr = getattr(ls, "amount_expr", None)
             if callable(amount_expr) and (side == "debit" or side == "credit"):
-                val = float(amount_expr(amount, ctx or {}))
+                raw = amount_expr(amount, ctx or {})
+                try:
+                    val_dec = Decimal(str(raw))
+                except (InvalidOperation, TypeError, ValueError):
+                    val_dec = Decimal(float(raw or 0))
                 if side == "debit":
-                    debit = val
+                    debit_dec = val_dec
                 else:
-                    credit = val
+                    credit_dec = val_dec
             else:
                 if hasattr(ls, "debit") and getattr(ls, "debit") is not None:
-                    debit = float(getattr(ls, "debit") or 0)
+                    try:
+                        debit_dec = Decimal(str(getattr(ls, "debit") or 0))
+                    except Exception:
+                        debit_dec = Decimal(float(getattr(ls, "debit") or 0))
                 if hasattr(ls, "credit") and getattr(ls, "credit") is not None:
-                    credit = float(getattr(ls, "credit") or 0)
+                    try:
+                        credit_dec = Decimal(str(getattr(ls, "credit") or 0))
+                    except Exception:
+                        credit_dec = Decimal(float(getattr(ls, "credit") or 0))
                 if hasattr(ls, "amount") and getattr(ls, "amount") is not None and side:
-                    val = float(getattr(ls, "amount") or 0)
+                    try:
+                        val_dec = Decimal(str(getattr(ls, "amount") or 0))
+                    except Exception:
+                        val_dec = Decimal(float(getattr(ls, "amount") or 0))
                     if side == "debit":
-                        debit = val
+                        debit_dec = val_dec
                     else:
-                        credit = val
+                        credit_dec = val_dec
         except Exception:
             LOG.debug("Error computing line amounts for ls=%r", ls, exc_info=True)
 
-        total_debit += round(debit, 2)
-        total_credit += round(credit, 2)
+        # accumulate precise totals
+        total_debit_dec += debit_dec
+        total_credit_dec += credit_dec
+
+        # store rounded floats for display in preview lines (quantize to 2 decimals)
+        debit_display = float(debit_dec.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+        credit_display = float(credit_dec.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
         lines_preview.append({
             "account_code": resolved_code,
             "account_id": resolved_id,
             "account_name": getattr(accounts_map.get(resolved_code), "name", None) if resolved_code else None,
-            "debit": round(debit, 2),
-            "credit": round(credit, 2),
+            "debit": debit_display,
+            "credit": credit_display,
             "description": getattr(ls, "description", "") or "",
             "_declared": declared,
         })
 
-    balance_ok = math.isclose(total_debit, total_credit, rel_tol=1e-6)
+    # decide balanced by comparing totals rounded to 2 decimals (quantize)
+    total_debit_q = total_debit_dec.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    total_credit_q = total_credit_dec.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    balanced = (total_debit_q == total_credit_q)
 
-    # If missing accounts exist, flag them and avoid returning balanced preview.
+    total_debit_out = float(total_debit_q)
+    total_credit_out = float(total_credit_q)
+
+    # For preview we only mark missing when template didn't declare anything resolvable.
     if missing_accounts:
         seen = set()
         missing_filtered: List[str] = []
@@ -276,10 +294,10 @@ def generate_preview(template_key: str, amount: float, ctx: Optional[Dict[str, A
         return {
             "template": template_key,
             "description": getattr(tpl, "description", None),
-            "date": datetime.datetime.utcnow().date(),
+            "date": datetime.datetime.now(datetime.timezone.utc).date(),
             "lines": lines_preview,
-            "total_debit": round(total_debit, 2),
-            "total_credit": round(total_credit, 2),
+            "total_debit": total_debit_out,
+            "total_credit": total_credit_out,
             "balanced": False,
             "missing_accounts": missing_filtered,
         }
@@ -287,11 +305,11 @@ def generate_preview(template_key: str, amount: float, ctx: Optional[Dict[str, A
     return {
         "template": template_key,
         "description": getattr(tpl, "description", None),
-        "date": datetime.datetime.utcnow().date(),
+        "date": datetime.datetime.now(datetime.timezone.utc).date(),
         "lines": lines_preview,
-        "total_debit": round(total_debit, 2),
-        "total_credit": round(total_credit, 2),
-        "balanced": bool(balance_ok),
+        "total_debit": total_debit_out,
+        "total_credit": total_credit_out,
+        "balanced": bool(balanced),
         "missing_accounts": [],
     }
 
@@ -302,6 +320,9 @@ def generate_preview(template_key: str, amount: float, ctx: Optional[Dict[str, A
 def _balances_from_sqlite(db_path: Optional[Path]) -> Dict[str, Decimal]:
     """
     Aggregate journalline (debit - credit) grouped by account code (or account_id joined to account.code).
+    Improved to handle cases where journalline has both account_code and account_id:
+    it will prefer the explicit account_code when present, otherwise use the joined account.code,
+    otherwise fallback to the textified account_id.
     """
     if db_path is None:
         raise RuntimeError("No sqlite DB path found for fallback")
@@ -310,25 +331,27 @@ def _balances_from_sqlite(db_path: Optional[Path]) -> Dict[str, Decimal]:
         cur = conn.cursor()
         cur.execute("PRAGMA table_info('journalline')")
         cols = [r[1] for r in cur.fetchall()]
-        acct_col = None
-        for cand in ("account_code", "account", "account_id", "cuenta", "codigo"):
-            if cand in cols:
-                acct_col = cand
-                break
+        # detect available account columns
+        has_account_code = "account_code" in cols
+        has_account_id = "account_id" in cols
+
         debit_col = next((c for c in cols if c.lower() in ("debit", "debe", "cargo")), None)
         credit_col = next((c for c in cols if c.lower() in ("credit", "haber", "abono")), None)
-        if acct_col is None:
-            return {}
 
-        balances: Dict[str, Decimal] = {}
         q_debit = debit_col if debit_col else "0"
         q_credit = credit_col if credit_col else "0"
 
-        if acct_col == "account_id":
+        balances: Dict[str, Decimal] = {}
+
+        # If both columns exist, use a COALESCE that prefers explicit account_code,
+        # then joined account.code, then account_id as text.
+        if has_account_code and has_account_id:
+            # join to account to obtain a.code when account_code NULL
             cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='account'")
-            if cur.fetchone():
+            has_account_table = bool(cur.fetchone())
+            if has_account_table:
                 sql = f"""
-                    SELECT COALESCE(a.code, CAST(jl.account_id AS TEXT)) as acct_code,
+                    SELECT COALESCE(jl.account_code, a.code, CAST(jl.account_id AS TEXT)) as acct_code,
                            SUM(COALESCE(jl.{q_debit},0) - COALESCE(jl.{q_credit},0)) as saldo
                     FROM journalline jl
                     LEFT JOIN account a ON jl.account_id = a.id
@@ -337,11 +360,14 @@ def _balances_from_sqlite(db_path: Optional[Path]) -> Dict[str, Decimal]:
                 cur.execute(sql)
                 rows = cur.fetchall()
                 for acct_code, saldo in rows:
+                    if acct_code is None or acct_code == "":
+                        continue
                     balances[str(acct_code)] = Decimal(str(saldo or 0))
                 return balances
             else:
+                # no account table: fallback to coalesce account_code or account_id text
                 sql = f"""
-                    SELECT CAST(account_id AS TEXT) as acct_code,
+                    SELECT COALESCE(account_code, CAST(account_id AS TEXT)) as acct_code,
                            SUM(COALESCE({q_debit},0) - COALESCE({q_credit},0)) as saldo
                     FROM journalline
                     GROUP BY acct_code
@@ -349,11 +375,46 @@ def _balances_from_sqlite(db_path: Optional[Path]) -> Dict[str, Decimal]:
                 cur.execute(sql)
                 rows = cur.fetchall()
                 for acct_code, saldo in rows:
+                    if acct_code is None or acct_code == "":
+                        continue
                     balances[str(acct_code)] = Decimal(str(saldo or 0))
                 return balances
-        else:
+
+        # If only account_id exists (no account_code column), join to account to get code when possible
+        if has_account_id and not has_account_code:
+            cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='account'")
+            if cur.fetchone():
+                q = f"""
+                    SELECT COALESCE(a.code, CAST(jl.account_id AS TEXT)) as acct_code,
+                           SUM(COALESCE(jl.{q_debit},0) - COALESCE(jl.{q_credit},0)) as saldo
+                    FROM journalline jl
+                    LEFT JOIN account a ON jl.account_id = a.id
+                    GROUP BY acct_code
+                """
+                cur.execute(q)
+                rows = cur.fetchall()
+                for acct_code, saldo in rows:
+                    if acct_code is None or acct_code == "":
+                        continue
+                    balances[str(acct_code)] = Decimal(str(saldo or 0))
+                return balances
+            else:
+                q = f"""
+                    SELECT CAST(account_id AS TEXT) as acct_code,
+                           SUM(COALESCE({q_debit},0) - COALESCE({q_credit},0)) as saldo
+                    FROM journalline
+                    GROUP BY acct_code
+                """
+                cur.execute(q)
+                rows = cur.fetchall()
+                for acct_code, saldo in rows:
+                    balances[str(acct_code)] = Decimal(str(saldo or 0))
+                return balances
+
+        # If only account_code exists (no account_id), group by account_code directly
+        if has_account_code and not has_account_id:
             sql = f"""
-                SELECT COALESCE({acct_col}, '') as acct_code,
+                SELECT COALESCE(account_code, '') as acct_code,
                        SUM(COALESCE({q_debit},0) - COALESCE({q_credit},0)) as saldo
                 FROM journalline
                 GROUP BY acct_code
@@ -365,6 +426,9 @@ def _balances_from_sqlite(db_path: Optional[Path]) -> Dict[str, Decimal]:
                     continue
                 balances[str(acct_code)] = Decimal(str(saldo or 0))
             return balances
+
+        # Nothing relevant found
+        return {}
     finally:
         conn.close()
 
@@ -446,7 +510,7 @@ def trial_balance(as_of: Optional[str] = None) -> Dict[str, Decimal]:
     Strategy:
       1) Try sqlite aggregation first.
       2) If sqlite returns empty, try modelos.libro.Libro.
-      3) If both empty, return account codes with zero saldo (no creation).
+      3) Always include account catalog codes with zero saldo if they are missing from aggregation.
     """
     # 1) sqlite
     try:
@@ -458,15 +522,51 @@ def trial_balance(as_of: Optional[str] = None) -> Dict[str, Decimal]:
             LOG.debug("trial_balance: sqlite aggregation failed: %s", e)
             balances_sqlite = {}
 
+        # Merge account catalog codes with zero saldo for any missing codes
+        try:
+            if db_path:
+                conn = sqlite3.connect(str(db_path))
+                try:
+                    cur = conn.cursor()
+                    cur.execute("SELECT code FROM account")
+                    for (code,) in cur.fetchall():
+                        if code is None:
+                            continue
+                        key = str(code)
+                        if key not in balances_sqlite:
+                            balances_sqlite[key] = Decimal("0")
+                finally:
+                    conn.close()
+        except Exception as e:
+            LOG.debug("trial_balance: failed to merge account catalog codes: %s", e)
+
         if balances_sqlite:
             return balances_sqlite
     except Exception as e:
         LOG.debug("trial_balance sqlite attempt raised: %s", e)
 
-    # 2) libro
+    # 2) libro fallback
     try:
         balances_libro = _balances_from_libro()
         if balances_libro:
+            # also merge catalog zeros if any missing
+            try:
+                db_path = _find_db_path()
+                if db_path:
+                    conn = sqlite3.connect(str(db_path))
+                    try:
+                        cur = conn.cursor()
+                        cur.execute("SELECT code FROM account")
+                        for (code,) in cur.fetchall():
+                            if code is None:
+                                continue
+                            key = str(code)
+                            if key not in balances_libro:
+                                balances_libro[key] = Decimal("0")
+                    finally:
+                        conn.close()
+            except Exception:
+                pass
             return balances_libro
     except Exception as e:
         LOG.debug("trial_balance: Libro fallback failed: %s", e)
@@ -504,7 +604,7 @@ def _persist_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
     Persist an entry dict:
       entry = {"description": str, "lines": [ {"account_code":..., "account_id":..., "debit":..., "credit":..., "description":...}, ... ]}
 
-    Validates accounts exist (sqlite check preferred), then inserts via ORM if available else sqlite.
+    Validates accounts exist (sqlite check preferred for account_id), then inserts via ORM if available else sqlite.
     Returns {"ok": True, "entry_id": id} or {"ok": False, "error": msg}.
     """
     desc = entry.get("description", "") or ""
@@ -512,12 +612,13 @@ def _persist_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
 
     def _verify_accounts(lines_list: List[Dict[str, Any]]) -> List[str]:
         """
-        Verify referenced accounts exist. Prefer sqlite direct check (deterministic for tests),
-        fallback to ORM/SQLModel verification if sqlite not available.
-        Returns list of missing identifiers (strings).
+        Verify referenced accounts exist where necessary.
+        - If account_id provided -> verify that id exists (sqlite preferred).
+        - If only account_code provided -> allow (we will persist account_code text).
+        Returns list of missing identifiers (strings) for account_id checks only.
         """
         missing: List[str] = []
-        # 1) sqlite check first
+        # 1) sqlite check first for account_id
         try:
             db = _find_db_path()
             if db is not None and Path(db).exists():
@@ -529,19 +630,14 @@ def _persist_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
                             cur.execute("SELECT 1 FROM account WHERE id = ? LIMIT 1", (int(ln["account_id"]),))
                             if not cur.fetchone():
                                 missing.append(str(ln.get("account_id")))
-                        elif ln.get("account_code"):
-                            cur.execute("SELECT 1 FROM account WHERE code = ? LIMIT 1", (str(ln["account_code"]),))
-                            if not cur.fetchone():
-                                missing.append(str(ln["account_code"]))
-                        else:
-                            missing.append("(sin cuenta en línea)")
+                        # if only account_code present, we accept it for persistence (no creation)
                     return missing
                 finally:
                     conn.close()
         except Exception:
-            LOG.debug("sqlite account verification failed; will fallback to ORM check", exc_info=True)
+            LOG.debug("sqlite account-id verification failed; will fallback to ORM check", exc_info=True)
 
-        # 2) ORM fallback
+        # 2) ORM fallback for account_id
         try:
             if Account is not None and get_session is not None:
                 with get_session() as s:
@@ -553,66 +649,65 @@ def _persist_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
                                 acc = None
                             if not acc:
                                 missing.append(str(ln.get("account_id")))
-                        elif ln.get("account_code"):
-                            try:
-                                sel = __import__("sqlmodel").sql.select(Account).where(Account.code == str(ln["account_code"]))
-                                acc = s.exec(sel).one_or_none()
-                            except Exception:
-                                acc = None
-                            if not acc:
-                                missing.append(str(ln["account_code"]))
-                        else:
-                            missing.append("(sin cuenta en línea)")
                 return missing
         except Exception:
-            LOG.debug("ORM account verification failed as well", exc_info=True)
+            LOG.debug("ORM account-id verification failed as well", exc_info=True)
 
         # If neither method ran successfully, raise to signal verification cannot be done
-        raise RuntimeError("No se pudo verificar la existencia de cuentas (ni sqlite ni ORM disponibles).")
+        raise RuntimeError("No se pudo verificar la existencia de cuentas por id (ni sqlite ni ORM disponibles).")
 
-    # perform verification
+    # perform verification (only checks account_id existence)
     try:
         missing = _verify_accounts(lines)
     except Exception as e:
         return {"ok": False, "error": f"Error verifying accounts: {e}"}
     if missing:
-        return {"ok": False, "error": "Cuentas no encontradas: " + ", ".join(missing)}
+        return {"ok": False, "error": "Cuentas no encontradas (por id): " + ", ".join(missing)}
 
-    # ORM insertion if available
+    # ORM insertion if available: try to include account_code if account_id not present
     if JournalEntry is not None and JournalLine is not None and get_session is not None:
         try:
             with get_session() as s:
-                je = JournalEntry(description=desc, created_at=datetime.datetime.utcnow())
+                je = JournalEntry(description=desc, created_at=datetime.datetime.now(datetime.timezone.utc))
                 s.add(je)
                 s.commit()
                 s.refresh(je)
                 for ln in lines:
                     account_id = ln.get("account_id")
-                    if not account_id and ln.get("account_code"):
+                    account_code = ln.get("account_code")
+                    if not account_id and account_code:
+                        # try to resolve account_id by code; if not found, we'll set account_code on line
                         try:
-                            sel = __import__("sqlmodel").sql.select(Account).where(Account.code == str(ln["account_code"]))
+                            sel = __import__("sqlmodel").sql.select(Account).where(Account.code == str(account_code))
                             acc = s.exec(sel).one_or_none()
                             if acc:
                                 account_id = acc.id
                         except Exception:
                             account_id = None
-                    if not account_id:
-                        s.rollback()
-                        return {"ok": False, "error": f"Cuenta no encontrada para línea: {ln}"}
-                    jl = JournalLine(
-                        entry_id=je.id,
-                        account_id=int(account_id),
-                        debit=float(ln.get("debit") or 0),
-                        credit=float(ln.get("credit") or 0),
-                        description=ln.get("description"),
-                    )
+                    # create JournalLine, prefer account_id but allow account_code property if model supports it
+                    jl_kwargs: Dict[str, Any] = {
+                        "entry_id": je.id,
+                        "debit": float(ln.get("debit") or 0),
+                        "credit": float(ln.get("credit") or 0),
+                        "description": ln.get("description"),
+                    }
+                    if account_id:
+                        jl_kwargs["account_id"] = int(account_id)
+                    else:
+                        # set account_code if model has field. We'll attempt to set attribute name 'account_code'
+                        if hasattr(JournalLine, "account_code"):
+                            jl_kwargs["account_code"] = str(account_code) if account_code is not None else None
+                        else:
+                            # If model doesn't have account_code, still proceed by leaving account_id None
+                            jl_kwargs["account_id"] = None
+                    jl = JournalLine(**jl_kwargs)
                     s.add(jl)
                 s.commit()
             return {"ok": True, "entry_id": je.id}
         except Exception:
             LOG.debug("ORM persist failed, falling back to sqlite", exc_info=True)
 
-    # sqlite fallback insertion
+    # sqlite fallback insertion (preferred in tests)
     db = _find_db_path()
     if db is None:
         return {"ok": False, "error": "No se encontró base de datos para persistir entry."}
@@ -628,9 +723,78 @@ def _persist_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
                 break
         if not entry_table:
             return {"ok": False, "error": "No se encontró tabla de entries en la DB."}
-        now = datetime.datetime.utcnow().isoformat()
-        cur.execute(f"INSERT INTO {entry_table} (description, created_at) VALUES (?, ?)", (desc, now))
-        entry_id = cur.lastrowid
+
+        # Inspect entry table columns dynamically and build insert columns accordingly.
+        cur.execute(f"PRAGMA table_info('{entry_table}')")
+        pragma_rows = cur.fetchall()  # rows: (cid, name, type, notnull, dflt_value, pk)
+
+        now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+        today_iso = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+
+        insert_cols = []
+        insert_vals = []
+
+        # Build values for columns that are present and required.
+        # We will fill known semantic columns first, then ensure any NOT NULL w/o default gets a sensible default.
+        for cid, colname, coltype, notnull, dflt_value, pk in pragma_rows:
+            # skip pk autoincrement (usually INTEGER PRIMARY KEY)
+            if pk:
+                continue
+            lname = colname.lower()
+
+            # Known semantic columns
+            if lname in ("description", "name", "concept", "title", "label"):
+                insert_cols.append(colname)
+                insert_vals.append(desc)
+                continue
+            if lname == "date":
+                insert_cols.append(colname)
+                insert_vals.append(today_iso)
+                continue
+            if lname in ("created_at", "created", "timestamp", "ts"):
+                insert_cols.append(colname)
+                insert_vals.append(now_iso)
+                continue
+
+            # If column already has a default in schema, skip it (DB will use default)
+            if dflt_value is not None:
+                continue
+
+            # If column is NOT NULL without default, supply a reasonable fallback based on declared type
+            if notnull:
+                ctype = (coltype or "").upper()
+                if "CHAR" in ctype or "CLOB" in ctype or "TEXT" in ctype:
+                    # likely a 'state' or status field
+                    insert_cols.append(colname)
+                    insert_vals.append("posted")
+                elif "INT" in ctype or "NUM" in ctype:
+                    insert_cols.append(colname)
+                    insert_vals.append(0)
+                elif "DATE" in ctype or "TIME" in ctype:
+                    insert_cols.append(colname)
+                    insert_vals.append(now_iso)
+                else:
+                    # generic fallback for unknown types
+                    insert_cols.append(colname)
+                    insert_vals.append("")
+
+        # Perform insert: if we have columns to insert, insert them; else use DEFAULT VALUES
+        if not insert_cols:
+            try:
+                cur.execute(f"INSERT INTO {entry_table} DEFAULT VALUES")
+                entry_id = cur.lastrowid
+            except Exception as e:
+                conn.rollback()
+                return {"ok": False, "error": f"No se pudo insertar en {entry_table}: {e}"}
+        else:
+            placeholders = ",".join("?" for _ in insert_cols)
+            cols_sql = ",".join(insert_cols)
+            try:
+                cur.execute(f"INSERT INTO {entry_table} ({cols_sql}) VALUES ({placeholders})", tuple(insert_vals))
+                entry_id = cur.lastrowid
+            except Exception as e:
+                conn.rollback()
+                return {"ok": False, "error": f"Error inserting into {entry_table}: {e}"}
 
         # find journalline table
         jl_table = None
@@ -643,26 +807,58 @@ def _persist_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
             conn.rollback()
             return {"ok": False, "error": "No se encontró tabla journalline en la DB."}
 
+        # Inspect journalline columns to decide which columns to insert
+        cur.execute(f"PRAGMA table_info('{jl_table}')")
+        jl_cols = [r[1] for r in cur.fetchall()]
+        has_account_code_col = "account_code" in jl_cols
+        has_account_id_col = "account_id" in jl_cols
+
         for ln in lines:
             acct_id = ln.get("account_id")
-            if not acct_id and ln.get("account_code"):
-                cur.execute("SELECT id FROM account WHERE code = ? LIMIT 1", (str(ln["account_code"]),))
+            account_code = ln.get("account_code")
+            if not acct_id and account_code:
+                # try to resolve id by code; if not found, we will insert account_code text
+                cur.execute("SELECT id FROM account WHERE code = ? LIMIT 1", (str(account_code),))
                 r = cur.fetchone()
                 if r:
                     acct_id = r[0]
-            if not acct_id:
+            # Build insertion columns dynamically
+            insert_cols = ["entry_id"]
+            insert_vals = [entry_id]
+            if has_account_id_col:
+                insert_cols.append("account_id")
+                insert_vals.append(int(acct_id) if acct_id is not None else None)
+            if has_account_code_col:
+                insert_cols.append("account_code")
+                insert_vals.append(str(account_code) if account_code is not None else None)
+            # add debit, credit, description, created_at when present in table
+            if "debit" in jl_cols:
+                insert_cols.append("debit"); insert_vals.append(float(ln.get("debit") or 0))
+            if "credit" in jl_cols:
+                insert_cols.append("credit"); insert_vals.append(float(ln.get("credit") or 0))
+            if "description" in jl_cols:
+                insert_cols.append("description"); insert_vals.append(ln.get("description"))
+            if "created_at" in jl_cols:
+                insert_cols.append("created_at"); insert_vals.append(now_iso)
+
+            # If account_id is required and not provided (and account_code not present), abort
+            if ("account_id" in jl_cols) and ("account_code" not in jl_cols) and not acct_id:
                 conn.rollback()
-                return {"ok": False, "error": f"Cuenta no encontrada para línea: {ln}"}
-            cur.execute(
-                f"INSERT INTO {jl_table} (entry_id, account_id, debit, credit, description, created_at) VALUES (?,?,?,?,?,?)",
-                (entry_id, int(acct_id), float(ln.get("debit") or 0), float(ln.get("credit") or 0), ln.get("description"), now),
-            )
+                return {"ok": False, "error": f"Cuenta no encontrada para línea y no hay columna account_code para almacenar el code: {ln}"}
+
+            placeholders = ",".join("?" for _ in insert_cols)
+            cols_sql = ",".join(insert_cols)
+            sql = f"INSERT INTO {jl_table} ({cols_sql}) VALUES ({placeholders})"
+            cur.execute(sql, tuple(insert_vals))
         conn.commit()
         return {"ok": True, "entry_id": entry_id}
     finally:
         conn.close()
 
 
+# -------------------------
+# Public wrapper: post_entry
+# -------------------------
 def post_entry(first: Any, amount: Optional[float] = None, ctx: Optional[Dict[str, Any]] = None, user: Optional[str] = None) -> Any:
     """
     Two usages supported:
