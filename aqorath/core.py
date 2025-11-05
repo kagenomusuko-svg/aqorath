@@ -265,12 +265,15 @@ def _persist_entry(session, entry_data: Dict[str, Any], lines_data: List[Dict[st
                     entry_values[col_name] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
         
         # Validate all column names before building SQL
+        # Security: Only allow alphanumeric + underscore column names to prevent SQL injection
         validated_cols = [k for k in entry_values.keys() if k.replace("_", "").isalnum()]
         
         # Insert entry using text SQL with validated column names
+        # Note: Column names are validated above, values use parameterized queries
         cols = ", ".join(validated_cols)
         placeholders = ", ".join([f":{k}" for k in validated_cols])
         validated_values = {k: entry_values[k] for k in validated_cols}
+        # Safe: validated_cols contains only sanitized column names, values are parameterized
         result = session.exec(text(f"INSERT INTO journalentry ({cols}) VALUES ({placeholders})"), validated_values)
         session.commit()
         
@@ -325,10 +328,12 @@ def _persist_entry(session, entry_data: Dict[str, Any], lines_data: List[Dict[st
                         line_values[col_name] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
             
             # Validate all column names before building SQL
+            # Security: Only allow alphanumeric + underscore column names to prevent SQL injection
             validated_cols = [k for k in line_values.keys() if k.replace("_", "").isalnum()]
             cols = ", ".join(validated_cols)
             placeholders = ", ".join([f":{k}" for k in validated_cols])
             validated_values = {k: line_values[k] for k in validated_cols}
+            # Safe: validated_cols contains only sanitized column names, values are parameterized
             session.exec(text(f"INSERT INTO journalline ({cols}) VALUES ({placeholders})"), validated_values)
         
         session.commit()
