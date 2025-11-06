@@ -88,6 +88,15 @@ class AsientoDialog(QDialog):
         account_row.addStretch()
         form_layout.addLayout(account_row)
         
+        # Description field for line items
+        desc_row = QHBoxLayout()
+        desc_row.addWidget(QLabel("Descripción:"))
+        self.description_edit = QLineEdit()
+        self.description_edit.setPlaceholderText("Descripción de la línea (opcional)")
+        desc_row.addWidget(self.description_edit)
+        desc_row.addStretch()
+        form_layout.addLayout(desc_row)
+        
         # Cargo/Abono selector
         tipo_row = QHBoxLayout()
         tipo_row.addWidget(QLabel("Tipo:"))
@@ -187,9 +196,10 @@ class AsientoDialog(QDialog):
         
         tipo = self.tipo_combo.currentText()
         
-        # Get account name
+        # Get account name and description
         account_info = self.catalog_dict.get("accounts", {}).get(account_code, {})
         account_name = account_info.get("name_comercial", account_info.get("name_osc", ""))
+        line_description = self.description_edit.text().strip()
         
         # Determine cargo/abono
         cargo = amount if tipo == "Cargo" else Decimal("0")
@@ -201,7 +211,7 @@ class AsientoDialog(QDialog):
             "account_name": account_name,
             "debit": float(cargo),
             "credit": float(abono),
-            "description": ""
+            "description": line_description
         })
         
         # Update table
@@ -209,6 +219,7 @@ class AsientoDialog(QDialog):
         
         # Clear form
         self.amount_edit.clear()
+        self.description_edit.clear()
         self.account_combo.setCurrentIndex(0)
     
     def _update_table(self):
@@ -264,6 +275,7 @@ class AsientoDialog(QDialog):
             QMessageBox.information(self, "Balance", "El asiento está balanceado correctamente")
             # Clear input fields
             self.amount_edit.clear()
+            self.description_edit.clear()
             self.account_combo.setCurrentIndex(0)
         elif balance == 0:
             QMessageBox.warning(self, "Balance", "El asiento está vacío")
@@ -320,9 +332,13 @@ class AsientoDialog(QDialog):
             return
         
         # Construct entry dict for post_entry
+        # Convert QDate to datetime for the entry
+        selected_date = self.date_edit.date()
+        entry_datetime = datetime(selected_date.year(), selected_date.month(), selected_date.day())
+        
         entry = {
-            "description": f"Asiento del {self.date_edit.date().toString('yyyy-MM-dd')}",
-            "date": datetime.now(),
+            "description": f"Asiento del {selected_date.toString('yyyy-MM-dd')}",
+            "date": entry_datetime,
             "lines": []
         }
         
@@ -338,19 +354,16 @@ class AsientoDialog(QDialog):
         try:
             result = post_entry(entry)
             
-            # Check result format
-            if isinstance(result, dict):
-                if result.get("ok"):
-                    QMessageBox.information(self, "Éxito", "Asiento guardado correctamente")
-                    self.accept()
-                else:
-                    QMessageBox.critical(self, "Error", f"Error al guardar: {result.get('error', 'Unknown error')}")
-            elif isinstance(result, int):
-                # Entry ID returned (template mode, but we use dict mode)
-                QMessageBox.information(self, "Éxito", f"Asiento guardado con ID: {result}")
+            # post_entry with dict mode returns dict with "ok" and "entry_id"
+            if isinstance(result, dict) and result.get("ok"):
+                QMessageBox.information(self, "Éxito", "Asiento guardado correctamente")
                 self.accept()
+            elif isinstance(result, dict):
+                # Error case
+                QMessageBox.critical(self, "Error", f"Error al guardar: {result.get('error', 'Unknown error')}")
             else:
-                QMessageBox.critical(self, "Error", f"Resultado inesperado: {result}")
+                # Unexpected result format
+                QMessageBox.critical(self, "Error", f"Resultado inesperado del tipo: {type(result)}")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error al guardar asiento:\n{str(e)}")
     
@@ -363,4 +376,5 @@ class AsientoDialog(QDialog):
         self.entry_lines.clear()
         self._update_table()
         self.amount_edit.clear()
+        self.description_edit.clear()
         self.account_combo.setCurrentIndex(0)
