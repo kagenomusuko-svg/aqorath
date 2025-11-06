@@ -11,4 +11,4 @@ sqlalchemy
 python-dateutil
 pytest
 fastapi
-uvicorn
+uvicornPySide6
