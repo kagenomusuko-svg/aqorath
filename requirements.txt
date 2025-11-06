@@ -12,3 +12,6 @@ python-dateutil
 pytest
 fastapi
 uvicorn
+PySide6
+jinja2
+weasyprint

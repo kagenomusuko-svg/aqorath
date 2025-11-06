@@ -61,8 +61,9 @@ def _read_db() -> Optional[str]:
     try:
         s = get_session()
         try:
-            # Try to locate config row; adapt if your AppConfig schema differs
-            row = s.exec(AppConfig.select().where(AppConfig.key == DB_KEY)).one_or_none()
+            # Try to locate config row using sqlmodel.select
+            from sqlmodel import select as sql_select
+            row = s.exec(sql_select(AppConfig).where(AppConfig.key == DB_KEY)).one_or_none()
             if row:
                 return getattr(row, "value", None)
         finally:
@@ -83,7 +84,8 @@ def _write_db(value: str) -> bool:
     try:
         s = get_session()
         try:
-            row = s.exec(AppConfig.select().where(AppConfig.key == DB_KEY)).one_or_none()
+            from sqlmodel import select as sql_select
+            row = s.exec(sql_select(AppConfig).where(AppConfig.key == DB_KEY)).one_or_none()
             if row:
                 setattr(row, "value", value)
                 s.add(row)
