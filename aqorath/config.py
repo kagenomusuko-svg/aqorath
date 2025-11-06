@@ -54,6 +54,7 @@ def _read_db() -> Optional[str]:
     try:
         from aqorath.models import AppConfig  # type: ignore
         from aqorath.storage import get_session  # type: ignore
+        from sqlmodel import select  # type: ignore
     except Exception as e:
         LOG.debug("DB access not available for config read: %s", e)
         return None
@@ -62,7 +63,7 @@ def _read_db() -> Optional[str]:
         s = get_session()
         try:
             # Try to locate config row; adapt if your AppConfig schema differs
-            row = s.exec(AppConfig.select().where(AppConfig.key == DB_KEY)).one_or_none()
+            row = s.exec(select(AppConfig).where(AppConfig.key == DB_KEY)).one_or_none()
             if row:
                 return getattr(row, "value", None)
         finally:
@@ -76,6 +77,7 @@ def _write_db(value: str) -> bool:
     try:
         from aqorath.models import AppConfig  # type: ignore
         from aqorath.storage import get_session  # type: ignore
+        from sqlmodel import select  # type: ignore
     except Exception as e:
         LOG.debug("DB access not available for config write: %s", e)
         return False
@@ -83,7 +85,7 @@ def _write_db(value: str) -> bool:
     try:
         s = get_session()
         try:
-            row = s.exec(AppConfig.select().where(AppConfig.key == DB_KEY)).one_or_none()
+            row = s.exec(select(AppConfig).where(AppConfig.key == DB_KEY)).one_or_none()
             if row:
                 setattr(row, "value", value)
                 s.add(row)

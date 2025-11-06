@@ -1,25 +1,22 @@
 """
-MainWindow esqueleto con logo central, botones laterales (Ingreso/Egreso/Cuentas propias)
-y un menú superior con Reportes/Catálogo/Configuración.
+MainWindow refactored to use modular UI components.
+Includes sidebar with Ingreso/Egreso/Cuentas propias and AsientoDialog integration.
 """
-import os
 from pathlib import Path
 
-try:
-    from PySide6.QtGui import QPixmap, QAction
-    from PySide6.QtWidgets import (
-        QApplication,
-        QMainWindow,
-        QLabel,
-        QWidget,
-        QHBoxLayout,
-        QVBoxLayout,
-        QPushButton,
-        QMenuBar,
-        QMessageBox,
-    )
-except Exception:
-    QApplication = None  # type: ignore
+from PySide6.QtGui import QPixmap, QAction
+from PySide6.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QLabel,
+    QWidget,
+    QHBoxLayout,
+    QVBoxLayout,
+    QMessageBox,
+)
+
+from .sidebar import create_sidebar
+from .asiento_dialog import AsientoDialog
 
 ASSETS_LOGO = Path(__file__).resolve().parents[1] / "assets" / "sello_ac.png"
 
@@ -37,34 +34,27 @@ class MainWindow(QMainWindow):
         menu_conf = menu.addMenu("Configuración")
 
         gen_report_action = QAction("Generar reporte", self)
-        gen_report_action.triggered.connect(lambda: QMessageBox.information(self, "Reportes", "Generar reporte - pendiente"))
+        gen_report_action.triggered.connect(self.on_generate_report)
         menu_reportes.addAction(gen_report_action)
 
         catalog_action = QAction("Ver catálogo", self)
-        catalog_action.triggered.connect(lambda: QMessageBox.information(self, "Catálogo", "Abrir catálogo - pendiente"))
+        catalog_action.triggered.connect(self.on_view_catalog)
         menu_catalogo.addAction(catalog_action)
 
         conf_action = QAction("Ajustes", self)
-        conf_action.triggered.connect(lambda: QMessageBox.information(self, "Configuración", "Configuración - pendiente"))
+        conf_action.triggered.connect(self.on_settings)
         menu_conf.addAction(conf_action)
 
         # Layout central
         central = QWidget()
         h = QHBoxLayout(central)
 
-        # Botones laterales (izquierda)
-        left = QVBoxLayout()
-        btn_ingreso = QPushButton("[I] Ingreso")
-        btn_egreso = QPushButton("[E] Egreso")
-        btn_diario = QPushButton("[D] Cuentas propias")
-        btn_ingreso.clicked.connect(lambda: QMessageBox.information(self, "Ingreso", "Registrar Ingreso - pendiente"))
-        btn_egreso.clicked.connect(lambda: QMessageBox.information(self, "Egreso", "Registrar Egreso - pendiente"))
-        btn_diario.clicked.connect(lambda: QMessageBox.information(self, "Cuentas propias", "Registrar Cuentas propias - pendiente"))
-
-        left.addWidget(btn_ingreso)
-        left.addWidget(btn_egreso)
-        left.addWidget(btn_diario)
-        left.addStretch(1)
+        # Sidebar (left) with callbacks
+        sidebar = create_sidebar(
+            on_ingreso=self.on_ingreso,
+            on_egreso=self.on_egreso,
+            on_cuentas_propias=self.on_cuentas_propias
+        )
 
         # Centro con logo
         center_widget = QWidget()
@@ -84,18 +74,42 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(QLabel("Panel de registros (próximamente)"))
         right_layout.addStretch(1)
 
-        h.addLayout(left, 0)
+        h.addLayout(sidebar, 0)
         h.addWidget(center_widget, 1)
         h.addLayout(right_layout, 0)
 
         self.setCentralWidget(central)
+    
+    def on_ingreso(self):
+        """Handle Ingreso button click - open AsientoDialog."""
+        dialog = AsientoDialog(self)
+        dialog.exec()
+    
+    def on_egreso(self):
+        """Handle Egreso button click - open AsientoDialog."""
+        dialog = AsientoDialog(self)
+        dialog.exec()
+    
+    def on_cuentas_propias(self):
+        """Handle Cuentas propias button click - open AsientoDialog."""
+        dialog = AsientoDialog(self)
+        dialog.exec()
+    
+    def on_generate_report(self):
+        """Placeholder for report generation."""
+        QMessageBox.information(self, "Reportes", "Generar reporte - pendiente")
+    
+    def on_view_catalog(self):
+        """Placeholder for viewing catalog."""
+        QMessageBox.information(self, "Catálogo", "Abrir catálogo - pendiente")
+    
+    def on_settings(self):
+        """Placeholder for settings."""
+        QMessageBox.information(self, "Configuración", "Configuración - pendiente")
 
 
 if __name__ == "__main__":
-    if QApplication is None:
-        print("PySide6 no instalado. Ejecuta: pip install PySide6")
-    else:
-        app = QApplication([])
-        w = MainWindow()
-        w.show()
-        app.exec()
+    app = QApplication([])
+    w = MainWindow()
+    w.show()
+    app.exec()
