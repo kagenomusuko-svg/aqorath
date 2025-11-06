@@ -22,6 +22,14 @@ from PySide6.QtWidgets import (
 from .sidebar import create_sidebar
 from .asiento_dialog import AsientoDialog
 
+# Import core functions at module level for better performance
+try:
+    from aqorath.core import trial_balance
+    from aqorath.exercise import close_exercise
+except ImportError:
+    trial_balance = None
+    close_exercise = None
+
 ASSETS_LOGO = Path(__file__).resolve().parents[1] / "assets" / "sello_ac.png"
 
 
@@ -121,8 +129,11 @@ class MainWindow(QMainWindow):
         Generate trial balance report.
         Reuses logic from finish_exercise method.
         """
+        if trial_balance is None:
+            QMessageBox.critical(self, "Error", "trial_balance function not available")
+            return
+        
         try:
-            from aqorath.core import trial_balance
             balances = trial_balance()
             
             if not balances:
@@ -155,6 +166,10 @@ class MainWindow(QMainWindow):
         Close accounting exercise.
         Reuses logic from finish_exercise method.
         """
+        if close_exercise is None:
+            QMessageBox.critical(self, "Error", "close_exercise function not available")
+            return
+        
         reply = QMessageBox.question(
             self,
             "Cerrar ejercicio",
@@ -167,7 +182,6 @@ class MainWindow(QMainWindow):
             return
         
         try:
-            from aqorath.exercise import close_exercise
             result = close_exercise(carry_over=True)
             
             if result.get("ok"):

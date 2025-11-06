@@ -3,7 +3,7 @@ AsientoDialog for journal entry creation with catalog validation.
 """
 from decimal import Decimal
 from datetime import datetime
-from typing import List, Dict, Any, Set
+from typing import List, Dict, Any, Set, Optional
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
@@ -13,6 +13,23 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QDate
 
 from .utils import load_catalog_codes
+
+# Import post_entry at module level for better performance
+try:
+    from aqorath.core import post_entry as _post_entry
+except ImportError:
+    _post_entry = None
+
+# Cache catalog codes at module level to avoid reloading
+_CATALOG_CODES_CACHE: Optional[Set[str]] = None
+
+
+def get_cached_catalog_codes() -> Set[str]:
+    """Get catalog codes from cache or load and cache them."""
+    global _CATALOG_CODES_CACHE
+    if _CATALOG_CODES_CACHE is None:
+        _CATALOG_CODES_CACHE = load_catalog_codes()
+    return _CATALOG_CODES_CACHE
 
 
 class AsientoDialog(QDialog):
@@ -32,8 +49,8 @@ class AsientoDialog(QDialog):
         self.setWindowTitle("Nuevo Asiento")
         self.resize(900, 600)
         
-        # Load catalog codes
-        self.catalog_codes: Set[str] = load_catalog_codes()
+        # Load catalog codes from cache
+        self.catalog_codes: Set[str] = get_cached_catalog_codes()
         
         # Entry lines storage
         self.entry_lines: List[Dict[str, Any]] = []
@@ -279,15 +296,19 @@ class AsientoDialog(QDialog):
             return
         
         # Construct entry dict
+        fecha = self.fecha_input.date()
         entry = {
-            "description": f"Asiento {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+            "description": f"Asiento manual {fecha.toString('yyyy-MM-dd')}",
             "lines": self.entry_lines
         }
         
         # Persist entry
+        if _post_entry is None:
+            QMessageBox.critical(self, "Error", "post_entry function not available")
+            return
+        
         try:
-            from aqorath.core import post_entry
-            result = post_entry(entry)
+            result = _post_entry(entry)
             
             if isinstance(result, dict):
                 if result.get("ok"):
