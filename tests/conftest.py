@@ -73,3 +73,144 @@ with get_session() as s:
     except Exception:
         # Si falla la dedup, permitimos que los tests sigan y lo reporten
         pass
+
+
+# ============================================================================
+# FIXTURES PARA TESTS P0 (REGRESSION TESTS)
+# ============================================================================
+
+import pytest
+import tempfile
+import sqlite3
+from decimal import Decimal
+from datetime import datetime, timezone
+from sqlmodel import Session, create_engine, SQLModel
+
+@pytest.fixture
+def temp_db_with_accounts():
+    """
+    Crea SQLite temporal AISLADA para tests P0.
+    Evita listeners de storage.py usando sqlite3 directo para setup.
+    Retorna (db_path, engine, session_factory).
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / "test_p0.db"
+        
+        # 1) Crear schema con sqlite3 directo (evita listeners)
+        conn = sqlite3.connect(str(db_path))
+        cur = conn.cursor()
+        
+        # Crear tablas mínimas
+        cur.execute("""
+            CREATE TABLE account (
+                id INTEGER PRIMARY KEY,
+                code TEXT UNIQUE,
+                name TEXT,
+                nature TEXT,
+                vat_flag BOOLEAN DEFAULT 0,
+                created_at TIMESTAMP
+            )
+        """)
+        
+        cur.execute("""
+            CREATE TABLE journalentry (
+                id INTEGER PRIMARY KEY,
+                date TIMESTAMP,
+                concept TEXT,
+                doc_ref TEXT,
+                period_id INTEGER,
+                posted_by TEXT,
+                state TEXT,
+                created_at TIMESTAMP
+            )
+        """)
+        
+        cur.execute("""
+            CREATE TABLE journalline (
+                id INTEGER PRIMARY KEY,
+                entry_id INTEGER,
+                account_code TEXT,
+                account_id INTEGER,
+                debit FLOAT,
+                credit FLOAT,
+                description TEXT,
+                created_at TIMESTAMP
+            )
+        """)
+        
+        # 2) Insertar cuentas base con sqlite3 (directo, sin listeners)
+        now = datetime.now(timezone.utc).isoformat()
+        accounts = [
+            ("1000", "Bancos", "debit"),
+            ("3000", "Ventas", "credit"),
+            ("3100", "Costos", "debit"),
+            ("4000", "Gastos", "debit"),
+            ("3103", "Resultado", "credit"),
+        ]
+        for code, name, nature in accounts:
+            cur.execute(
+                "INSERT INTO account (code, name, nature, created_at) VALUES (?, ?, ?, ?)",
+                (code, name, nature, now)
+            )
+        
+        conn.commit()
+        conn.close()
+        
+        # 3) Crear engine y session para lectura/escritura test
+        engine = create_engine(f"sqlite:///{db_path}", echo=False)
+        
+        # Cargar modelos para que SQLAlchemy los conozca
+        from aqorath.models import Account, JournalEntry, JournalLine
+        
+        yield db_path, engine
+        
+        # Cleanup automático
+
+
+@pytest.fixture
+def session_from_temp_db(temp_db_with_accounts):
+    """Sesión contra DB P0 temporal."""
+    db_path, engine = temp_db_with_accounts
+    session = Session(engine)
+    try:
+        yield session
+    finally:
+        session.close()
+
+
+@pytest.fixture
+def minimal_catalog():
+    """Catálogo mínimo para tests P0."""
+    return {
+        "accounts": {
+            "1000": {"name_comercial": "Bancos", "tipo": "Activo", "naturaleza": "debit"},
+            "3000": {"name_comercial": "Ventas", "tipo": "Ingreso", "naturaleza": "credit"},
+            "3100": {"name_comercial": "Costos", "tipo": "Costo", "naturaleza": "debit"},
+            "4000": {"name_comercial": "Gastos", "tipo": "Gasto", "naturaleza": "debit"},
+            "3103": {"name_comercial": "Resultado del Ejercicio", "tipo": "Patrimonio", "naturaleza": "credit"},
+        }
+    }
+
+
+@pytest.fixture
+def setup_accounts_in_session(session_from_temp_db):
+    """
+    Retorna la sesión (cuentas ya están en la BD temporal).
+    No necesita insertar porque ya están creadas en temp_db_with_accounts.
+    """
+    return session_from_temp_db
+
+
+@pytest.fixture
+def env_with_temp_db(temp_db_with_accounts):
+    """Configura AQORATH_DB para apuntar a DB temporal."""
+    db_path, engine = temp_db_with_accounts
+    old_db = os.environ.get("AQORATH_DB")
+    os.environ["AQORATH_DB"] = str(db_path)
+    
+    yield db_path
+    
+    if old_db is not None:
+        os.environ["AQORATH_DB"] = old_db
+    elif "AQORATH_DB" in os.environ:
+        del os.environ["AQORATH_DB"]
