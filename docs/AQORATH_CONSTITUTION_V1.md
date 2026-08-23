@@ -94,11 +94,18 @@ Toda arquitectura, API, interfaz y motor contable debe poder justificarse contra
 
 **Consecuencia arquitectónica:**
 - Valores monetarios: usar Decimal, nunca float binario como representación autoritativa
-- Persistencia: NUMERIC/DECIMAL o equivalente exacto
+- Persistencia: la representación persistida debe conservar exactamente el valor monetario y permitir recuperación exacta
 - Cálculos intermedios: Decimal Python
 - Serialización (JSON, API, importación): formato exacto (decimal textual u otro)
 - No existe cuantización universal a 2 decimales. Escala y redondeo dependen del tipo de valor y de la regla contable/fiscal aplicable
-- Phase 1 definirá políticas concretas de redondeo por contexto
+- Phase 1 determinará la estrategia persistente exacta mediante round-trip tests y validará que conserva exactitud
+
+**NO prescribe esta Constitución:**
+- Tipo de dato SQL concreto (NUMERIC, DECIMAL, INTEGER, TEXT, etc.)
+- Estrategia de persistencia específica
+- Implementación de redondeo
+
+La validación mediante round-trip tests es requisito no negociable en Phase 1.
 
 ---
 
@@ -304,12 +311,12 @@ PAQUETE ("Bancos")
 
 ### R20: REUTILIZACIÓN DE INFORMACIÓN
 
-**Regla:** La información ya conocida por Aqorath debe reutilizarse y no solicitarse nuevamente, salvo que sea necesario confirmar que cambió o resolver una ambigüedad material.
+**Regla:** La información ya conocida por Aqorath debe reutilizarse y no solicitarse nuevamente, salvo que sea necesario confirmar un cambio o resolver una ambigüedad material.
 
 **Consecuencia arquitectónica:**
 - Si Aqorath ha capturado correctamente: tercero, importe, CFDI, documento, fecha, cálculo, no volver a pedirlo
 - UI debe reflejar información conocida (autocompletar, sugestiones, presets)
-- Arquitectura de datos, estrategias de caché, indexación, queries: decididas en Phase 1 según rendimiento y contexto
+- La arquitectura de datos y estrategias de rendimiento se deciden en Phase 1
 
 ---
 

@@ -42,29 +42,42 @@ Propone una estructura conceptual que:
 │  NUNCA importa implementaciones concretas.          │
 └───────────────┬─────────────────────────────────────┘
                 │
-        ├───────┴───────┐
-        ↓               ↓
+                ↓ depende de
 
-┌─────────────────────┐  ┌────────────────────────┐
-│  DOMAIN             │  │  INFRASTRUCTURE         │
-│  (Motor de Negocio) │  │  (Implementaciones)    │
-│                     │  │                        │
-│  Entidades puras    │  │  SQLiteRepository      │
-│  Reglas de negocio  │  │  FileBackupService     │
-│  Ports/Abstracciones│  │  ReportRenderer        │
-│  Sin dependencias   │  │  (PDF, Excel, JSON)    │
-│  externas           │  │  ConfigurationManager  │
-└─────────────────────┘  │  CFDIService           │
-                         │                        │
-                         │  COMPOSITION ROOT      │
-                         │  (instancia e inyecta  │
-                         │   implementaciones)    │
-                         └────────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│  DOMAIN                                             │
+│  (Motor de Negocio)                                 │
+│                                                     │
+│  Entidades puras                                    │
+│  Reglas de negocio                                  │
+│  Ports/Abstracciones (interfaces)                   │
+│  Sin dependencias externas                          │
+└─────────────────────────────────────────────────────┘
 
-REGLA: Domain define Ports (interfaces), NO implementaciones.
-REGLA: Infrastructure implementa los Ports definidos por Domain/Application.
-REGLA: Application importa Domain + Ports, NUNCA importa Infrastructure.
-REGLA: Composition Root (bootstrapping) instancia las implementaciones y las inyecta.
+┌─────────────────────────────────────────────────────┐
+│  INFRASTRUCTURE                                     │
+│  (Implementaciones de Ports)                        │
+│                                                     │
+│  SQLiteRepository (implementa Port Repository)      │
+│  FileBackupService (implementa Port BackupService)  │
+│  ReportRenderer (implementa Port ReportRenderer)    │
+│  ConfigurationManager (implementa Port Config)      │
+│  CFDIService (implementa Port CFDIService)          │
+└─────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────┐
+│  COMPOSITION ROOT (Bootstrapping)                   │
+│  (Realiza inyección de dependencias)                │
+│                                                     │
+│  Instancia objetos de Infrastructure                │
+│  Inyecta en Application/Domain                      │
+│  Punto único donde se conocen ambas capas           │
+└─────────────────────────────────────────────────────┘
+
+REGLA FUNDAMENTAL:
+  Application nunca importa Infrastructure.
+  Composition Root es el ÚNICO lugar donde se conectan.
+  Infrastructure implementa Ports definidos por Domain/Application.
 ```
 
 ---
