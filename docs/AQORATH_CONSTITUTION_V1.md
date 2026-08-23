@@ -158,8 +158,10 @@ Toda arquitectura, API, interfaz y motor contable debe poder justificarse contra
 - A) Estructura contable canónica protegida (Activo/Pasivo/Patrimonio/Ingresos/Gastos)
 - B) Cuentas/extensiones creadas por usuario para su realidad concreta
 - Usuario puede describir "Mi cuenta BBVA" → Sistema la ubica en estructura canónica sin pedir código
-- El listener debe **validar estructura** NO **prevenir creación**
-- Extensiones deben poder marcarse como is_canonical=false
+- Validación de estructura (no bloqueo de creación):
+  - Validador debe rechazar cuentas que rompen estructura canónica
+  - Pero permitir cuentas válidas que el usuario necesita
+  - Extensiones deben marcarse con atributo (ej: is_canonical=false)
 - Estructura canónica (tipos, subtipos, naturaleza) no puede romperse
 
 ---
@@ -298,9 +300,13 @@ PAQUETE ("Bancos")
 
 **Consecuencia arquitectónica:**
 - Si Aqorath conoce al tercero/importe/CFDI, no los pide nuevamente
-- Caché local de "datos recientes/comunes"
-- UI debe autocompletar/sugerir basado en historial
-- Nunca re-preguntar dato ya conocido
+- Dato conocido se reutiliza mediante la arquitectura de datos correspondiente:
+  - ThirdParty en base de datos para terceros
+  - Historial de asientos para importes recientes
+  - Catálogo de cuentas para referencias contables
+  - (Implementación: caché, índices, queries optimizadas — Phase 1 decide)
+- UI debe autocompletar/sugerir basado en datos conocidos
+- Nunca re-preguntar dato ya persistido
 
 ---
 

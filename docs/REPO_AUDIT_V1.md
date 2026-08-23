@@ -11,7 +11,12 @@
 
 Aqorath es un **ERP contable en transición arquitectónica** con hallazgos críticos que **afectan integridad contable**.
 
-**Estado:** Funcional para casos básicos, pero con **3 riesgos P0** y **4 riesgos P1** que deben resolverse antes de producción.
+**Estado:** Funcional para casos básicos, pero con **4 riesgos P0** y **4 riesgos P1** que deben resolverse antes de producción.
+
+**Nota de FASE 0.2:** Esta auditoría ha sido REVISADA para identificar:
+- 4 hallazgos P0 (antes: 3) — incluye account_code no validado
+- 4 hallazgos P1 (antes: 4) — downgrade de test/tests a P2, upgrade de fallback Excel a P1
+- 5 hallazgos P2 (antes: 3+) — para deuda técnica acumulada
 
 ---
 
@@ -115,7 +120,43 @@ trial_balance("2026-03-31")  # ¿Balanza al 31 de marzo?
 
 ---
 
-## HALLAZGOS GRAVES P1 (Contradicción Arquitectónica)
+### P0-4: account_code NO VALIDADO CONTRA CATÁLOGO
+
+**Ubicación:** `aqorath/core.py::_verify_accounts()` línea 245-260
+
+**Descripción:**
+```python
+def _verify_accounts(entry_dict):
+    """Verifica que asiento esté balanceado, pero NO valida cuentas"""
+    for line in entry_dict['lines']:
+        account_code = line.get('account_code')
+        # ✗ Si se proporciona solo account_code (texto):
+        #   Sistema permite persistencia SIN verificar que existe
+        #   en Account/catálogo gobernado
+```
+
+**Impacto:**
+```
+Caso concreto:
+1. Usuario proporciona: {"account_code": "9999-XX-INEXISTENTE"}
+2. Asiento está balanceado: débitos = créditos ✓
+3. Sistema persiste asiento completo
+4. Posterior consulta a catálogo muestra código huérfano
+5. Reportes filtran cuentas conocidas → dato "desaparece"
+6. Estados financieros están incompletos pero no hay error visible
+```
+
+**Verificación requerida:**
+- Asiento con account_code inexistente
+- Balanceado (débitos = créditos)
+- Debe ser RECHAZADO con mensaje "Cuenta no existe en catálogo"
+- Actual: Permitido (BUG)
+
+**Clasificación:** **P0 (CRÍTICO)** — Permite persistencia de póliza estructuralmente inválida aunque algebraicamente balanceada. Viola Regla 4 (PARTIDA DOBLE COMO INVARIANTE ABSOLUTA) en interpretación estricta: un asiento inválido no debe persistirse.
+
+---
+
+## HALLAZGOS GRAVES P1 (Contradicción Arquitectónica + Fallback Silencioso)
 
 ### P1-1: JournalEntry ORM INCOMPATIBLE CON _persist_entry()
 
@@ -190,7 +231,34 @@ def _prevent_non_catalog_account(...):
 
 ---
 
-### P1-4: DUPLICACIÓN test/ + tests/ (Autoridad Única)
+### P1-4: FALLBACK EXCEL/PANDAS COMO SEGUNDA AUTORIDAD (CRÍTICO)
+
+**Ubicación:** `modelos/libro.py` + `aqorath/core.py` lineas 700+
+
+**Problema:**
+```python
+# En aqorath/core.py:
+try:
+    result = trial_balance_from_sqlite(...)
+except Exception:
+    result = trial_balance_from_pandas_fallback(...)  # ✗ Fallback silencioso
+```
+
+- Si SQLite falla: sistema cae a Pandas/Excel (authority bifurcada)
+- Usuario no sabe cuál es la fuente de verdad
+- Cambios en Pandas pueden no reflejarse en SQLite (divergencia)
+- Datos pueden estar diferentes dependiendo de "qué pasó esta sesión"
+
+**Impacto:**
+- Viola Regla 7 (SQLite como fuente contable local)
+- Viola Regla 2 (una contabilidad única)
+- Dos autoridades compiten → resultados diferentes
+
+**Clasificación:** **P1 (GRAVE)** — Causa bifurcación de autoridad contable. Aunque actualmente funciona, es riesgo estructural que afecta integridad.
+
+---
+
+### P1-5: DUPLICACIÓN test/ + tests/ (Autoridad Única de Tests)
 
 **Ubicación:** Dos carpetas paralelas
 
@@ -206,7 +274,7 @@ tests/        10 tests → todos PASSED
 - CI debe ejecutar ambas (ineficiente)
 - Deprecación de una requiere refactor
 
-**Clasificación:** **P1 (GRAVE)** — Viola Regla 24 (una autoridad única).
+**Clasificación:** **P2 (IMPORTANTE)** — No es crítica para integridad de datos (anterior P1-4 es más urgente). Pero viola Regla 24 (una autoridad única) en testing. Consolidar a tests/, deprecate test/ en Phase 1.
 
 ---
 
@@ -279,7 +347,43 @@ reports_jinja.py  ← en raíz, no en aqorath/
 
 ---
 
-### P2-4: 29 except Exception GENÉRICAS
+### P2-4: reports_jinja.py UBICACIÓN Y IMPORTS INCONSISTENTES
+
+**Ubicación:** `reports_jinja.py` (raíz del repo)
+
+**Problema:**
+```python
+# Importadores (aqorath/api.py, aqorath/desktop.py):
+from .reports_jinja import generate_pdf_from_preview
+     ↑ Intenta importar como subpaquete
+
+# Realidad:
+reports_jinja.py está en raíz, no en aqorath/
+
+# Además, reports_jinja.py usa:
+from .core import ...
+from .company import ...
+from .storage import ...
+     ↑ Imports relativos que asumen ubicación en aqorath/
+```
+
+**Conflicto:**
+- `reports_jinja.py` usa imports relativos (`.core`, `.storage`)
+- Pero está en raíz, no en `aqorath/`
+- Entonces los imports relativos NO resuelven a módulos reales
+
+**Dependencias no declaradas en reports_jinja.py:**
+- `jinja2` → para templates
+- `weasyprint` → para PDF
+
+**Clasificación:** **P2 (IMPORTANTE)** — Arquitectura/empaquetado de reportes inconsistente. Debe decidirse en Phase 1:
+- ¿Mover reports_jinja.py a aqorath/reporting/ ?
+- ¿O refactorizar imports relativos?
+- ¿O declarar jinja2 + weasyprint en requirements.txt?
+
+---
+
+### P2-5: 29 except Exception GENÉRICAS
 
 **Detectadas en:**
 - aqorath/core.py (5+)
@@ -295,24 +399,33 @@ reports_jinja.py  ← en raíz, no en aqorath/
 
 ---
 
-## ESTADO DE COMPONENTES
+## ESTADO DE COMPONENTES (CLASIFICACIÓN REVISADA)
 
 | Componente | Clasificación | Descripción |
 |-----------|---|---|
-| aqorath/core.py | CANÓNICA | Motor contable, reparable |
-| aqorath/models.py | CANÓNICA | ORM SQLModel, requiere Decimal |
-| aqorath/templates.py | CANÓNICA | Plantillas, funcional |
-| aqorath/storage.py | CANÓNICA | Sesión, listener problemático |
-| aqorath/catalog.py | CANÓNICA | Catálogo, funcional |
-| aqorath/exercise.py | CANÓNICA | Cierres, requiere as_of fix |
-| aqorath/config.py | CANÓNICA | Config, falla silenciosa en BD |
-| aqorath/api.py | ROOTA | NO IMPORTABLE (missing reports_jinja) |
-| aqorath/desktop.py | RAÍZ | NO IMPORTABLE (missing PySide6) |
-| modelos/libro.py | LEGACY | Fallback DataFrames, debe eliminarse |
-| test/ | LEGACY | Migrate a tests/, deprecate |
-| tests/ | CANÓNICA | Suite actual, 26 tests PASSED |
-| app.py (root) | LEGACY | Parece CLI/híbrido, unclear |
-| api/app.py | PROTOTIPO | FastAPI app stub |
+| aqorath/core.py | CANÓNICA | Motor contable, tiene bugs P0 pero reparable |
+| aqorath/models.py | TRANSICIONAL | ORM SQLModel, mezcla persistencia+domain. Phase 1 separará. |
+| aqorath/templates.py | CANÓNICA | Plantillas de reglas contables, funcional |
+| aqorath/storage.py | TRANSICIONAL | Sesión/listener, problemas P1 pero recoverable |
+| aqorath/catalog.py | CANÓNICA | Catálogo, funcional aunque bloquea extensibilidad |
+| aqorath/exercise.py | TRANSICIONAL | Cierres, requiere bug fix as_of. No es canónica hasta P0-3 esté reparado. |
+| aqorath/config.py | TRANSICIONAL | Tiene fallback silencioso (P1-2). Candidato a refactor. |
+| aqorath/api.py | ROOTA | NO IMPORTABLE (missing reports_jinja). Candidata a deprecación si se elige desktop. |
+| aqorath/desktop.py | RAÍZ | NO IMPORTABLE (missing PySide6). Candidata a deprecación si se elige web. |
+| modelos/libro.py | LEGACY | Fallback Pandas/Excel. Debe eliminarse en Phase 1 tras migración. |
+| test/ | LEGACY | 16 tests. Merge a tests/ en Phase 1. |
+| tests/ | CANÓNICA | 10 tests. Suite objetivo. |
+| app.py (root) | RECUPERABLE | Punto de entrada híbrido. Uso actual TBD. |
+| api/app.py | PROTOTIPO | FastAPI app stub, candidata a consolidación. |
+| reports_jinja.py | RECUPERABLE | Importable pero ubicación inconsistente (ver P2-12). |
+
+**REGLA DE CLASIFICACIÓN:**
+- **CANÓNICA:** Componente alineado con ARCHITECTURE_BASELINE_V1, sin bugs críticos, sin fallbacks silenciosos.
+- **TRANSICIONAL:** Funciona ahora, pero tiene deuda. Target de refactoring en Phase 1.
+- **LEGACY:** Código antiguo, deprecación planeada en Phase 1/2.
+- **RECUPERABLE:** Funciona pero ubicación/importación inconsistente con arquitectura. Reparable rápidamente.
+- **ROOTA:** No importable, requiere decisión de arquitectura (desktop vs web) para depuración.
+- **PROTOTIPO:** Borrador, función no clara, candidata a consolidación o eliminación.
 
 ---
 
@@ -345,18 +458,20 @@ python-multipart        → FastAPI file uploads
 
 ## PRIORIDADES P0/P1/P2 REVISADAS
 
-| # | Severidad | Hallazgo | Mitigación |
-|---|-----------|----------|-----------|
-| 1 | **P0** | Semántica de signos incorrecto | Reconciliar cálculos de saldos con naturaleza |
-| 2 | **P0** | Float para dinero | Migrar JournalLine/Asset a Decimal |
-| 3 | **P0** | as_of ignorado | Aplicar date filter en trial_balance() |
-| 4 | **P1** | JournalEntry ORM incompatible | Proporcionar date en construcción |
-| 5 | **P1** | config.py falla silenciosa | Usar select() correcto de SQLModel |
-| 6 | **P1** | Catálogo inmutable bloquea | Cambiar listener a validador |
-| 7 | **P1** | test/ + tests/ duplicados | Consolidar a tests/, deprecate test/ |
-| 8 | **P2** | Dependencias no declaradas | PySide6, python-multipart en requirements.txt |
-| 9 | **P2** | reports_jinja path incorrecto | Usar import relativo correcto |
-| 10 | **P2** | 29 except Exception genéricas | Reemplace con excepciones específicas |
+| # | Severidad | Hallazgo | Causa Raíz | Mitigación |
+|---|-----------|----------|-----------|-----------|
+| 1 | **P0** | Semántica de signos incorrecto (P0-1) | LedgerSignedBalance vs NormalBalanceAmount no separados | Formalizar dos conceptos, reconciliar cálculos |
+| 2 | **P0** | Float para dinero en persistencia (P0-2) | Violación Regla 5 | Migrar JournalLine/Asset a Decimal |
+| 3 | **P0** | as_of ignorado en trial_balance (P0-3) | Parámetro acepto pero no usado | Aplicar WHERE date <= as_of |
+| 4 | **P0** | account_code no validado (P0-4) | verify_accounts solo chequea balance | Validar account_code existe en Account |
+| 5 | **P1** | JournalEntry ORM incompatible (P1-1) | Modelo requiere date, código no lo proporciona | Proporcionar date en construcción |
+| 6 | **P1** | config.py falla silenciosa (P1-2) | AppConfig.select() no existe en SQLModel | Usar select(AppConfig) de sqlalchemy |
+| 7 | **P1** | Catálogo inmutable bloquea (P1-3) | Listener previene inserción fuera catálogo | Cambiar a validador, permitir extensiones |
+| 8 | **P1** | Fallback Excel/Pandas bifurca autoridad (P1-4) | Except captura, cae a trial_balance_from_pandas | Eliminar fallback, fallar explícitamente |
+| 9 | **P2** | test/ + tests/ duplicados (P1-5 downgrade P2) | Dos suites paralelas | Consolidar a tests/, deprecate test/ |
+| 10 | **P2** | Dependencias no declaradas (P2-1) | PySide6, python-multipart no en requirements.txt | Agregar a requirements.txt o requirements-*.txt |
+| 11 | **P2** | reports_jinja path inconsistente (P2-4) | En raíz pero usa imports relativos | Ubicar en aqorath/ O refactorizar imports |
+| 12 | **P2** | 29 except Exception genéricas (P2-5) | Captura genérica, debugging difícil | Especificar excepciones (ValidationError, etc) |
 
 ---
 
@@ -374,8 +489,30 @@ python-multipart        → FastAPI file uploads
 
 ## PRÓXIMOS PASOS
 
-**Phase 0.1 (esta auditoría):** Completar SOLO documentación.
-**Phase 1:** Corregir P0 (semántica, float, as_of).
-**Phase 2:** Corregir P1 (ORM, config, catálogo, tests).
-**Phase 3:** Deuda técnica y refactorización.
+**Phase 0.2 (correcciones documentales):** 
+- Completar modelo conceptual (30+ elementos)
+- Formalizar LedgerSignedBalance vs NormalBalanceAmount
+- Separar EntityProfile / FiscalProfile
+- Revisar prioridades (account_code es P0, no P1)
+- Revisar clasificación de componentes
+
+**Phase 1 (Corregir P0 — INTEGRIDAD CONTABLE):**
+1. P0-1: Semántica de signos (LedgerSignedBalance vs Normal)
+2. P0-2: Float → Decimal en persistencia
+3. P0-3: as_of filtrado en trial_balance()
+4. P0-4: account_code validado contra catálogo
+5. P1-4: Eliminar fallback Excel/Pandas (bifurcación de autoridad)
+
+**Phase 2 (Corregir P1 + P2-1/2):**
+- P1-1: JournalEntry ORM compatible
+- P1-2: config.py sin falla silenciosa
+- P1-3: Catálogo permitir extensiones
+- P1-5: Consolidar test/ → tests/
+- P2-1: Declarar dependencias (PySide6, etc)
+- P2-4: Ubicar reports_jinja correctamente
+
+**Phase 3 (Deuda técnica):**
+- P2-5: Reemplazar 29 except Exception
+- Refactorización arquitectónica
+- Documentación completa
 
