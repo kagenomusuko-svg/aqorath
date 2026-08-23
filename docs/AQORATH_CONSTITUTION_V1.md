@@ -6,6 +6,8 @@ Este documento codifica los 28 principios fundacionales de Aqorath como **reglas
 
 Toda arquitectura, API, interfaz y motor contable debe poder justificarse contra estas reglas. Una característica que viola una regla no debe ser aceptada, incluso si funciona o resulta conveniente.
 
+**Nota importante:** Esta Constitución es NORMATIVA y ATEMPORAL. No describe el estado actual del código. Eso corresponde a REPO_AUDIT_V1.md. Esta Constitución define QUÉ DEBE SER Aqorath, independientemente de dónde esté hoy.
+
 ---
 
 ## MISIÓN Y NICHO
@@ -24,265 +26,413 @@ Toda arquitectura, API, interfaz y motor contable debe poder justificarse contra
 
 ---
 
-## REGLAS ARQUITECTÓNICAS EXPLÍCITAS (28)
+## 28 PRINCIPIOS FUNDACIONALES COMO REGLAS ARQUITECTÓNICAS
 
 ### R1: PRIMACÍA DEL HECHO ECONÓMICO
 
 **Regla:** "Aqorath pregunta hechos; Aqorath resuelve contabilidad."
 
-- Usuario proporciona: vendí, compré, cobré, pagué, recibí donativo
-- Usuario NO proporciona: Debe/Haber, códigos, naturale za contable
-- Sistema infiere determinísticamente la representación contable correcta
+**Consecuencia arquitectónica:**
+- El usuario proporciona: hechos económicos (vendí, compré, cobré, pagué, recibí donativo)
+- El usuario NO proporciona: Debe/Haber, códigos contables, naturaleza de cuenta
+- El sistema **infiere determinísticamente** la representación contable correcta
+- Toda interfaz de usuario debe operar en lenguaje de hechos económicos y roles semánticos
 
-**Arquitectura:** Toda interfaz opera en lenguaje de hechos y roles semánticos (bank, sales, expense).
-
-**Estado:** CUMPLE (templates.py, core.py generate_preview)
+**Violación ejemplar:**
+- Pedir al usuario "¿Es este un débito o un crédito?"
+- Mostrar campo "Naturaleza de cuenta" en interfaz común
+- Requerir códigos contables como input
 
 ---
 
-### R2: UNA CONTABILIDAD, DOS INTERFACES
+### R2: UNA CONTABILIDAD PROFESIONAL, DOS INTERFACES
 
-Motor único. Persistencia única. DOS interfaces:
-- A) Común (lenguaje cotidiano)
-- B) Profesional (pólizas, Debe/Haber, auxiliares)
+**Regla:** No existen dos motores contables. Existe **una sola contabilidad y una sola persistencia.**
 
-Cambiar de interfaz jamás altera sustancia contable.
+**Consecuencia arquitectónica:**
+- Motor contable único y definitivo
+- Fuente única de datos (SQLite local)
+- DOS interfaces sobre la misma realidad:
+  - **A) Interfaz común:** lenguaje cotidiano, roles, hechos económicos
+  - **B) Interfaz profesional:** pólizas, cuentas, Debe/Haber, auxiliares, referencias, períodos, documentos, impuestos, dimensiones analíticas
+- Cambiar de interfaz jamás puede alterar la sustancia contable
+- Ambas interfaces consumen los mismos servicios/casos de uso del dominio
 
-**Estado:** CUMPLE (core.py es motor único; desktop.py + api.py son interfaces)
+**Validación:**
+- Si un número aparece diferente en interfaz común vs profesional, el sistema está roto
+- Si una operación es válida en una interfaz pero inválida en la otra, es violación de esta regla
 
 ---
 
 ### R3: RIGOR PROFESIONAL
 
-Simplicidad en interacción, rigor en contabilidad. Vista profesional reconocible a contador. Directriz hacia: catálogo, pólizas, diario, mayor, auxiliares, balanza, estados financieros, ejercicios, cierres, bancos, conciliaciones, impuestos, CFDI, trazabilidad, auditoría.
+**Regla:** La simplicidad vive en la **interacción**, no en la contabilidad. La vista profesional debe resultar reconocible y defendible para un contador.
 
-**Estado:** PARCIAL (catálogo existe; falta: mayores, auxiliares, balanza formal, impuestos complejos, CFDI productivo)
+**Consecuencia arquitectónica:**
+- Aqorath debe poder soportar progresivamente: catálogo de cuentas, pólizas, diario, mayor, auxiliares, balanza, estados financieros, ejercicios, períodos, cierres, bancos, conciliaciones, cuentas por cobrar, cuentas por pagar, ventas, compras, inventarios, costos, activos, depreciaciones, impuestos, CFDI, trazabilidad, auditoría, respaldos, documentos y reportes.
+- Esta lista define la **dirección del producto**, no lo que debe implementarse ahora
+- No aceptar soluciones que sean "suficientemente buenas para software gratuito"
+- Una función no está terminada cuando "el código funciona"; debe resultar defendible profesionalmente
 
 ---
 
-### R4: PARTIDA DOBLE COMO INVARIANTE
+### R4: PARTIDA DOBLE COMO INVARIANTE ABSOLUTA
 
-Nunca persistir asiento descuadrado. Detectar → Explicar → Detener. Nunca corregir silenciosamente.
+**Regla:** Nunca podrá persistirse un asiento descuadrado. La partida doble es invariante no negociable.
 
-**Implementación:** _persist_entry() valida antes de insertar.
-
-**Estado:** CUMPLE con advertencia (no hay mensaje de error muy explícito)
+**Consecuencia arquitectónica:**
+- TODO estado persistido (entry + lines) debe cumplir: Σ(débitos) = Σ(créditos)
+- Si hay inconsistencia: DETECTAR → EXPLICAR → DETENER LA OPERACIÓN
+- Nunca corregir silenciosamente, nunca crear fallbacks que permitan persistencia de inconsistencias
+- Tests deben validar que asientos inbalanceados son rechazados
 
 ---
 
 ### R5: DINERO EXACTO (Decimal)
 
-Persistencia: Decimal. Cálculos: Decimal. Float solo display temporal.
+**Regla:** Los valores monetarios persistentes y los cálculos contables no deben depender de float binario.
 
-**Estado:** ✗ INCUMPLIMIENTO CRÍTICO (P0)
-- Líneas 43-44 models.py: `debit: float`, `credit: float`
-- Línea 52 models.py: `value: float`
-- core.py línea 690: convierte a float para insert
-
-**Migración requerida:** Cambiar a Decimal en BD + ORM
+**Consecuencia arquitectónica:**
+- Valores monetarios en persistencia: usar Decimal (SQL NUMERIC, DECIMAL o equivalente)
+- Cálculos intermedios: usar Decimal Python
+- Float permitido SOLO para: display temporal, transmisión por API, operaciones no críticas
+- Cuantización: 2 decimales para dinero (0.01)
 
 ---
 
 ### R6: LOCAL-FIRST
 
-Funcionar sin Internet. Servidores Meriadock caídos no impiden usar contabilidad.
+**Regla:** La información contable pertenece al usuario. La fuente primaria de datos debe residir localmente.
 
-**Implementación:** SQLite local, fallback sqlite en core.py, backups automáticos.
-
-**Estado:** CUMPLE
+**Consecuencia arquitectónica:**
+- Aqorath debe funcionar sin Internet
+- Aqorath debe funcionar aunque servidores de Meriadock estén caídos
+- Ningún servicio central de Meriadock puede ser requisito para leer contabilidad existente
+- Usuario tiene control total sobre backup y restauración
 
 ---
 
 ### R7: SQLITE COMO FUENTE CONTABLE LOCAL
 
-Excel/CSV/JSON: solo importación/exportación. NO como fuentes primarias competidoras.
+**Regla:** La arquitectura objetivo utilizará SQLite local como fuente de verdad contable de la instalación.
 
-**Estado:** CUMPLE (SQLite primary; JSON catálogo es copia; DataFrames son fallback legacy)
+**Consecuencia arquitectónica:**
+- Excel, CSV, XLSX, JSON: solo para importación/exportación/respaldo auxiliar
+- NO deben coexistir como fuentes primarias competidoras
+- Eliminar dependencia de fallbacks a DataFrames o sistemas alternativos
+- Consolidar cálculos de trial_balance en motor único
 
 ---
 
 ### R8: MONOUSUARIO
 
-NO arquitectura multiusuario. NO usuarios/roles/permisos (aún).
+**Regla:** Una instalación está diseñada para un propietario/usuario local.
 
-**Estado:** CUMPLE (no hay tabla User, no hay autenticación)
+**Consecuencia arquitectónica:**
+- NO construir arquitectura de concurrencia multiusuario
+- NO implementar usuarios, roles, permisos, auditoría por usuario (aún)
+- La existencia de mecanismos administrativos NO debe convertir Aqorath accidentalmente en multiusuario
+- APIs deben ser locales (IPC, localhost) no expuestas en red
 
 ---
 
 ### R9: MONOENTIDAD
 
-Una DB = una entidad. NO gestor de múltiples clientes. Cambiar entidad = migración, no "seleccionar empresa".
+**Regla:** Una instalación representa una entidad económica activa.
 
-**Estado:** CUMPLE (tabla Company, monoentidad)
+**Consecuencia arquitectónica:**
+- Una DB por instalación = una entidad
+- NO crear "modo seleccionar empresa" en UI
+- NO implementar tabla clientes/empresas en Aqorath
+- Cambiar de entidad requiere procedimiento explícito (migración, no "abrir otra empresa en lista")
+- Invariante: Nunca debe existir más de una fila Company activa en una instalación
+- Persistencia debe garantizar monoentidad (constraint UNIQUE si es necesario)
 
 ---
 
 ### R10: CATÁLOGO GOBERNADO Y EXTENSIBLE
 
-Estructura canónica protegida + extensiones legítimas del usuario. Usuario describe "BBVA" → Aqorath la ubica.
+**Regla:** Abandonar catálogo absolutamente cerrado. Requerir distinción entre estructura canónica protegida y extensiones legítimas.
 
-**Estado:** ✗ CONFLICTO (P1)
-- Actual: catálogo inmutable (storage.py listener líneas 50-64)
-- Requerido: extensible con validación de estructura
-
-**Documentación del conflicto:** docs/CATALOG_POLICY.md vs Constitución Principio 10
+**Consecuencia arquitectónica:**
+- A) Estructura contable canónica protegida (Activo/Pasivo/Patrimonio/Ingresos/Gastos)
+- B) Cuentas/extensiones creadas por usuario para su realidad concreta
+- Usuario puede describir "Mi cuenta BBVA" → Sistema la ubica en estructura canónica sin pedir código
+- El listener debe **validar estructura** NO **prevenir creación**
+- Extensiones deben poder marcarse como is_canonical=false
+- Estructura canónica (tipos, subtipos, naturaleza) no puede romperse
 
 ---
 
 ### R11: EXPLICABILIDAD DETERMINÍSTICA
 
-Cada operación importante: ¿qué ocurrió? ¿Por qué? ¿Qué cuentas? ¿Qué efectos? Explicación derivada de MISMA regla que resultado.
+**Regla:** Toda operación importante debe poder responder: ¿qué ocurrió? ¿qué interpretó Aqorath? ¿Qué cuentas afectó? ¿Por qué? ¿Qué efecto económico/fiscal produjo?
 
-**Estado:** PARCIAL (generate_preview retorna líneas; falta explicación de por qué)
+**Consecuencia arquitectónica:**
+- La explicación NO es una verdad independiente
+- Derivarse de la misma estructura/rule set que produjo el resultado
+- NO puede ser generada por IA genérica al azar
+- Cada operación debe poder retornar su justificación
+- Explicación estructurada, no solo texto libre
 
 ---
 
-### R12: CONSENTIMIENTO INFORMADO
+### R12: CONSENTIMIENTO INFORMADO CONTABLE
 
-Modo "acompañado" (explica) + modo "operativo". Usuario puede pedir "Explícame esto" en cualquier momento.
+**Regla:** Cuando Aqorath realice traducción contable/fiscal desconocida, debe poder explicarla antes de consolidarla.
 
-**Estado:** NO IMPLEMENTADO
+**Consecuencia arquitectónica:**
+- Modo "acompañado" (explica cada paso)
+- Modo "operativo" (usuario experimentado omite explicaciones)
+- Usuario experimentado puede pedir "Explícame esto" en cualquier momento
+- Configuración respeta preferencia del usuario
 
 ---
 
 ### R13: PROGRESIVIDAD PEDAGÓGICA
 
-Registrar qué conceptos ya presentados. Usuario aprende sobre su actividad económica. Sin gamificación infantil.
+**Regla:** El sistema puede registrar localmente qué conceptos ya han sido presentados para ajustar nivel de explicación.
 
-**Estado:** NO IMPLEMENTADO
+**Consecuencia arquitectónica:**
+- NO gamificación infantil
+- Objetivo: usuario debe saber más de su actividad económica después de meses usando Aqorath
+- Aprendizaje integrado y natural
+- Transiciones documentadas en help/documentación
 
 ---
 
 ### R14: ARQUITECTURA FISCAL VERSIONADA
 
-Reglas fiscales: versionadas, no fusionadas con contabilidad universal. Cambio fiscal no exige reescribir core.
+**Regla:** Las reglas fiscales mexicanas cambian. No deben mezclarse irreversiblemente con contabilidad universal.
 
-**Estado:** PROTOTIPO (tax.py, CFDI.py; no versionado)
-
-**En Phase 0:** Solo diseñar separación
+**Consecuencia arquitectónica:**
+- Reglas fiscales: versionadas (por fecha/decreto)
+- Debe saberse qué conjunto de reglas aplicaba en período determinado
+- Cambio fiscal NO exige reescribir núcleo contable
+- FiscalRuleSet separable del modelo de entidad
+- JournalEntry referencia FiscalRuleSet usado en su fecha
 
 ---
 
-### R15: ENTIDAD ≠ "COMERCIAL / OSC"
+### R15: ENTIDAD ≠ "MODO COMERCIAL / OSC"
 
-Identidad multicomponente: naturaleza jurídica + régimen fiscal + características + capacidades. Una donataria NO es otro motor.
+**Regla:** La identidad contable NO se reduce a comercial vs no-lucrativo. Debe poder describirse por componentes.
 
-**Estado:** PARCIAL (catálogo tiene name_osc/name_comercial; falta EntityProfile)
+**Consecuencia arquitectónica:**
+- Naturaleza económica/jurídica (componente A)
+- Régimen fiscal (componente B)
+- Características especiales (componente C)
+- Capacidades/módulos aplicables (componente D)
+- Una donataria autorizada NO es "otro motor contable"
+- Es una entidad no lucrativa con características, reglas, controles y obligaciones adicionales
+- Mismo catálogo, mismo motor, DIFERENTES nombres/reportes por perfil
 
 ---
 
 ### R16: OSC COMO CIUDADANO DE PRIMERA CLASE
 
-Soportar: programas, proyectos, fondos, donantes, donativos, restricciones, cuotas, aplicación de recursos, trazabilidad, reportes OSC.
+**Regla:** Aqorath debe diseñarse genuinamente para OSC, NO como ERP comercial rebautizado.
 
-**Estado:** PROTOTIPO (catálogo OSC-ready; falta módulo integrado)
+**Consecuencia arquitectónica:**
+- La arquitectura debe poder soportar progresivamente:
+  - Programas, proyectos, fondos
+  - Fuentes de recursos (donativas, propias, etc.)
+  - Donantes, donativos, donativos en especie
+  - Restricciones/destinos de recursos
+  - Cuotas de miembros
+  - Patrimonio
+  - Aplicación de recursos
+  - Gastos administrativos
+  - Trazabilidad documental
+  - Reportes propios de entidades no lucrativas
+- NO es un módulo separable/opcional
+- Está integrado desde el diseño
 
 ---
 
 ### R17: DIMENSIONES ANALÍTICAS SIN DUPLICAR CONTABILIDAD
 
-Una línea → múltiples dimensiones (programa, fuente). UNA asiento contable, NO múltiples ficticios.
+**Regla:** Una misma operación puede tener dimensiones adicionales SIN generar contabilidades paralelas.
 
-**Estado:** NO IMPLEMENTADO
+**Consecuencia arquitectónica:**
+- Una línea contable = múltiples dimensiones (programa, fuente, etc.)
+- NO múltiples asientos/cuentas ficticias
+- Reportes pueden filtrar/agrupar por dimensión
+- Validación: dimensiones no pueden quebrantar estructura contable
 
 ---
 
 ### R18: DOCUMENTOS COMO UNIDADES INDEPENDIENTES
 
-Documento = ReportDefinition (datos, parámetros, período, formato, reglas, disponibilidad por EntityProfile).
+**Regla:** Un documento/reporte es unidad generable con datos, parámetros, período, formato, reglas de disponibilidad, naturaleza de entidad aplicable.
 
-**Estado:** PARCIAL (reportes.py genera algunos; falta arquitectura generalizada)
+**Consecuencia arquitectónica:**
+- ReportDefinition: qué documento existe (invariante)
+- ReportRequest: qué generar esta vez (parámetros concretos)
+- Reporte es reutilizable, generable múltiples veces
+- Formato (PDF/Excel/JSON) es parámetro, no parte de definición
+- Disponibilidad condicional por EntityProfile/FiscalRuleSet
 
 ---
 
-### R19: PAQUETES COMO PRESETS, NO LÍMITES
+### R19: PAQUETES COMO PRESETS, NO COMO LÍMITES
 
-Paquete = selección inicial reutilizable. Usuario personaliza, guarda como nuevo paquete. No bloqueados.
+**Regla:** Un paquete de documentos es SELECCIÓN INICIAL, NO contenedor cerrado.
 
-**Estado:** NO IMPLEMENTADO
+**Consecuencia arquitectónica:**
+```
+PAQUETE ("Bancos")
+  → INITIAL SELECTION (sugiere documentos)
+  → PERSONALIZATION (usuario quita, agrega, cambia)
+  → CUSTOM PACKAGE (usuario guarda selección)
+  → GENERATION REQUEST (genera)
+```
+- Usuario puede comenzar en "Bancos" y añadir documentos de "Asamblea"
+- No hay "paquetes bloqueados"
 
 ---
 
 ### R20: REUTILIZACIÓN DE INFORMACIÓN
 
-Dato capturado → reutilizar en todos lados. Si Aqorath conoce tercero/importe/CFDI, no re-preguntar.
+**Regla:** Un dato capturado correctamente una vez debe reutilizarse en todos los lugares donde corresponda.
 
-**Estado:** PARCIAL (templates resuelven roles; falta caché de datos recientes)
+**Consecuencia arquitectónica:**
+- Si Aqorath conoce al tercero/importe/CFDI, no los pide nuevamente
+- Caché local de "datos recientes/comunes"
+- UI debe autocompletar/sugerir basado en historial
+- Nunca re-preguntar dato ya conocido
 
 ---
 
 ### R21: INTEROPERABILIDAD Y AUSENCIA DE LOCK-IN
 
-Exportar datos para migración. NO impedir "graduación" a otros ERP. Formato abierto.
+**Regla:** Usuario debe poder extraer su información. Aqorath no debe impedir que usuario que creció migre hacia otros ERP.
 
-**Estado:** PARCIAL (test_asientos.py::test_export_asiento_csv_and_xlsx; falta catalogación completa y docs de formato)
+**Consecuencia arquitectónica:**
+- Exportar datos: suficientemente estructurados para revisión profesional
+- Migración debe ser posible hacia otros sistemas
+- "Graduación" de Aqorath puede ser resultado exitoso
+- NO intentar retener usuario con lock-in
+- Formatos abiertos (CSV, JSON, XML) con especificación documentada
 
 ---
 
 ### R22: SEGURIDAD E INTEGRIDAD LOCAL
 
-Respaldo, restauración, migración, integridad: centrales no accesorios. NO adivinar columnas, NO rellenar silenciosamente, NO continuar ante inconsistencias.
+**Regla:** Para un ERP de años de contabilidad, respaldo, restauración, migración e integridad son capacidades centrales.
 
-**Estado:** RIESGO (exercise.py backups ✓; core.py detecta esquema dinámicamente = flexible pero frágil)
+**Consecuencia arquitectónica:**
+- Migración de esquema NO depende de "adivinar columnas"
+- NO rellenar silenciosamente campos desconocidos
+- NO continuar ante inconsistencias estructurales
+- Migración: versionada explícitamente
+- Cada versión de schema tiene compatibilidad clara
+- Validación de integridad referencial antes de operaciones destructivas
+- Backups automáticos antes de cambios
 
 ---
 
 ### R23: SEPARACIÓN DE CAPAS
 
+**Regla:** La arquitectura debe tender a separación clara:
+
 ```
-INTERFAZ → APLICACIÓN/CASOS DE USO → DOMINIO → PERSISTENCIA
+PRESENTATION (UI/API/CLI)
+    ↓
+APPLICATION (Casos de uso / servicios)
+    ↓
+DOMAIN (Motor de negocio)
+    ↓
+INFRASTRUCTURE (Persistencia)
 ```
 
-UI/API NO contienen lógica contable. Dominio NO depende de PySide/FastAPI/SQLite/pandas.
-
-**Estado:** PARCIAL (core.py motor intermedio ✓; modelos/libro.py legacy, mezcla de capas)
-
-**Estructura requerida:** domain/, application/, infrastructure/, presentation/
+**Consecuencia arquitectónica:**
+- UI/API/CLI NO contienen lógica contable
+- Domain NO depende de PySide, FastAPI, SQLite directo, pandas, Excel, PDF
+- Persistencia es intercambiable (SQLite ahora, otra en futuro)
+- Inversión de dependencias (Infrastructure implementa Domain contracts)
 
 ---
 
 ### R24: UNA SOLA AUTORIDAD DE NEGOCIO
 
-NO múltiples implementaciones de misma regla. Todas superficies consumen MISMOS casos de uso.
+**Regla:** NO existen múltiples implementaciones de la misma regla dependiendo de dónde entró.
 
-**Estado:** RIESGO (core.py base ✓; posibles rutas paralelas en desktop.py/modelos/libro.py)
+**Consecuencia arquitectónica:**
+- Todas las superficies consumen MISMOS casos de uso/reglas
+- Un asiento es un asiento, sin importar si entró por UI, API, importador
+- Application layer es autoridad única
+- Todas las capas de presentación son thin wrappers
 
 ---
 
 ### R25: NO FALLBACKS QUE OCULTEN ERRORES ESTRUCTURALES
 
-Permitir: tolerancia prevista (migración formato), falta opcional (templates). 
-PROHIBIR: exception genérica + adivinar + rellenar + continuar.
+**Regla:** Distinguir entre tolerancia razonable y "capturar Exception, adivinar, rellenar y continuar".
 
-**Estado:** RIESGO (29 except Exception genéricas detectadas; core.py fallbacks semi-silenciosos)
+**Consecuencia arquitectónica:**
+- Fallbacks permitidos SOLO para:
+  - Migración de formato (old schema → new schema)
+  - Falta de opcional import (templates no disponibles)
+  - Opcionalidad de infraestructura (ORM vs sqlite)
+- Fallbacks PROHIBIDOS para:
+  - Validación fallida (rechaza explícitamente)
+  - Estructura desconocida (aborta con diagnostico)
+  - Inconsistencia detectada (no la "repara")
+- Logging de TODA operación de fallback
+- Usuario puede ver si estamos en "modo degradado"
 
 ---
 
 ### R26: CALIDAD DE NICHO
 
-Declarar qué soporta. Dentro nicho: resultado correcto, experiencia excelente. Fuera: rechazar con motivo.
+**Regla:** Aqorath NO necesita solucionar toda operación imaginable. Debe declarar qué soporta.
 
-**Estado:** PARCIAL (catálogo base ✓; falta documentación de límites)
+**Consecuencia arquitectónica:**
+- Dentro de nicho: resultado correcto, experiencia excelente, explicación clara
+- Fuera de nicho: Aqorath debe reconocer el límite
+- NUNCA inventar solución contable/fiscal para continuar
+- Documentación de límites en help/manual
+- Rechazo explícito de operaciones fuera de nicho con motivo
 
 ---
 
 ### R27: PRUEBA TRIPLE DE ACEPTACIÓN
 
-A) Técnica (tests). B) Profesional (contador valida). C) Humana (persona sin contabilidad completa flujo).
+**Regla:** Una función NO está terminada solo porque el código funciona. Debe superar:
 
-**Estado:** A+B existen ✓; C depende de UI (desktop.py esquelética)
+**A) PRUEBA TÉCNICA**
+- Tests automatizados
+- Invariantes mantenidos
+
+**B) PRUEBA PROFESIONAL**
+- Un contador puede revisar el resultado y considerarlo defendible
+
+**C) PRUEBA HUMANA**
+- Una persona sin conocimientos contables puede completar flujo ordinario
+- Sin traducción externa necesaria
+
+**Consecuencia arquitectónica:**
+- Capacidad futura de probar todas las capas
+- Integración continua debe rodar tests A+B
+- Prueba C es manual pero debe poder repetirse
 
 ---
 
-### R28: LICENCIA SOCIAL (PENDIENTE)
+### R28: LICENCIA SOCIAL (DECISIÓN PENDIENTE)
 
-Intención: gratuito para beneficiarios. En estudio: licencia social/source-available. NO implementar aún: restricciones técnicas, DRM.
+**Regla:** Existe intención institucional de mantener Aqorath gratuito para beneficiarios.
 
-**Estado:** SIN DECISIÓN (no hay licencia en repo, sin restricción técnica)
+**Consecuencia arquitectónica:**
+- NO implementar restricciones de licencia aún
+- NO seleccionar unilateralmente una licencia
+- NO diseñar DRM
+- Mantener opción abierta
+- Registrar esta decisión como pendiente
 
 ---
 
-## SÍNTESIS Y REFERENCIAS
+## SÍNTESIS
 
-Estas reglas son **no negociables**. Toda decisión arquitectónica debe justificarse contra ellas. Ver ARCHITECTURE_BASELINE_V1.md para diseño de separación de capas y REPO_AUDIT_V1.md para estado actual vs riesgo.
+Estas 28 reglas forman un **sistema coherente**. Toda decisión arquitectónica debe justificarse contra ellas.
 
