@@ -1,720 +1,444 @@
-# ARQUITECTURA BASELINE V1.0 - LÍNEA DE BASE Y OBJETIVO
+# ARCHITECTURE BASELINE V1
 
-**Documento:** Descripción de arquitectura actual vs. arquitectura objetivo para Aqorath  
-**Fecha:** 2025-11-01  
-**Fase:** Fase 0 - Auditoría y Especificación Arquitectónica  
+## Propósito
 
----
+Este documento describe la **arquitectura objetivo** de Aqorath sin implementarla. Propone una estructura conceptual que:
 
-## EXECUTIVE SUMMARY
-
-Aqorath actualmente exhibe una **arquitectura de coexistencia** donde:
-
-1. Un **núcleo SQLite/SQLModel nuevo** (aqorath/) maneja operaciones contables básicas
-2. Una **capa legacy de Pandas/Excel** (modelos/) aún realiza funciones críticas
-3. **APIs duplicadas** en 3 ubicaciones distintas
-4. **Fallbacks defensivos** que permiten múltiples fuentes de verdad
-5. **Float para dinero**, violando el principio de exactitud
-6. **Catálogo actualmente inmutable**, conflictuando con principio de extensibilidad
-
-La arquitectura objetivo es una **separación nítida por capas** (Presentación → Aplicación → Dominio → Persistencia) con SQLite como única fuente de verdad, Decimal para dinero, y catálogo gobernado extensible.
+1. Satisface los 28 principios de AQORATH_CONSTITUTION_V1.md
+2. Permite crecimiento futuro sin reescrituras disruptivas
+3. Mantiene separación clara de responsabilidades
+4. Facilita testabilidad en capas
 
 ---
 
-## PARTE I: ESTADO ACTUAL DE LA ARQUITECTURA
+## ARQUITECTURA DE CAPAS PROPUESTA
 
-### I.1 TOPLEVEL STRUCTURE
+```
+┌─────────────────────────────────────────────────────┐
+│  PRESENTATION                                       │
+│  (UI/API/CLI) - No contiene lógica de negocio     │
+│                                                     │
+│  - desktop.py (PySide)                              │
+│  - api/app.py (FastAPI/REST)                        │
+│  - cli.py (CLI) [futuro]                            │
+└───────────────┬─────────────────────────────────────┘
+                │
+┌───────────────v─────────────────────────────────────┐
+│  APPLICATION (Casos de Uso / Servicios)             │
+│  (Orquestación, validaciones de flujo)              │
+│                                                     │
+│  - OperationService (crear asientos)                │
+│  - ReportingService (generar reportes)              │
+│  - FiscalService (calcular impuestos)               │
+│  - EntityService (gestionar entidad)                │
+│  - ExerciseService (cierres contables)              │
+└───────────────┬─────────────────────────────────────┘
+                │
+┌───────────────v─────────────────────────────────────┐
+│  DOMAIN (Motor de Negocio - Lógica Contable)        │
+│  (Entidades, reglas, cálculos)                      │
+│                                                     │
+│  - EconomicEvent (hechos económicos)                │
+│  - JournalEntry / JournalLine (asientos)            │
+│  - Account / AccountCatalog (catálogo)              │
+│  - FiscalRuleSet (reglas versionadas)               │
+│  - EntityProfile (naturaleza de entidad)            │
+│  - Explanation (justificación de decisión)          │
+│  - AnalyticalDimension (dimensiones analíticas)     │
+│  - ReportDefinition (documentos)                    │
+└───────────────┬─────────────────────────────────────┘
+                │
+┌───────────────v─────────────────────────────────────┐
+│  INFRASTRUCTURE (Persistencia, Integraciones)       │
+│  (Implementa abstracciones del dominio)             │
+│                                                     │
+│  - SQLiteRepository                                 │
+│  - FileBackupService                                │
+│  - ConfigurationManager                             │
+│  - ReportRenderer (PDF, Excel, etc.)                │
+│  - CFDIService (integración)                        │
+└─────────────────────────────────────────────────────┘
+```
+
+---
+
+## DEPENDENCIAS PERMITIDAS
+
+```
+Presentation → Application (consume servicios)
+Presentation → (NO puede acceder directamente a Domain/Infrastructure)
+
+Application → Domain (consume entidades/reglas)
+Application → Infrastructure (para persistencia)
+Application → (NO Presentation)
+
+Domain → (NADA más - autónomo)
+Domain solo importa: dataclasses, typing, decimal, datetime, logging
+
+Infrastructure → Domain (implementa interfaces del dominio)
+Infrastructure → (NO Presentation)
+Infrastructure → (NO Application - solo lo contrario)
+```
+
+---
+
+## DIRECTORIOS PROPUESTOS
 
 ```
 aqorath/
-├── aqorath/                          [CANÓNICO - núcleo nuevo]
+├── domain/
 │   ├── __init__.py
-│   ├── core.py                       [905 líneas - motor central]
-│   ├── models.py                     [52 líneas - ORM/SQLModel]
-│   ├── storage.py                    [124 líneas - sesiones SQLite]
-│   ├── config.py                     [131 líneas - config global]
-│   ├── templates.py                  [329 líneas - operaciones contables]
-│   ├── accounting_rules.py           [52 líneas - reglas de negocio]
-│   ├── exercise.py                   [330 líneas - cierre de ejercicio]
-│   ├── catalog.py                    [78 líneas - catálogo]
-│   ├── import_catalog.py             [210 líneas - importador de catálogo]
-│   ├── company.py                    [17 líneas - modelo de empresa]
-│   ├── assets.py                     [76 líneas - activos fijos]
-│   ├── tax.py                        [70 líneas - impuestos]
-│   ├── desktop.py                    [251 líneas - UI PySide]
-│   ├── api.py                        [164 líneas - API FastAPI]
-│   ├── templates/                    [HTML/Jinja2 para reportes]
-│   ├── static/                       [CSS, imágenes]
-│   ├── ui/                           [UI desktop PySide]
-│   │   ├── main_window.py
-│   │   ├── welcome.py
-│   ├── data/
-│   │   └── catalogo_base.json        [Catálogo embebido, JSON]
-│   └── utils.py, template_utils.py, ...
+│   ├── entities.py              # EconomicEvent, JournalEntry, Account, etc.
+│   ├── value_objects.py         # Money (Decimal), Period, etc.
+│   ├── specifications.py        # Catálogo, reglas fiscales
+│   └── services.py              # Servicios de dominio (e.g., calcular saldos)
 │
-├── modelos/                          [LEGACY - arquitectura anterior]
-│   ├── libro.py                      [779 líneas - Libro en Pandas]
-│   ├── hoja.py                       [59 líneas]
-│   ├── catalogo.py                   [64 líneas]
-│   ├── poliza.py                     [74 líneas]
-│   ├── registro.py                   [271 líneas]
-│   ├── cfdi.py                       [359 líneas - CFDI legacy]
-│   ├── reportes.py                   [118 líneas]
-│   ├── parametros.py                 [97 líneas]
-│   └── xsdutils.py                   [63 líneas]
+├── application/
+│   ├── __init__.py
+│   ├── services/
+│   │   ├── operation.py         # Crear/registrar asientos
+│   │   ├── reporting.py         # Generar reportes
+│   │   ├── fiscal.py            # Calcular impuestos
+│   │   ├── entity.py            # Gestionar entidad/company
+│   │   └── exercise.py          # Cierres contables
+│   │
+│   ├── dto.py                   # Data Transfer Objects (input/output)
+│   ├── exceptions.py            # Excepciones de aplicación
+│   └── validators.py            # Validadores de flujo
 │
-├── api/                              [DUPLICADO - API simplificada]
-│   └── app.py                        [39 líneas - API minimalista]
+├── infrastructure/
+│   ├── __init__.py
+│   ├── persistence/
+│   │   ├── repositories.py      # Implementaciones SQLAlchemy/SQLModel
+│   │   ├── migrations.py        # Versiones de schema
+│   │   └── session.py           # Gestión de sesión
+│   │
+│   ├── files/
+│   │   ├── backup.py            # Backups automáticos
+│   │   └── export.py            # Exportación CSV/Excel/JSON
+│   │
+│   ├── rendering/
+│   │   ├── pdf.py               # Reportes PDF
+│   │   ├── excel.py             # Reportes Excel
+│   │   └── json.py              # Exportación JSON
+│   │
+│   └── integrations/
+│       └── cfdi.py              # CFDI (futuro)
 │
-├── api.py                            [164 líneas - DUPLICADO de aqorath/api.py]
-├── main.py                           [Entry point]
-├── app.py                            [App legacy]
-├── desktop.py                        [UI legacy]
+├── presentation/
+│   ├── desktop.py               # PySide UI
+│   ├── api.py                   # FastAPI endpoints
+│   ├── cli.py                   # CLI (futuro)
+│   └── templates/               # HTML/Jinja si aplica
 │
-├── test/                             [Tests legacy - modelos/]
-│   └── test_*.py
-│
-├── tests/                            [Tests nuevos - aqorath/]
-│   ├── conftest.py
-│   ├── test_core.py
-│   ├── test_*.py
-│   └── test.db                       [BD de prueba]
-│
-├── scripts/                          [Utilidades]
-│   ├── init_db.py
-│   ├── init_catalog_db.py
-│   ├── fix_test_db.py
-│   ├── generate_and_validate_demo.py
-│   └── [10+ scripts más]
-│
-├── assets/                           [Datos de entrada]
-│   └── catalogo.xlsx                 [Catálogo en Excel]
-│
-├── docs/                             [Documentación]
-│   ├── CATALOG_POLICY.md             [Política actual: inmutable]
-│   ├── CFDI.md                       [Documentación CFDI]
-│   ├── AQORATH_CONSTITUTION_V1.md    [NUEVO]
-│   ├── ARCHITECTURE_BASELINE_V1.md   [NUEVO]
-│   └── REPO_AUDIT_V1.md              [NUEVO]
-│
-├── patches/                          [Patches experimentales]
-│   └── *.patch
-│
-├── requirements.txt                  [Dependencias con errores]
-├── setup.cfg                         [Configuración minimal]
-├── pyproject.toml                    [Build config]
-└── [backup files, .bak, etc.]
+├── models.py                    # SQLModel ORM (persistencia)
+├── storage.py                   # Session management
+├── config.py                    # Configuración
+├── __init__.py
+└── main.py                      # Entry point
 ```
-
-### I.2 FLUJO DE DATOS ACTUAL (ANÁLISIS)
-
-```
-ENTRADA DE USUARIO
-       │
-       ├─→ Desktop UI (PySide) / API REST
-       │         │
-       │         ├─→ aqorath/api.py o api/app.py
-       │         │         │
-       │         └─→ aqorath/core.py [NÚCLEO]
-       │                    │
-       │         ┌──────────┼──────────┐
-       │         │          │          │
-       │         ▼          ▼          ▼
-       │    ORM PATH   SQLITE PATH   FALLBACK
-       │    (SQLModel) (Directo)     (Detección)
-       │         │          │          │
-       │         └──────────┼──────────┘
-       │                    ▼
-       │           Persistencia SQLite
-       │
-       └─→ Legacy modelos/ [PARALELO]
-               │
-               ├─→ Libro (Pandas)
-               ├─→ Excel
-               └─→ JSON
-```
-
-### I.3 MULTIPLICIDAD DE FUENTES DE VERDAD
-
-**PROBLEMA CRÍTICO:** Existen múltiples lugares donde la "verdad contable" puede residir:
-
-1. **SQLite (aqorath/)**
-   - Tabla: account, journal_entry, journal_line
-   - Fuente primaria declarada
-   - Validaciones deficitarias
-
-2. **Pandas/Excel (modelos/)**
-   - Clase Libro mantiene DataFrame interno
-   - Puede divergir de SQLite
-   - Usado en importación/exportación
-
-3. **JSON (catalogo_base.json)**
-   - Catálogo de cuentas embebido
-   - Compite con tabla Account en SQLite
-   - Política de Immutable vs. Extensible en conflicto
-
-4. **Fallbacks en core.py**
-   - Si ORM falla, intenta SQLite directo
-   - Si no encuentra tabla, la busca por múltiples nombres
-   - Si no encuentra columna, la adapta dinámicamente
-   - Permite persistencia de estructuras incompletas
-
-**IMPLICACIÓN:** Un usuario podría estar modificando diferentes "realidades contables" sin saber cuál es la verdadera.
-
-### I.4 CAPAS ACTUALES (CONFUSAS)
-
-```
-┌─────────────────────────────────────┐
-│ PRESENTACIÓN (Débilmente separada) │
-│ - desktop.py (UI PySide)           │
-│ - api.py, api/app.py (APIs)        │
-│ - templates/ (Jinja2)              │
-└────────┬────────────────────────────┘
-         │ (Llamadas directas sin abstracción clara)
-┌────────▼────────────────────────────┐
-│ APLICACIÓN (No examinada)           │
-│ - core.py (mezcla aplicación + dom)│
-│ - templates.py (lógica de dominio) │
-│ - exercise.py (lógica de dominio)  │
-└────────┬────────────────────────────┘
-         │ (Dependencias mixtas)
-┌────────▼────────────────────────────┐
-│ DOMINIO (Acoplado a persistencia)   │
-│ - models.py (ORM, no dominio puro) │
-│ - accounting_rules.py (reglas)      │
-│ - catalog.py (mezcla JSON + BD)     │
-└────────┬────────────────────────────┘
-         │ (ORM vs. SQLite directo)
-┌────────▼────────────────────────────┐
-│ PERSISTENCIA (Dual)                 │
-│ - storage.py (sesiones SQLModel)    │
-│ - core.py (queries SQLite directas) │
-│ - modelos/ (Pandas)                 │
-└─────────────────────────────────────┘
-```
-
-**PROBLEMA:** Las capas no están separadas. core.py mezcla lógica de aplicación, dominio y persistencia.
-
-### I.5 VIOLACIONES DE PRINCIPIOS DETECTADAS EN CÓDIGO
-
-#### Violación: DINERO EXACTO (Principio 5)
-
-**Ubicaciones donde se usa `float` para dinero:**
-
-1. **models.py (líneas 43-44)**
-   ```python
-   debit: float = 0.0
-   credit: float = 0.0
-   ```
-
-2. **templates.py (múltiples lugares)**
-   - `percent_expr()` línea 43: `round(float(amount) * float(rate), 2)`
-   - `gross_base_expr()` línea 59: `round(float(amount) / (1.0 + vat), 2)`
-   - Todas las expresiones de cálculo usan float
-
-3. **core.py (línea 836)**
-   ```python
-   insert_vals.append(float(ln.get("debit") or 0))
-   ```
-
-4. **exercise.py** - Cálculos de resultado usando Decimal pero conversiones a float
-
-5. **modelos/libro.py** - Pandas usa float64 internamente
-
-**IMPACTO:** Posibles pérdidas de centavos en operaciones, asientos descuadrados por redondeo.
-
-#### Violación: CATÁLOGO (Principio 10)
-
-**Conflicto Explícito:**
-
-- **CATALOG_POLICY.md** (línea 7): "El catálogo contable es... inmutable"
-- **AQORATH_CONSTITUTION_V1.md** (Principio 10): "Catálogo gobernado y extensible"
-
-**Estado Actual:**
-- Catálogo en `aqorath/data/catalogo_base.json` (immutable)
-- Tabla `account` en SQLite (validada contra catálogo)
-- Listener en storage.py (previene inserciones no-catálogo)
-- Pero listener solo se registra en INSERT, no en UPDATE (BUG)
-
-**Resolución Pendiente:** Definir si el catálogo es extensible o no.
-
-#### Violación: PARTIDA DOBLE (Principio 4)
-
-**Debilidades Detectadas:**
-
-1. **core.py (línea 883)**
-   ```python
-   if not preview.get("balanced", False):
-       # Validación en preview, pero...
-   ```
-   La validación es en preview, la persistencia es separada. Posible desincronización.
-
-2. **exercise.py (línea 94-128)**
-   - Asiento de transferencia de resultado es inserido directamente sin pasar por _persist_entry()
-   - Bypassa validaciones de core.py
-
-3. **JournalLine** (models.py)
-   - `account_code` y `account_id` son ambos opcionales
-   - Valido tener un asiento sin saber qué cuentas toca
-
-#### Violación: FALLBACKS QUE OCULTAN ERRORES (Principio 25)
-
-**core.py (líneas 715-856) - _persist_entry() con fallback SQLite:**
-
-```python
-if db is None:
-    return {"ok": False, "error": "No se encontró base de datos..."}
-# Fallback 1: intenta encontrar tabla por múltiples nombres
-for candidate in ("entry", "journalentry", "journal_entry"):
-    # Busca dinámicamente
-
-# Fallback 2: inspecciona columnas con PRAGMA
-cur.execute(f"PRAGMA table_info('{entry_table}')")
-# Adapta a lo que encuentra
-
-# Fallback 3: rellena campos con defaults si están NULL
-if notnull:
-    insert_cols.append(colname)
-    insert_vals.append("posted")  # Adivinó un default
-```
-
-**PELIGRO:** Puede persistir estructuras semi-válidas.
-
-#### Violación: LOCAL-FIRST (Principio 6) - Parcial
-
-**Cumplimiento:**
-- ✅ SQLite es local
-- ✅ Sin dependencia de red para contabilidad base
-
-**Incumplimiento:**
-- ❌ APIs que podrían ser remotas (api.py, api/app.py)
-- ❌ No está claro si Meriadock puede ser custodio en futuro
-- ❌ No está explicitado cómo se sincroniza con central (si existe)
 
 ---
 
-## PARTE II: ARQUITECTURA OBJETIVO
+## CONCEPTO DE ENTIDADES CLAVE
 
-### II.1 TOPOLOGÍA OBJETIVO
-
-```
-aqorath/                            [Reorganizado]
-├── domain/                         [CAPA: DOMINIO]
-│   ├── __init__.py
-│   ├── accounting.py               [Operaciones contables, sin ORM]
-│   ├── entities.py                 [JournalEntry, JournalLine, Account - POJO]
-│   ├── catalog.py                  [Catálogo gobernado, no mutable]
-│   ├── rules.py                    [Reglas contables: partida doble, saldos]
-│   ├── fiscal.py                   [Reglas fiscales versionadas]
-│   ├── osc.py                      [Conceptos OSC: Donativos, Programas]
-│   ├── validators.py               [Validadores de dominio]
-│   └── exceptions.py               [Excepciones de negocio]
-│
-├── application/                    [CAPA: APLICACIÓN]
-│   ├── __init__.py
-│   ├── usecases.py                 [Casos de uso: register_entry, close_period]
-│   ├── orquestador.py              [Orquestación de flujos]
-│   ├── commands.py                 [Comandos del usuario]
-│   └── queries.py                  [Consultas]
-│
-├── infrastructure/                 [CAPA: INFRAESTRUCTURA/PERSISTENCIA]
-│   ├── __init__.py
-│   ├── database.py                 [SQLite, sesiones]
-│   ├── repositories.py             [Acceso a datos]
-│   ├── migrations.py               [Versionado de schema]
-│   ├── backups.py                  [Respaldos]
-│   ├── export.py                   [Exportadores: CSV, Excel, XML]
-│   └── import_.py                  [Importadores]
-│
-├── presentation/                   [CAPA: PRESENTACIÓN]
-│   ├── __init__.py
-│   ├── common/
-│   │   ├── ui.py                   [Componentes reutilizables]
-│   │   └── api.py                  [Dependencias FastAPI]
-│   ├── desktop/                    [UI Desktop (PySide)]
-│   │   ├── main_window.py
-│   │   ├── dialogs/
-│   │   └── widgets/
-│   ├── rest/                       [API REST (FastAPI)]
-│   │   ├── routes/
-│   │   │   ├── entries.py
-│   │   │   ├── accounts.py
-│   │   │   ├── reports.py
-│   │   │   └── ...
-│   │   └── schemas.py              [Pydantic models para API]
-│   ├── cli/                        [CLI (opcional)]
-│   └── static/                     [CSS, JS]
-│
-├── shared/                         [CÓDIGO COMPARTIDO]
-│   ├── logging.py
-│   ├── config.py
-│   ├── types.py                    [Decimal, Date tipos]
-│   └── utils.py
-│
-├── tests/
-│   ├── unit/                       [Tests sin BD]
-│   │   ├── domain/
-│   │   ├── application/
-│   │   └── ...
-│   ├── integration/                [Tests con BD real]
-│   └── fixtures/                   [Datos de prueba]
-│
-├── data/
-│   ├── catalogo_base.json          [Catálogo canónico]
-│   ├── migrations/                 [Scripts de migración SQL]
-│   └── seeds/                      [Datos iniciales]
-│
-└── docs/
-    ├── CONSTITUTION.md
-    ├── ARCHITECTURE.md
-    ├── API.md
-    └── DEVELOPER.md
-```
-
-### II.2 SEPARACIÓN DE CAPAS OBJETIVO
-
-```
-┌──────────────────────────────────────────────────┐
-│ PRESENTACIÓN                                     │
-│ - Desktop UI (PySide)                           │
-│ - REST API (FastAPI)                            │
-│ - CLI (Click)                                   │
-│ Responsabilidad: Capturar y renderizar          │
-│ NO: Lógica contable, validaciones de negocio    │
-└───────────┬────────────────────────────────────┘
-            │ Inyección de casos de uso
-┌───────────▼────────────────────────────────────┐
-│ APLICACIÓN                                      │
-│ - Casos de uso (register_entry, close_period)  │
-│ - Orquestación de flujos                        │
-│ - Transacciones (begin/commit)                  │
-│ - Manejo de errores                             │
-│ Responsabilidad: Lógica de proceso              │
-│ NO: Reglas contables del dominio, persistencia  │
-└───────────┬────────────────────────────────────┘
-            │ Llamadas a servicios del dominio
-┌───────────▼────────────────────────────────────┐
-│ DOMINIO                                         │
-│ - Entidades (JournalEntry, Account, etc.)      │
-│ - Reglas contables (partida doble, saldos)     │
-│ - Validaciones de negocio                       │
-│ - Cálculos (Decimal, no float)                  │
-│ - Catálogo gobernado                            │
-│ - Reglas fiscales versionadas                   │
-│ Responsabilidad: Lógica de negocio              │
-│ NO: Depender de UI, persistencia específica     │
-│ Implementación: POJO + servicios sin ORM        │
-└───────────┬────────────────────────────────────┘
-            │ Abstracciones (Repository pattern)
-┌───────────▼────────────────────────────────────┐
-│ INFRAESTRUCTURA                                 │
-│ - SQLite, sesiones, queries                     │
-│ - Migraciones de schema                         │
-│ - Backups, restauración                         │
-│ - Exportadores/importadores                     │
-│ Responsabilidad: Acceso a datos y persistencia  │
-│ NO: Lógica contable                             │
-└──────────────────────────────────────────────────┘
-```
-
-### II.3 FLUJOS DE DATOS OBJETIVO
-
-**Ejemplo: Registrar una Venta**
-
-```
-UI (Usuario ingresa: "Vendí $1000 a Juan")
-        │
-        ▼
-APLICACIÓN (RegisterSaleUseCase)
-        │
-        ├─→ Validación de flujo (Juan existe? Monto válido?)
-        │
-        ├─→ DOMINIO
-        │   ├─→ Regla: "Venta genera Bancos +$1000 / Ventas -$1000"
-        │   ├─→ Validación: Partida doble (OK)
-        │   ├─→ Cálculo: IVA según contexto
-        │   ├─→ Resultado: JournalEntry + Explicación
-        │   └─→ Excepción si incumple invariantes
-        │
-        ├─→ INFRAESTRUCTURA (persist)
-        │   ├─→ Validar FK (Juan debe existir en PartyRepository)
-        │   ├─→ INSERT asiento y líneas
-        │   ├─→ Logging de auditoría
-        │   └─→ Excepciones si fallan constraints
-        │
-        ▼
-UI (Muestra: "Venta #001 registrada. Bancos +$1000, Ventas -$1000")
-```
-
-### II.4 MODELO DE DATOS OBJETIVO
-
-**Entidades Principales del Dominio:**
-
+### 1. EconomicEvent (Dominio)
 ```python
-# ENTITIES (sin ORM acoplamiento)
-class Account:
-    code: str                          # Único
-    name: str
-    nature: Nature                     # Deudora | Acreedora
-    type: AccountType                  # Activo, Pasivo, etc.
-    parent_code: Optional[str]         # Para extensiones
-    is_canonical: bool                 # Parte del catálogo base?
+@dataclass
+class EconomicEvent:
+    """Hecho económico capturado por usuario"""
+    id: Optional[int]
+    event_type: str  # "sale", "purchase", "donation", "expense"
+    date: datetime
+    amount: Decimal
+    description: str
+    third_party: Optional[str]
+    context: Dict[str, Any]  # Datos semánticos (bank, program, etc.)
+    
+    def interpret(self) -> JournalEntry:
+        """Interpreta el hecho en asiento contable"""
+        ...
+```
 
+### 2. JournalEntry (Dominio)
+```python
+@dataclass
 class JournalEntry:
-    id: int
-    date: date                         # (no datetime!)
+    """Asiento contable - Invariante: Σ(débitos) = Σ(créditos)"""
+    id: Optional[int]
+    date: datetime
     concept: str
-    state: EntryState                  # draft | posted | reversed
     lines: List[JournalLine]
-    created_by: Optional[str]          # Para auditoría
-    posted_by: Optional[str]
-    period: FiscalPeriod              # Referencia a periodo fiscal
-    doc_ref: Optional[DocumentRef]    # CFDI, comprobante, etc.
+    period_id: Optional[int]
+    fiscal_rule_set_id: Optional[int]  # Qué reglas fiscales aplicaban
+    state: str  # "draft", "posted"
+    
+    @property
+    def is_balanced(self) -> bool:
+        return sum(l.debit for l in self.lines) == sum(l.credit for l in self.lines)
+    
+    def post(self) -> None:
+        if not self.is_balanced:
+            raise BalanceError("Asiento descuadrado")
+        self.state = "posted"
+```
 
-class JournalLine:
-    id: int
+### 3. Account (Dominio)
+```python
+@dataclass
+class Account:
+    """Cuenta contable"""
+    id: Optional[int]
+    code: str                    # Único en catálogo
+    name: str                    # Nombre canónico
+    account_type: str            # "asset", "liability", "equity", "income", "expense"
+    subtype: str                 # "current", "noncurrent", etc.
+    nature: str                  # "debit", "credit"
+    is_canonical: bool = True    # True = en catálogo base; False = creación usuario
+    
+    name_osc: Optional[str]      # Nombre para OSC
+    name_comercial: Optional[str] # Nombre para comercial
+```
+
+### 4. FiscalRuleSet (Dominio)
+```python
+@dataclass
+class FiscalRuleSet:
+    """Reglas fiscales versionadas (México)"""
+    id: Optional[int]
+    version: str                 # "2024-01-01", "2025-06-01"
+    entity_profile_id: int       # Para qué tipo de entidad
+    rules: Dict[str, Any]        # JSON con reglas (IVA, ISR, retenciones)
+    effective_from: date
+    effective_to: Optional[date]
+    
+    def calculate_tax(self, account_code: str, amount: Decimal) -> Dict[str, Decimal]:
+        """Calcula impuestos automáticos para una cuenta/monto"""
+        ...
+```
+
+### 5. EntityProfile (Dominio)
+```python
+@dataclass
+class EntityProfile:
+    """Perfil de entidad (multicomponente)"""
+    id: Optional[int]
+    entity_id: int               # Referencia a Company
+    
+    # Características
+    juridical_nature: str        # "persona_fisica", "persona_moral", "osc"
+    fiscal_regime: str           # "RIF", "RIF+", "RGSO", "RGSO+"
+    
+    is_nonprofit: bool           # Aplican reglas OSC
+    is_donor_authorized: bool    # Donataria autorizada
+    
+    modules_enabled: List[str]   # ["banking", "inventory", "payroll", "osc"]
+```
+
+### 6. Explanation (Dominio)
+```python
+@dataclass
+class Explanation:
+    """Explicación determinística de una decisión contable"""
+    id: Optional[int]
     entry_id: int
-    account: Account                   # Referencia fuerte
-    debit: Decimal                     # Nunca float
-    credit: Decimal                    # Nunca float
-    description: Optional[str]
-    analytical_dimensions: Dict[str, str]  # Programa, Centro, etc.
-
-class FiscalYear:
-    year: int
-    entity: Entity
-    status: YearStatus                 # open | closed | archived
-    periods: List[FiscalPeriod]
-
-class FiscalPeriod:
-    id: int
-    fiscal_year: FiscalYear
-    month: int                         # 1-12
-    status: PeriodStatus               # open | closed
-    opening_balances: Dict[str, Decimal]
-    closing_date: Optional[date]
-
-class CatalogAccount:                  # Catálogo canónico
-    code: str
-    name_osc: str
-    name_comercial: str
-    tipo: str
-    subtipo: str
-    naturaleza: str
-    descripcion: str
-
-class FiscalRuleSet:                   # Versionado
-    fiscal_year: int
-    rule_type: str                     # "isr", "iva", "cfdi", etc.
-    rules: Dict[str, Any]              # ISR rates, IVA rates, etc.
-    effective_date: date
-    version: int                       # Para historial
-
-class Entity:                          # Entidad económica
-    id: int
-    name: str
-    rfc: str
-    naturaleza: EntityNatura          # "Comercial" | "OSC" | etc.
-    régimen_fiscal: str
-    características: Set[str]          # "donataria", "independiente", etc.
-    created_at: datetime
-```
-
-### II.5 VALIDACIONES DE DOMINIO
-
-Las validaciones de negocio residen en la capa de dominio:
-
-```python
-# domain/validators.py
-
-class JournalEntryValidator:
-    @staticmethod
-    def validate_double_entry(entry: JournalEntry) -> None:
-        debit_sum = sum(line.debit for line in entry.lines)
-        credit_sum = sum(line.credit for line in entry.lines)
-        if debit_sum != credit_sum:
-            raise DoubleEntryViolation(
-                f"Debit {debit_sum} != Credit {credit_sum}"
-            )
+    rule_id: str                 # Qué regla/template aplicó
+    context: Dict[str, Any]      # Variables de decisión
+    interpretation: str          # Texto explicativo
+    affected_accounts: List[str] # Qué cuentas afectó
+    timestamp: datetime
     
-    @staticmethod
-    def validate_account_exists(account: Account, catalog: Catalog) -> None:
-        if not catalog.can_contain(account):
-            raise InvalidAccountError(
-                f"Account {account.code} violates catalog structure"
-            )
+    def to_user_text(self) -> str:
+        """Retorna explicación en lenguaje usuario"""
+        ...
+```
+
+### 7. ReportDefinition (Dominio)
+```python
+@dataclass
+class ReportDefinition:
+    """Define qué datos mostrar en un documento"""
+    id: Optional[int]
+    name: str                    # "Balanza", "Diario", "Mayor"
+    template: str                # Qué template usar
     
-    @staticmethod
-    def validate_required_accounts(entry: JournalEntry) -> None:
-        if any(line.account is None for line in entry.lines):
-            raise MissingAccountError(...)
-```
-
-### II.6 CASOS DE USO (Application Layer)
-
-```python
-# application/usecases.py
-
-class RegisterEntryUseCase:
-    """Registrar un nuevo asiento contable"""
+    # Parámetros
+    period_id: Optional[int]
+    from_date: date
+    to_date: date
+    filters: Dict[str, Any]      # {"account_codes": ["1101", "1102"], ...}
     
-    def __init__(self, 
-                 repo: EntryRepository,
-                 catalog: Catalog,
-                 rules: AccountingRules):
-        self.repo = repo
-        self.catalog = catalog
-        self.rules = rules
+    applicable_entities: List[str] # ["comercial", "osc"]
     
-    def execute(self, command: RegisterEntryCommand) -> EntryDTO:
-        # 1. Interpretar hecho económico
-        hecho = parse_economic_fact(command)
-        
-        # 2. Aplicar regla contable
-        entry = self.rules.apply(hecho)
-        
-        # 3. Validar
-        JournalEntryValidator.validate_double_entry(entry)
-        JournalEntryValidator.validate_account_exists(...)
-        
-        # 4. Persistir
-        saved_entry = self.repo.save(entry)
-        
-        # 5. Generar explicación
-        explanation = generate_explanation(hecho, entry)
-        
-        return EntryDTO(
-            entry_id=saved_entry.id,
-            explanation=explanation
-        )
+    def generate(self, repo) -> ReportResult:
+        """Genera el reporte"""
+        ...
+```
+
+### 8. AnalyticalDimension (Dominio)
+```python
+@dataclass
+class AnalyticalDimension:
+    """Dimensión adicional de análisis (no duplica contabilidad)"""
+    id: Optional[int]
+    name: str                    # "Programa", "Fuente", "Centro de Costo"
+    entity_id: int
+    
+    values: List[str]            # ["Regularización", "Becas", ...] para Programas
+
+
+@dataclass
+class JournalLineAnalytics:
+    """Liga JournalLine con dimensiones"""
+    line_id: int
+    dimension_id: int
+    value: str                   # Qué valor de la dimensión
 ```
 
 ---
 
-## PARTE III: RUTA DE MIGRACIÓN
+## CASOS DE USO PRINCIPALES
 
-### III.1 FASES PROPUESTAS (Post-Phase 0)
+### UC1: Registrar Venta (OperationService)
 
-**FASE 1: Separación de Capas**
-- Extraer dominio puro de core.py, templates.py
-- Crear application/ con casos de uso
-- Mantener API de compatibilidad
+**Actor:** Usuario (interfaz común)
+**Input:** 
+```python
+{
+    "event_type": "sale",
+    "amount": 1000.00,
+    "vat_rate": 0.16,
+    "description": "Venta de servicios",
+    "bank_account": "1101",  # Rol → código de cuenta
+}
+```
 
-**FASE 2: Eliminación de Legacy**
-- Deprecar modelos/
-- Migrar tests de test/ → tests/
-- Consolidar una única API
+**Flujo:**
+1. Crear EconomicEvent desde input
+2. Interpretar a JournalEntry (qué cuentas, qué montos)
+3. Validar partida doble
+4. Guardar con Explanation
+5. Retornar: {"ok": true, "entry_id": 123, "lines": [...], "explanation": "..."}
 
-**FASE 3: Exactitud Numérica**
-- Convertir JournalLine.debit/credit a Decimal
-- Convertir templates a Decimal
-- Re-validar todos los tests
-
-**FASE 4: Catálogo Gobernado**
-- Implementar extensiones controladas
-- Deprecar immutabilidad
-- UI para crear extensiones
-
-**FASE 5: Arquitectura Fiscal Versionada**
-- Separar tax/ del núcleo
-- Implementar FiscalRuleSet
-- Soportar múltiples periodos fiscales
-
-**FASE 6: OSC como Primera Clase**
-- Modelos de Program, Fund, Donation
-- Dimensiones analíticas en JournalEntry
-- Reportes OSC específicos
+**Output:** JournalEntry validado + Explanation
 
 ---
 
-## PARTE IV: DECISIONES ARQUITECTÓNICAS PENDIENTES
+### UC2: Generar Balanza (ReportingService)
 
-### IV.1 Patrones de Acceso a Datos
-
-**Opción A: Repository Pattern**
+**Input:** 
 ```python
-class EntryRepository:
-    def find_by_id(self, id: int) -> JournalEntry
-    def find_by_period(self, period: FiscalPeriod) -> List[JournalEntry]
-    def save(self, entry: JournalEntry) -> JournalEntry
+ReportDefinition(
+    name="Balanza",
+    from_date="2025-01-01",
+    to_date="2025-12-31",
+    filters={"account_type": ["asset", "liability"]}
+)
 ```
 
-**Opción B: Generic DAO**
-```python
-class GenericDAO[T]:
-    def find(self, criteria: SearchCriteria) -> List[T]
-    def save(self, entity: T) -> T
-```
+**Flujo:**
+1. Cargar ReportDefinition
+2. Resolver cuentas del filtro
+3. Cargar todos los JournalLine del período
+4. Agrupar por cuenta, sumar débitos/créditos
+5. Calcular saldos (debit - credit)
+6. Retornar con formato (PDF/Excel/JSON)
 
-**Recomendación:** Repository Pattern es más explícito y testeable.
-
-### IV.2 Transacciones
-
-**Opción A: SQLAlchemy Session Management**
-```python
-with transaction():
-    entry = create_entry(...)
-    persist(entry)
-```
-
-**Opción B: Decorador @transactional**
-```python
-@transactional
-def register_entry(cmd: Command):
-    ...
-```
-
-**Recomendación:** Decorador es más limpio, pero necesita context handling.
-
-### IV.3 Dependency Injection
-
-**Opción A: Pasaje manual**
-```python
-use_case = RegisterEntryUseCase(repo, catalog, rules)
-```
-
-**Opción B: Container (injector)**
-```python
-container = DIContainer()
-container.register(EntryRepository, SQLiteEntryRepository)
-use_case = container.get(RegisterEntryUseCase)
-```
-
-**Recomendación:** Container para aplicaciones complejas, pasaje manual para tests.
+**Output:** ReportResult con tabla de balanza
 
 ---
 
-## PARTE V: SUMMARY TABLE - ACTUAL vs. OBJETIVO
+### UC3: Cierre de Ejercicio (ExerciseService)
 
-| Aspecto | Actual | Objetivo |
-|---------|--------|----------|
-| **Fuente de Verdad** | Múltiple (SQLite, Pandas, JSON) | Única: SQLite |
-| **Separación de Capas** | Confusa, acopladas | Nítida: Presentation → Application → Domain → Infrastructure |
-| **Tipo Numérico para Dinero** | float (INCORRECTO) | Decimal (CORRECTO) |
-| **Catálogo** | Immutable, embebido | Gobernado, extensible |
-| **APIs** | 3 ubicaciones, duplicadas | 1 única, clara |
-| **Tests** | 2 carpetas (test/, tests/) | 1 carpeta: tests/unit, tests/integration |
-| **Modelos** | SQLModel + Legacy Pandas | POJO + Repository |
-| **Validaciones** | Mezcladas, defensivas | Dominio puro |
-| **Fallbacks** | Múltiples, ocultadores | Ninguno (falla explícita) |
-| **OSC Support** | No nativo | Primera clase |
-| **Fiscal Versionado** | No existe | Implementado |
+**Precondiciones:**
+- Cuentas 3103 (Resultado del Ejercicio) y 3104 (Pérdida del Ejercicio) existen
+
+**Flujo:**
+1. Crear backup automático
+2. Calcular resultado neto (Ingresos - Gastos)
+3. Crear asiento de traslado (si hay resultado)
+4. Crear nuevo período/ejercicio
+5. Registrar cierre en auditlog
+
+**Output:** Backup creado + Asiento de traslado insertado + Nuevo período
 
 ---
 
-## CONCLUSIÓN
+## RESPONSABILIDADES POR CAPA
 
-La arquitectura objetivo es una reorganización fundamental que:
+### PRESENTATION
+- Recolectar input del usuario
+- Llamar Application services
+- Formatear output para display
+- NO validación de negocio
+- NO lógica contable
 
-1. **Clarifica responsabilidades** - Cada capa tiene un rol único
-2. **Elimina duplicidad** - Una sola fuente de verdad
-3. **Fortalece validaciones** - Dominio puro, sin fallbacks
-4. **Mejora testabilidad** - Capas desacopladas
-5. **Soporta extensión** - OSC, fiscal, catálogo gobernado
+### APPLICATION
+- Orquestar flujos de usuario
+- Validar reglas de negocio (pre-condiciones)
+- Llamar Domain services / Repositories
+- Mapear DTO ← → Domain entities
+- Manejar excepciones y convertir a respuestas
 
-La transición requiere varias fases, pero el objetivo es claro: **un ERP contable profesional, no un prototipo rústico**.
+### DOMAIN
+- Definir entidades contables
+- Implementar reglas (partida doble, etc.)
+- Especificar interfaces (repositories)
+- NO depender de frameworks
+
+### INFRASTRUCTURE
+- Implementar Repositories (persist entities)
+- Manejar transacciones
+- Renderers (PDF/Excel)
+- Integración con sistemas externos
+- File I/O (backup, export)
 
 ---
 
-**Documento Aprobado:** 2025-11-01  
-**Próxima Revisión:** Fase 1 (Post-Auditoría)
+## TRANSICIONES ARQUITECTÓNICAS
+
+### FASE 1: Separación Básica
+- Mover lógica de `app.py` a `application/`
+- Mover modelos a `domain/entities.py`
+- Crear base `OperationService` en `application/services/operation.py`
+- Mantener modelos/libro.py como LEGACY, documentado como deprecated
+
+### FASE 2: Explicabilidad
+- Implementar tabla Explanation
+- Templates retornan "explanation reason"
+- ReportingService documenta cálculos
+
+### FASE 3: Dimensiones Analíticas
+- Crear tabla AnalyticalDimension
+- JournalLine → many-to-many con dimensiones
+- Reportes filtran/agrupan por dimensión
+
+### FASE 4: Gobierno de Catálogo
+- Cambiar listener a validador (no bloqueador)
+- Permitir cuentas is_canonical=False (extensiones usuario)
+- UI para "crear cuenta con guía"
+
+### FASE 5: Fiscal Versionado
+- FiscalRuleSet versionado por fecha
+- Cambio de régimen = nuevo FiscalRuleSet
+- Cálculos referencian FiscalRuleSet histórico
+
+---
+
+## PRINCIPIOS DE ESTA ARQUITECTURA
+
+1. **Inversión de Dependencias:** Las capas superiores dependen de abstracciones (interfaces) de inferiores
+2. **Single Responsibility:** Cada clase/módulo tiene una razón para cambiar
+3. **No Circular Dependencies:** La estructura es acíclica
+4. **Testabilidad:** Domain es 100% testeable sin frameworks; Application testeable con mocks
+5. **Escalabilidad:** Nuevas características se agregan sin modificar existentes
+
+---
+
+## REFERENCIAS
+
+- Seguimiento a AQORATH_CONSTITUTION_V1.md (todas las 28 reglas)
+- Clean Architecture (Robert C. Martin)
+- Domain-Driven Design (Eric Evans)
+- REPO_AUDIT_V1.md para estado actual
+

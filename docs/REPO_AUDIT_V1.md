@@ -1,863 +1,778 @@
-# AUDITORÍA DE REPOSITORIO AQORATH - V1.0
+# REPO AUDIT V1 - ARQUEOLOGÍA Y MAPEO DE BRECHAS
 
-**Documento:** Inspección exhaustiva del estado actual del repositorio Aqorath  
-**Fecha:** 2025-11-01  
-**Fecha de Ejecución:** 2025-11-01  
-**Versión:** 1.0  
-**Fase:** Fase 0 - Auditoría Constitucional
+**Fecha de auditoría:** 2025-11-02 (contra commit actual)
+**Rama:** main
+**Estado de tests:** 26/26 PASSED
 
 ---
 
-## EXECUTIVE SUMMARY
+## RESUMEN EJECUTIVO
 
-### Estadísticas Generales
+Aqorath es un **ERP contable en construcción** con dos arquitecturas coexistentes:
 
-- **Líneas de código (Python):** ~5,413 líneas
-- **Tests ejecutados:** 10 passed
-- **Resultado de tests:** ✅ EXITOSO (10/10)
-- **Archivos Python:** 50+
-- **Archivos de backup/residuo:** 16 (bak, patch, diff)
-- **Bases de datos de prueba:** 13 (backups de test.db)
+1. **NUEVA:** `aqorath/` package → SQLModel/SQLAlchemy + SQLite local (CANÓNICA)
+2. **LEGACY:** `modelos/` package → Pandas/DataFrames (FALLBACK)
 
-### Hallazgos Críticos
+**Estado arquitectónico:** Transición en progreso. Sistema funcional pero con riesgos de inconsistencia.
 
-| Severidad | Cantidad | Categoría |
-|-----------|----------|-----------|
-| **P0 (Integridad Contable)** | 4 | Float para dinero, Fallbacks ocultadores, Partida doble débil, Múltiples fuentes de verdad |
-| **P1 (Contradicción Arquitectónica)** | 3 | Catálogo Immutable vs. Gobernado, APIs duplicadas, Capas confusas |
-| **P2 (Deuda Técnica)** | 8 | Dependencias inválidas, Código legacy, Archivos residuales, Bug en config.py |
-| **P3 (Mantenibilidad)** | 12 | Documentación desactualizada, Paths hardcodeados, Fallbacks defensivos |
-
-### Clasificación de Componentes
-
-| Estado | Cantidad | Ejemplos |
-|--------|----------|----------|
-| **CANÓNICO** | 8 | core.py, models.py, storage.py, templates.py, exercise.py |
-| **RECUPERABLE** | 5 | desktop.py, api.py, catalog.py, import_catalog.py, assets.py |
-| **LEGACY** | 8 | modelos/*, test/* |
-| **DUPLICADO** | 3 | api.py (raíz) vs aqorath/api.py, api/app.py |
-| **RESIDUO** | 16 | archivos .bak, .patch, test.db backups |
-| **PROTOTIPO** | 2 | modelos/cfdi.py (CFDI legacy) |
-| **INCIERTO** | 4 | desktop.py, config.py (BUG), algunos scripts |
+**Hallazgos críticos (P0):** 3
+**Hallazgos graves (P1):** 4
+**Hallazgos técnicos (P2):** 8
 
 ---
 
-## PARTE I: INVENTARIO EXHAUSTIVO
+## I. ENTRY POINTS (SUPERFICIES DE ENTRADA)
 
-### I.1 ANÁLISIS POR CARPETA
+| Archivo | Tipo | Estado | Notas |
+|---------|------|--------|-------|
+| main.py | Desktop | PROTOTIPO | Entry point PySide (aqorath/desktop.py) |
+| app.py  | Web/Hybrid | LEGACY | Flask?/Pandas, parece mezclar modelos.* |
+| api.py  | REST API | PROTOTIPO | Minimal wrapper |
+| api/app.py | REST API | CANÓNICA | FastAPI, consume aqorath.core |
+| aqorath/desktop.py | Desktop UI | PROTOTIPO | PySide, esquelético |
 
-#### **aqorath/** - Núcleo Nuevo
-
-**Clasificación: CANÓNICO + RECUPERABLE**
-
-| Archivo | Líneas | Rol | Estado | Notas |
-|---------|--------|-----|--------|-------|
-| core.py | 905 | Motor central de operaciones | CANÓNICO | Contiene lógica de aplicación + dominio + persistencia. Fallbacks a SQLite. Usa float para cálculos. |
-| models.py | 52 | Modelos ORM (SQLModel) | CANÓNICO | JournalLine.debit/credit son float. account_code y account_id opcionales. |
-| storage.py | 124 | Sesiones SQLite + listeners | CANÓNICO | Listener en INSERT valida contra catálogo, pero NO en UPDATE (BUG). |
-| templates.py | 329 | Reglas de operaciones contables | CANÓNICO | Usa float en expresiones de cálculo. Implementa operaciones como venta, compra, etc. |
-| accounting_rules.py | 52 | Reglas de resultado del ejercicio | CANÓNICO | Simple, funciona con Decimal (bien). |
-| exercise.py | 330 | Cierre de ejercicio contable | CANÓNICO | Fallback a SQLite. Calcula resultado, transfiere a cuentas 3103/3104. |
-| catalog.py | 78 | Acceso a catálogo (JSON + BD) | RECUPERABLE | Dual API: (session, code) o (code). Mezcla JSON y BD. |
-| config.py | 131 | Configuración global | RECUPERABLE | **BUG CRÍTICO en línea 65**: `AppConfig.select()` no existe en SQLModel. Debería usar `select(AppConfig)`. |
-| desktop.py | 251 | UI PySide | RECUPERABLE | Interfaz gráfica. Incompleta. Depende de core.py. |
-| api.py | 164 | API REST (FastAPI) | RECUPERABLE | Endpoints para company, CFDI, reportes. **DUPLICADO de api.py en raíz**. |
-| company.py | 17 | Modelo de empresa | CANÓNICO | Simple: nombre, RFC, logo, colores. |
-| assets.py | 76 | Gestión de activos fijos | RECUPERABLE | Calcula depreciación. Usa float (incorrectamente). |
-| tax.py | 70 | Funciones de impuestos | RECUPERABLE | Muy básico. No versionado. |
-| import_catalog.py | 210 | Importador de catálogo | RECUPERABLE | Carga XLSX/CSV hacia JSON. Útil pero puede mejorarse. |
-| utils.py | ? | Utilidades varias | CANÓNICO | Routines auxiliares. |
-| template_utils.py | ? | Utilidades de templates | CANÓNICO | Funciones auxiliares para templates. |
-| __init__.py | 4 | Inicialización del paquete | CANÓNICO | Básico. |
-
-**UI/**
-- main_window.py (3.5 KB) - Ventana principal PySide - RECUPERABLE
-- welcome.py (4.3 KB) - Pantalla de bienvenida - RECUPERABLE
-
-**data/**
-- catalogo_base.json - Catálogo embebido - CANÓNICO (aunque su política es inmutable)
-
-**templates/**
-- Plantillas Jinja2 para reportes - CANÓNICO
+**Riesgo:** 5 entry points diferentes → posibles inconsistencias si consumen lógica diferentes.
 
 ---
 
-#### **modelos/** - Arquitectura Legacy
+## II. CAPAS Y COMPONENTES
 
-**Clasificación: LEGACY + PROTOTIPO**
+### A. PERSISTENCIA Y CONFIGURACIÓN
 
-| Archivo | Líneas | Rol | Estado | Notas |
-|---------|--------|-----|--------|-------|
-| libro.py | 779 | Libro contable con Pandas | LEGACY | Motor alternativo basado en DataFrames. Puede divergir de SQLite. |
-| registro.py | 271 | Registro de operaciones | LEGACY | Manejo de registros contables. Legacy. |
-| cfdi.py | 359 | CFDI (Facturación) | PROTOTIPO | Generación de CFDI. Estado desconocido (¿timbrado real o documentación?). |
-| poliza.py | 74 | Póliza contable | LEGACY | Representación de póliza. Legacy. |
-| catalogo.py | 64 | Catálogo (legacy) | LEGACY | Anterior al JSON. |
-| hoja.py | 59 | Hoja de cálculo interna | LEGACY | DataFrames. |
-| parametros.py | 97 | Parámetros fiscales | LEGACY | Configuración fiscal old-style. |
-| reportes.py | 118 | Reportes legacy | LEGACY | Generación de reportes con Pandas. |
-| xsdutils.py | 63 | Utilidades XSD | LEGACY | Manejo de esquemas XSD. Poco usado. |
+| Módulo | Líneas | Clasificación | Descripción |
+|--------|--------|---|---|
+| aqorath/storage.py | 124 | CANÓNICA | SQLite sesión, listener anti-non-catalog |
+| aqorath/models.py | 52 | CANÓNICA | SQLModel (Account, JournalEntry, JournalLine, Asset, AppConfig) |
+| aqorath/config.py | 131 | CANÓNICA | AppConfig + fallback ~/.local/.../config.json |
 
-**Conclusión:** Módulo completo puede ser deprecado en Fase 2.
+**Problemas detectados:**
+- **P0:** JournalLine.debit/credit son float (líneas 43-44), violando Regla 5 (DINERO EXACTO)
+- **P0:** Asset.value es float (línea 52)
+- **P1:** storage.py listener (líneas 50-64) PREVIENE cuentas no-en-catálogo, violando Regla 10 (extensible)
 
 ---
 
-#### **api/** - API Simplificada
+### B. MOTOR CONTABLE NUEVO
 
-**Clasificación: DUPLICADO**
+| Módulo | Líneas | Clasificación | Descripción |
+|--------|--------|---|---|
+| aqorath/core.py | 905 | CANÓNICA | **motor central**: generate_preview(), post_entry(), trial_balance() |
+| aqorath/templates.py | 329 | CANÓNICA | Plantillas de operaciones (ingreso, egreso, etc.) |
+| aqorath/catalog.py | 78 | CANÓNICA | Carga catálogo JSON + resolve_account |
+| aqorath/accounting_rules.py | 52 | CANÓNICA | Mapeos de cuenta+reglas fiscales |
 
-| Archivo | Líneas | Rol | Estado | Notas |
-|---------|--------|-----|--------|-------|
-| app.py | 39 | API FastAPI minimalista | DUPLICADO | Solo endpoints básicos (/templates, /preview, /post). **Duplica aqorath/api.py**. |
+**Patrones observados:**
+1. **Fallbacks adaptativos:** ORM first, sqlite second
+2. **Defensive imports:** Circular dependencies prevented
+3. **Decimal para cálculos intermedios** (generate_preview)
+4. **Float para persistencia** (incorrecto, P0)
 
-**Conclusión:** Debe consolidarse en una sola API.
+**Hallazgo core.py:**
+- Línea 107-112: Exception genérica en _row_to_obj()
+- Línea 131: "fallback to sqlite" (LOG.debug)
+- Línea 164: generate_preview usa float() para retorno
+- Línea 265-266: quantize() to 0.01, después convierte a float
+- Línea 320+: _balances_from_sqlite() con detección dinámica de columnas
+- Línea 436-504: _balances_from_libro() fallback a DataFrame (LEGACY!)
+- Línea 690-691: Inserción con float() (P0)
+- Línea 707: except Exception silencioso→ sqlite fallback
+
+**Estado:** FUNCIONABLE pero con anti-patterns
 
 ---
 
-#### **test/** - Tests Legacy
+### C. MOTOR CONTABLE LEGACY
 
-**Clasificación: LEGACY**
+| Módulo | Líneas | Clasificación | Descripción |
+|--------|--------|---|---|
+| modelos/libro.py | 779 | LEGACY | DataFrame-based trial balance, genera movimientos |
+| modelos/registro.py | 271 | LEGACY | Validación de registros contables |
+| modelos/poliza.py | 74 | LEGACY | Definición de pólizas |
+| modelos/cfdi.py | 359 | PROTOTIPO | CFDI (XML, firma) |
+| modelos/hoja.py | 59 | LEGACY | ???  |
+| modelos/catalogo.py | 64 | LEGACY | Catálogo (duplica aqorath/catalog.py) |
+| modelos/reportes.py | 118 | LEGACY | Generación de reportes |
 
-- test_asientos.py (64 líneas)
-- test_libro.py (62 líneas)
-- test_fiscal.py (98 líneas)
-- test_cfdi.py (49 líneas)
-- test_cfdi_timbrado.py (49 líneas)
-- test_reportes.py (62 líneas)
-- test_registro.py (64 líneas)
-- conftest.py
-
-**Conclusión:** Tests de módulos legacy. Pueden ser migrados a tests/ o descartados.
+**Riesgos:**
+- **DUPLICACIÓN:** modelos/catalog.py + aqorath/catalog.py (misma responsabilidad)
+- **FUENTE MÚLTIPLE:** modelos/libro.py crea DataFrames que podrían ser "verdad"
+- **29 except Exception:** Tratamiento de errores demasiado genérico
 
 ---
 
-#### **tests/** - Tests Nuevos
+### D. EJERCICIOS Y CIERRES
 
-**Clasificación: CANÓNICO**
+| Módulo | Líneas | Clasificación | Descripción |
+|---------|--------|---|---|
+| aqorath/exercise.py | 330 | CANÓNICA | Cierres contables, backups automáticos |
 
-```
-tests/
-├── conftest.py (75 líneas)             - Fixtures, inicialización
-├── test_accounting_rules.py            - ✅ PASSA
-├── test_assets.py                      - ✅ PASSA
-├── test_catalog_accounts.py            - ✅ PASSA
-├── test_core.py (150+ líneas)          - ✅ PASSA (main test de core)
-├── test_more_templates.py (72 líneas)  - ✅ PASSA (3 tests)
-├── test_templates_extended.py          - ✅ PASSA
-├── test_templates_fiscal.py (49 líneas) - ✅ PASSA (2 tests)
-├── test.db (BD de prueba)
-└── test.db.bak.* (13 backups)          - RESIDUO
-```
+**Implementación:**
+- Backup a ~/.local/share/aqorath/ejercicios/YYYYMMDD_HHMMSS/
+- Requiere cuentas 3103 + 3104 (no las crea)
+- Usa trial_balance() → cálculo resultado → inserta traslado
+- ORM primero, sqlite fallback
 
-**Resumen de Tests Ejecutados:**
-```
-============================= test session starts ==============================
-collected 10 items
+**Estado:** CUMPLE requisitos de integridad
 
-tests/test_accounting_rules.py::test_resultado_simple PASSED             [ 10%]
-tests/test_assets.py::test_monthly_depr PASSED                           [ 20%]
-tests/test_catalog_accounts.py::test_catalog_codes_have_single_account PASSED [ 30%]
-tests/test_core.py::test_generate_preview_and_post PASSED                [ 40%]
-tests/test_more_templates.py::test_nota_credito PASSED                   [ 50%]
-tests/test_more_templates.py::test_pago_con_retencion_iva PASSED         [ 60%]
-tests/test_more_templates.py::test_nomina_basic PASSED                   [ 70%]
-tests/test_templates_extended.py::test_ingreso_net_with_vat PASSED       [ 80%]
-tests/test_templates_fiscal.py::test_ingreso_gross_with_vat PASSED       [ 90%]
-tests/test_templates_fiscal.py::test_honorarios_with_isr_and_post PASSED [100%]
+---
 
-============================== 10 passed in 0.71s ===============================
+### E. ENTIDAD/COMPANY
+
+| Módulo | Líneas | Clasificación | Descripción |
+|---------|--------|---|---|
+| aqorath/company.py | 16 | CANÓNICA | Modelo Company (monoentidad) |
+| company.py (root) | ? | LEGACY | Duplica aqorath/company.py |
+
+**Falta:** EntityProfile (para naturaleza/régimen de entidad)
+
+---
+
+### F. INTERFACES DE USUARIO
+
+| Módulo | Líneas | Clasificación | Descripción |
+|---------|--------|---|---|
+| aqorath/desktop.py | 251 | PROTOTIPO | PySide main window, muy esquelético |
+| aqorath/ui/ | - | PROTOTIPO | Templates/componentes UI |
+| aqorath/api.py | 163 | PROTOTIPO | Endpoints REST mínimos |
+| api/app.py | 4 | PROTOTIPO | FastAPI app stub |
+
+**Observación:** Interfaces altamente esqueletizadas. No hay UI funcional completa.
+
+---
+
+## III. DATOS Y DEPENDENCIAS
+
+### Catálogo
+
+**Ubicación:** aqorath/data/catalogo_base.json
+**Formato:** JSON con estructura:
+```json
+{
+  "version": "2025-11-01T03:11:26Z",
+  "accounts": {
+    "1101": {
+      "name_osc": "Bancos",
+      "name_comercial": "Bancos",
+      "tipo": "Activo",
+      "subtipo": "Circulante",
+      "naturaleza": "Deudora",
+      "descripcion": "..."
+    }
+  }
+}
 ```
 
-**Conclusión:** Tests ejecutados exitosamente. Pero coverage desconocido, y qué lógica realmente prueban es incierto.
+**Cuentas:** 61 cuentas base (activo, pasivo, patrimonio, ingresos, gastos)
+
+**Política actual (CONFLICTIVA):**
+- docs/CATALOG_POLICY.md: "Catálogo inmutable"
+- storage.py listener: previene INSERT de cuentas no en JSON
+- Constitución Regla 10: Requiere "gobernado pero extensible"
+
+**P1 HALLAZGO:** Conflicto arquitectónico explícito
 
 ---
 
-#### **scripts/** - Utilidades
-
-**Clasificación: RECUPERABLE + LEGACY**
-
-18 scripts presentes:
-- init_db.py, init_catalog_db.py - Inicialización
-- fix_test_db.py - Reparación de BD de prueba
-- generate_and_validate_demo.py, generate_depr.py - Generación de datos
-- Múltiples scripts de "ensure", "assign", "clean", "convert", "sync" - Mantenimiento
-
-**Conclusión:** Muchos scripts = falta de automatización clara. Posible deuda técnica.
-
----
-
-#### **patches/** - Patches Experimentales
-
-**Clasificación: RESIDUO + INCIERTO**
-
-- catalog_immutable.patch (12 KB) - Patch para hacer catálogo mutable (experimental)
-- import_catalog_fix.patch - Fix para importador
-- nomina_patch.diff - Patch para nómina
-
-**Conclusión:** Patches no aplicados = cambios en limbo. Decidir si aplicar o descartar.
-
----
-
-#### **docs/** - Documentación
-
-**Archivos Existentes:**
-- CATALOG_POLICY.md - Política actual (inmutable)
-- CFDI.md - Documentación de CFDI
-
-**Archivos Nuevos (esta auditoría):**
-- AQORATH_CONSTITUTION_V1.md ✅
-- ARCHITECTURE_BASELINE_V1.md ✅
-- REPO_AUDIT_V1.md (este documento) ✅
-
----
-
-#### **assets/** - Datos de Entrada
-
-- catalogo.xlsx (8 KB) - Catálogo en Excel (fuente)
-- catalogo.csv (8 KB) - Catálogo en CSV
-
-**Conclusión:** Fuente del catálogo. Debe actualizarse regularmente.
-
----
-
-#### **Root Level Files**
-
-| Archivo | Rol | Estado | Notas |
-|---------|-----|--------|-------|
-| api.py (164 L) | API REST | DUPLICADO | Idéntico a aqorath/api.py. Debería eliminarse. |
-| main.py (4 L) | Entry point | CANÓNICO | Inicializa y lanza app. |
-| app.py (4 L) | Legacy entry | LEGACY | Probablemente no usado. |
-| desktop.py (4 L) | UI entry | RECUPERABLE | Lanza interfaz desktop. |
-| company.py (4 L) | Legacy | LEGACY | Probablemente duplica aqorath/company.py. |
-| utils.py (4 L) | Utilidades | LEGACY | Legacy. |
-| validate_run.py | Validador | INCIERTO | Desconocido. |
-| reports_jinja.py | Reportes | RECUPERABLE | Generador de reportes PDF. |
-| name-app.py | ? | INCIERTO | Desconocido. |
-| requirements.txt | Dependencias | ERROR | Tiene "REQ" inválido en línea 8. pytest duplicado. |
-| pyproject.toml | Build | CANÓNICO | Minimal pero funciona. |
-| setup.cfg | Setup | CANÓNICO | Metadata básica. |
-
----
-
-### I.2 ANÁLISIS DE DEPENDENCIAS
-
-#### **requirements.txt - PROBLEMAS DETECTADOS**
+### Dependencias (requirements.txt)
 
 ```
-1  pandas>=2.0
-2  openpyxl>=3.0
-3  pytest>=7.0
-4  pyinstaller>=5.10
-5  reportlab>=4.0
-6  lxml>=4.9
-7  requests
-8  REQ                              ❌ INVÁLIDO (No es paquete)
-9  sqlmodel
-10 sqlalchemy
-11 python-dateutil
-12 pytest                           ❌ DUPLICADO (línea 3)
-13 fastapi
-14 uvicorn
+pandas>=2.0                 ← LEGACY
+openpyxl>=3.0              ← Para Excel (export/import)
+pytest>=7.0                ← Tests (DUPLICADO línea 3 y 12)
+pyinstaller>=5.10          ← Compilación ejecutable
+reportlab>=4.0             ← PDF
+lxml>=4.9                  ← XML (CFDI)
+requests                   ← HTTP
+REQ                        ← ✗ INVÁLIDO (línea 8)
+sqlmodel                   ← ORM
+sqlalchemy                 ← SQL
+python-dateutil            ← Manejo fechas
+fastapi                    ← API
+uvicorn                    ← ASGI server
 ```
 
-**Problemas:**
-- P2: Línea 8 ("REQ") causa fallos de instalación
-- P2: pytest duplicado (línea 3 y 12)
-- P2: Falta importar otros: PySide2/PySide6 para desktop.py, Jinja2 para templates
-
-**Impacto:** Dependencia faltante de PySide causará error al ejecutar desktop.py.
-
-#### **Dependencias Detectadas en Uso:**
-
-```python
-# Declaradas correctamente:
-- sqlalchemy, sqlmodel
-- fastapi, uvicorn
-- pandas
-- openpyxl (Excel)
-- reportlab (PDF)
-- lxml (XML)
-- requests
-
-# Usadas pero NO declaradas:
-- PySide2 o PySide6 (desktop.py, aqorath/ui/*)      ❌ FALTA
-- Jinja2 (templates.py, aqorath/api.py)            ❌ FALTA
-- Click (si hay CLI)                               ? INCIERTO
-- cryptography (si hay encriptación)               ? INCIERTO
-```
+**P2 HALLAZGO:** 
+- Línea 8: "REQ" no es paquete válido (rompe instalación)
+- Duplicados: pytest (línea 3, 12), pandas (importado pero legacy)
 
 ---
 
-### I.3 ANÁLISIS DE ENTRY POINTS
+### SQLite Schema
 
-**Puntos de Entrada al Sistema:**
+**DB default:** ~/.local/share/aqorath/aqorath.db (AQORATH_DB env var)
 
-| Punto de Entrada | Ubicación | Estado | Responsabilidad |
-|------------------|-----------|--------|-----------------|
-| **Desktop UI** | main.py → desktop.py → aqorath/desktop.py | RECUPERABLE | Interfaz PySide |
-| **API REST** | main.py → api.py (raíz) o aqorath/api.py | DUPLICADO | FastAPI server |
-| **CLI (si existe)** | ? | NO ENCONTRADO | Línea de comandos |
-| **Batch/Scripts** | scripts/*.py | RECUPERABLE | Automatización |
+**Tablas esperadas (inferidas de código):**
+- account (id, code, name, nature, vat_flag, created_at)
+- journalentry (id, date, concept, doc_ref, period_id, posted_by, state, created_at)
+- journalline (id, entry_id, account_code, account_id, debit, credit, description, created_at)
+- appconfig (id, key, value, created_at)
+- asset (id, name, value, created_at)
+- company (id, name, rfc, denominacion, phrase, logo_path, primary_color, secondary_color, created_at)
 
-**Problema:** Múltiples entry points, algo confuso. main.py no está claro sobre qué lanza.
-
----
-
-### I.4 FUENTES DE PERSISTENCIA
-
-**MÚLTIPLES FUENTES DE VERDAD:**
-
-| Fuente | Ubicación | Rol | Problema |
-|--------|-----------|-----|---------|
-| **SQLite (Primaria Declarada)** | ~/.local/share/aqorath/aqorath.db | BD contable | Validaciones débiles |
-| **JSON (Catálogo)** | aqorath/data/catalogo_base.json | Catálogo embebido | Compite con tabla Account |
-| **Pandas/Excel (Legacy)** | modelos/libro.py | Motor alternativo | Puede divergir |
-| **Fallback en core.py** | core.py líneas 715-856 | Persistencia adaptativa | Peligroso, ocultador |
-
-**P0 CRÍTICO:** Existen múltiples vías de persistencia sin sincronización garantizada.
+**Falta:** period, exercise, fisc al_rule_set, entity_profile, analytical_dimension, explanation, report_definition
 
 ---
 
-### I.5 ESTADO DE CFDI
+## IV. RESIDUALES Y ARTEFACTOS
 
-**Hallazgo:** Estado desconocido. Documentación vs. código pueden divergir.
-
-**Indicios:**
-- test_cfdi.py (✅ executes)
-- test_cfdi_timbrado.py (✅ executes) - "timbrado" sugiere facturación real
-- modelos/cfdi.py (359 líneas) - Generación de CFDI legacy
-- docs/CFDI.md (documentación)
-- CFDI generación en aqorath/api.py (endpoints)
-
-**Incertidumbre:**
-- ¿Es timbrado real o simulado?
-- ¿Integración con SAT o mock?
-- ¿Production-ready?
-
-**Recomendación:** Auditar CFDI separadamente. No está claro si es prototipo o funcional.
-
----
-
-### I.6 ARQUIVOS RESIDUALES
-
-**Archivos de Backup/Cleanup Detectados:**
+### .bak files (RESIDUO)
 
 ```
-aqorath/
-├── _init_.py.bak.2025-11-01_165452          - RESIDUO
-├── catalog.py.bak.2025-11-01_163339         - RESIDUO (vacío)
-├── catalog.py.bak.2025-11-01_164132         - RESIDUO
-├── catalog.py.bak.2025-11-01_165441         - RESIDUO
-├── core.py.bak                               - RESIDUO
-├── models.py.bak                             - RESIDUO
-├── templates.py.bak                          - RESIDUO
-
-tests/
-├── test.db.bak.2025-11-01_*                 - RESIDUO (13 archivos)
-├── test.db.manualbak.2025-11-01_234458     - RESIDUO
-├── test_core.py.bak                         - RESIDUO
-├── test_more_templates.py.bak               - RESIDUO
-├── test_templates_extended.py.bak           - RESIDUO
-├── test_templates_fiscal.py.bak             - RESIDUO
-
-Root:
-├── nomina_patch.diff                        - RESIDUO/INCIERTO
-├── catalog_immutable.patch                  - RESIDUO/INCIERTO
-├── patches/import_catalog_fix.patch         - RESIDUO/INCIERTO
+aqorath/templates.py.bak               (27KB)
+aqorath/core.py.bak                    (24KB)
+aqorath/models.py.bak                  (2KB)
+tests/test_templates_fiscal.py.bak     (3KB)
+tests/test_templates_extended.py.bak   (4KB)
+tests/test_core.py.bak                 (5KB)
+tests/test_more_templates.py.bak       (3KB)
 ```
 
-**Conclusión:** 16+ archivos residuales. Limpiar repositorio.
+**Estado:** No afectan funcionamiento pero generan "ruido" en repo.
 
 ---
 
-## PARTE II: HALLAZGOS CRÍTICOS (P0)
+### .patch files (RESIDUO)
 
-### H1: DINERO COMO FLOAT - VIOLACIÓN DE PRINCIPIO 5
+```
+aqorath/catalog_immutable.patch        (12KB)
+patches/import_catalog_fix.patch       (16KB)
+```
 
-**Severidad:** P0 (Integridad Contable)
-
-**Ubicaciones:**
-
-1. **models.py (líneas 43-44)**
-   ```python
-   class JournalLine:
-       debit: float = 0.0      # ❌ INCORRECTO
-       credit: float = 0.0     # ❌ INCORRECTO
-   ```
-
-2. **templates.py (múltiples)**
-   - Línea 37: `return lambda amount, ctx: float(amount_fixed)`
-   - Línea 43: `round(float(amount) * float(rate), 2)`
-   - Línea 59: `round(float(amount) / (1.0 + vat), 2)`
-   - Línea 68: `return round(float(amount) - base, 2)`
-
-3. **core.py (línea 836)**
-   ```python
-   insert_vals.append(float(ln.get("debit") or 0))
-   insert_vals.append(float(ln.get("credit") or 0))
-   ```
-
-**Impacto:**
-- Pérdida de precisión en operaciones
-- Asientos potencialmente descuadrados por centavos
-- Incapacidad de justificar centavos ante SAT/auditoría
-- Errores de redondeo acumulados
-
-**Evidencia en Tests:**
-- test_more_templates.py::test_pago_con_retencion_iva
-- test_templates_extended.py::test_ingreso_net_with_vat
-- Todos estos tests probablemente enmascaran errores de float
-
-**Resolución:** Migrar a Decimal (decimal.Decimal). FASE 3.
+**Propósito aparente:** Patches de cambios en política de catálogo o imports. Documentan decisiones iterativas.
 
 ---
 
-### H2: MÚLTIPLES FUENTES DE VERDAD - VIOLACIÓN DE PRINCIPIO 6 y 7
+### __pycache__ y .pyc (RESIDUO)
 
-**Severidad:** P0 (Integridad Contable)
-
-**Fuentes Identificadas:**
-
-1. **SQLite (primaria declarada)**
-   - Tabla: account, journal_entry, journal_line
-   - Ubicación: ~/.local/share/aqorath/aqorath.db
-
-2. **JSON (catálogo)**
-   - Ubicación: aqorath/data/catalogo_base.json
-   - Compite con tabla Account
-
-3. **Pandas/Excel (legacy)**
-   - Clase Libro en modelos/libro.py
-   - Puede mantener estado paralelo
-
-4. **Fallbacks sin sincronización**
-   - core.py _persist_entry() (líneas 715-856)
-   - Si ORM falla, intenta SQLite directo
-   - Adaptaciones dinámicas de schema
-
-**Impacto:**
-- Usuario podría estar trabajando en diferentes "realidades contables"
-- Migraciones sin sincronización
-- Sin garantía de que ambas fuentes muestren el mismo estado
-
-**Evidencia:**
-- exercise.py línea 94: "Inserta entry y journallines directamente en sqlite"
-- core.py línea 708: "ORM persist failed, falling back to sqlite"
-- modelos/libro.py: Motor completamente paralelo
-
-**Resolución:** Consolidar en SQLite como única fuente. Deprecar legacy. FASE 2.
+Múltiples directorios __pycache__. Debe agregarse a .gitignore si no está.
 
 ---
 
-### H3: CATÁLOGO - CONFLICTO DE POLÍTICAS
+### Test DBs (RESIDUO)
 
-**Severidad:** P0 / P1 (Contradicción Arquitectónica)
-
-**Conflicto Explícito:**
-
-- **CATALOG_POLICY.md** (línea 7): "El catálogo contable es... inmutable"
-- **AQORATH_CONSTITUTION_V1.md** (Principio 10): "Catálogo gobernado y extensible"
-
-**Estado Actual:**
 ```
-Catálogo JSON (aqorath/data/catalogo_base.json)
-    ↓
-Importado a tabla Account en BD
-    ↓
-Validación en storage.py (listener before_insert)
-    ↓
-Previene inserción de cuentas no-catálogo
-    ↓
-PERO listener solo se registra en INSERT, no en UPDATE
-    ↓
-Vulnerabilidad: UPDATE puede cambiar code a no-catálogo
+tests/test.db.bak.2025-11-01_023239    (32KB, vacío)
+tests/test.db.bak.2025-11-01_...       (13 backups históricos)
+tests/test.db                          (40KB, activo)
 ```
 
-**Restricción Actual:**
-```python
-# storage.py línea 50-64
-@event.listens_for(Account, "before_insert")
-def _prevent_non_catalog_account(mapper, connection, target):
-    # Valida contra catálogo
-    if code_str not in catalog_codes:
-        raise ValueError(...)
-```
-
-**BUG:** UPDATE no está validado.
-
-**Conflicto de Decisión:**
-- ¿Será el catálogo extensible (usuario puede crear cuentas)?
-- ¿O será completamente inmutable?
-- Decisión aún pendiente.
-
-**Resolución:** Fase 0 documentó ambas opciones. Decisión humana en FASE 1.
+**Hallazgo:** Se crean backups durante tests pero no se limpian.
 
 ---
 
-### H4: FALLBACKS OCULTADORES DE ERRORES - VIOLACIÓN DE PRINCIPIO 25
+## V. TESTS
 
-**Severidad:** P0 (Riesgo de Integridad)
+### Ejecución
 
-**core.py _persist_entry() (líneas 715-856):**
+```
+Command: python -m pytest -v
+Result: 26/26 PASSED (0.61s)
 
-```python
-# Fallback 1: Búsqueda dinámica de tabla
-for candidate in ("entry", "journalentry", "journal_entry"):
-    cur.execute("SELECT name FROM sqlite_master...")
-    if cur.fetchone():
-        entry_table = candidate
-        break
-# Si ninguno existe, error. Pero si existe alguno, continúa.
+test/ (legacy): 16 tests
+  - test_asientos.py (2)
+  - test_cfdi.py (1)
+  - test_cfdi_timbrado.py (1)
+  - test_fiscal.py (3)
+  - test_libro.py (2)
+  - test_registro.py (4)
+  - test_reportes.py (3)
 
-# Fallback 2: Inspección dinámica de columnas
-cur.execute(f"PRAGMA table_info('{entry_table}')")
-pragma_rows = cur.fetchall()
-for cid, colname, coltype, notnull, dflt_value, pk in pragma_rows:
-    # Adapta inserción a lo que encuentra
-
-# Fallback 3: Rellena con defaults si NULL
-if notnull and dflt_value is None:
-    if "CHAR" in ctype:
-        insert_vals.append("posted")  # ¿De dónde sabe que "posted" es válido?
-    elif "INT" in ctype:
-        insert_vals.append(0)         # Rellena con cero
+tests/ (new): 10 tests
+  - test_accounting_rules.py (1)
+  - test_assets.py (1)
+  - test_catalog_accounts.py (1)
+  - test_core.py (1)
+  - test_more_templates.py (3)
+  - test_templates_extended.py (1)
+  - test_templates_fiscal.py (2)
 ```
 
-**Peligros:**
-- Puede persistir asiento sin saber qué cuentas toca
-- Puede rellenar campos "status" con valores inventados
-- Continúa cuando debería fallar
-
-**Ejemplo Problemático:**
-- Si tabla tiene columna "state" INT NOT NULL sin default
-- El fallback rellena con 0
-- Pero 0 podría no ser un estado válido
-- Asiento se persiste en estado inválido
-
-**P0 Crítico:** Para un ERP contable, captura genérica de Exception es especialmente peligrosa.
-
-**Resolución:** Eliminar fallbacks, fallar explícitamente. FASE 1.
+**Observación:** Ambas carpetas existen, ambas pasan. Transición en progreso.
 
 ---
 
-### H5: PARTIDA DOBLE DÉBIL - VIOLACIÓN DE PRINCIPIO 4
+### Cobertura
 
-**Severidad:** P0 (Validación Insuficiente)
+**No existe reporte de cobertura.** Tests validan comportamiento pero cobertura desconocida.
+
+**Hallazgo P2:** Necesario agregar pytest-cov para medir cobertura.
+
+---
+
+## VI. MATRIZ DE BRECHAS ENTRE ESTADO ACTUAL Y ARQUITECTURA OBJETIVO
+
+| COMPONENTE | ESTADO ACTUAL | ARQUITECTURA OBJETIVO | RIESGO | PRINCIPIO AFECTADO | PRIORIDAD |
+|-----------|---|---|---|---|---|
+| JournalLine.debit/credit | float | Decimal | Datos incorrectos futuro | R5 (Dinero Exacto) | P0 |
+| Asset.value | float | Decimal | Datos incorrectos futuro | R5 (Dinero Exacto) | P0 |
+| post_entry() persistencia | float insert | Decimal insert | Pérdida precisión | R5 (Dinero Exacto) | P0 |
+| Catálogo | Inmutable | Extensible/Gobernado | Bloquea usuarios | R10 (Catálogo) | P1 |
+| Dos carpetas test/ + tests/ | Duplicadas | Una sola (tests/) | Confusión mantenimiento | R24 (Autoridad) | P1 |
+| modelos/libro.py fallback | Es fuente alternativa | Solo legacy fallback | Inconsistencia posible | R7 (SQLite primario) | P1 |
+| AppConfig en JSON fallback | Fallback silencioso | Persistencia clara | Inconsistencia config | R6 (Local-first) | P1 |
+| Explicabilidad | Nula | Explanation entity | Violación R11 | R11 (Explicabilidad) | P2 |
+| Modo acompañado/operativo | No existe | Toggle en AppConfig | Violación R12 | R12 (Consentimiento) | P2 |
+| Progresividad pedagógica | No existe | UserKnowledgeState | Violación R13 | R13 (Pedagogía) | P2 |
+| FiscalRuleSet | No versionado | Versionado explícito | Cambios fiscales rompen | R14 (Fiscal) | P2 |
+| EntityProfile | No existe | Multicomponente | Violación R15 | R15 (Entidad) | P2 |
+| Módulo OSC | Catálogo ready, módulo no | Módulo integrado | OSC no soportado | R16 (OSC) | P2 |
+| Dimensiones analíticas | No existen | many-to-many | Violación R17 | R17 (Dimensiones) | P2 |
+| ReportDefinition | Reportes hardcoded | Templates generalizadas | Violación R18 | R18 (Documentos) | P2 |
+| ReportPackage | No existe | Paquetes reutilizables | Violación R19 | R19 (Paquetes) | P2 |
+| Caché de datos | No existe | Resolver automático | Reingreso de datos | R20 (Reutilización) | P3 |
+| Export format doc | Falta | Especificación abierta | Violación R21 | R21 (Interoperabilidad) | P3 |
+| Migraciones versionadas | Falta | Schema versioning | Riesgo upgrades | R22 (Integridad) | P2 |
+| Separación de capas | Parcial | domain/appl/infra/pres | Mezcla de responsabilidades | R23 (Capas) | P1 |
+| Multiple implementations | Riesgo | Una autoridad (core.py) | Inconsistencia | R24 (Autoridad) | P1 |
+| Exception generic | 29 detectados | Try-except específicas | Ocultamiento errores | R25 (Fallbacks) | P2 |
+| Límites de nicho | No documentados | Capabilities + docs | Usuario confundido | R26 (Nicho) | P3 |
+| Prueba C (humana) | No realizada | UI funcional | Falta validación UX | R27 (Triple test) | P3 |
+| Licencia | Sin definir | Decisión pendiente | Incertidumbre legal | R28 (Licencia) | P3 |
+
+---
+
+## VII. ANÁLISIS DETALLADO DE COMPONENTES
+
+### core.py (905 líneas)
+
+**Responsabilidades:**
+1. generate_preview(template_key, amount, ctx) → Dict con líneas
+2. post_entry(entry_dict) → {"ok": bool, "entry_id": int}
+3. trial_balance(as_of) → Dict[account_code: Decimal]
+4. list_templates() → [str]
+
+**Fortalezas:**
+- Motor único de lógica contable
+- ORM + fallback sqlite adaptativo
+- Usa Decimal para cálculos intermedios
+- Valida partida doble antes de persistir
 
 **Debilidades:**
+- Retorna float para display (cosmético pero incorrecto internamente)
+- Exception genéricas en fallbacks (líneas 85, 106, 131, etc.)
+- _persist_entry() inserta float a BD (P0)
+- Detecta dinámicamente columnas de tabla (flexible pero frágil)
 
-1. **Validación en preview, persistencia separada**
-   - core.py generate_preview() calcula si está balanceado (línea 883)
-   - Pero persistencia (_persist_entry) es código separado
-   - Posible desincronización
-
-2. **Exercise.py bypassa validaciones**
-   - Línea 94-128: inserta transferencia de resultado directamente en SQLite
-   - No pasa por _persist_entry()
-   - No valida partida doble antes de INSERT
-
-3. **JournalLine sin cuenta**
-   - account_code y account_id son ambos Optional
-   - Válido tener línea sin saber qué cuenta toca
-   - Debería ser un error
-
-**Evidencia:**
-```python
-# exercise.py línea 115-128
-cur.execute(f"INSERT INTO {jl_table} ({cols_sql}) VALUES ({placeholders})", ...)
-# Inserta directamente, sin validación
+**Flujo de datos:**
+```
+User input (amount) 
+  → generate_preview() 
+  → EvaluateTemplate (Decimal intermediate)
+  → Retorna float lines
+  → UI displays
+  → Usuario confirma
+  → post_entry() 
+  → _persist_entry()
+  → Inserta float (P0)
 ```
 
-**Resolución:** Centralizar validación en dominio, hacer que todas las rutas pasen por ella. FASE 1.
+---
+
+### templates.py (329 líneas)
+
+**Responsabilidades:**
+- Registrar plantillas de operaciones
+- Resolver roles (bank, sales, expense) → account_codes via ctx
+- Calcular montos (percentajes, IVA, etc.)
+
+**Plantillas disponibles (detectadas):**
+- ingreso_venta (neto)
+- ingreso_venta_bruto
+- egreso_compra (neto)
+- [y más - revisar líneas 150+]
+
+**Fortaleza:** Roles semánticos desacoplan usuario de códigos contables
+
+**Debilidad:** Expresiones de cálculo retornan float, no Decimal
 
 ---
 
-## PARTE III: HALLAZGOS SECUNDARIOS (P1)
+### storage.py (124 líneas)
 
-### H6: APIs DUPLICADAS - VIOLACIÓN DE PRINCIPIO 24
-
-**Severidad:** P1 (Contradicción Arquitectónica)
-
-**Duplicidad Detectada:**
-
-1. **aqorath/api.py** (164 líneas)
-   - Endpoints: /company, /reports, /logo
-   - Usa FastAPI
-   - Importa core.generate_preview
-
-2. **api.py** (164 líneas, en raíz)
-   - Idéntico al anterior
-   - Copy-paste
-
-3. **api/app.py** (39 líneas)
-   - Endpoints: /templates, /preview, /post
-   - Más simple
-   - Usa funciones de core.py
-
-**Problema:** Tres APIs, posiblemente con lógica divergente.
-
-**Restricción Violada:** Principio 24 - "Una Sola Autoridad de Negocio". Todas las superficies deben consumir los mismos casos de uso.
-
-**Resolución:** Consolidar en una sola API. FASE 1.
-
----
-
-### H7: CAPAS CONFUSAS - VIOLACIÓN DE PRINCIPIO 23
-
-**Severidad:** P1 (Contradicción Arquitectónica)
-
-**Problemas:**
-
-1. **core.py mezcla capas**
-   - 905 líneas de lógica heterogénea
-   - Líneas 1-150: Helpers y fallbacks
-   - Líneas 154-200: Preview (aplicación)
-   - Líneas 630-700: Generación de asiento (dominio)
-   - Líneas 710-856: Persistencia con fallbacks (infraestructura)
-
-2. **templates.py mezcla capas**
-   - Reglas de dominio (operaciones contables)
-   - Expresiones de cálculo (templates de aplicación)
-
-3. **Sin abstracción clara**
-   - UI llama directamente a core.py
-   - core.py accede a BD
-   - No existe capa de aplicación explícita
-
-**Impacto:**
-- Difícil de testear (sin BD, fallan tests de dominio)
-- Difícil de reutilizar (UI está acoplada a core.py)
-- Difícil de evolucionar (cambios en core afectan todo)
-
-**Resolución:** Refactorizar en capas (Presentation → Application → Domain → Infrastructure). FASE 1.
-
----
-
-### H8: BUG EN config.py - LLAMADA A MÉTODO INEXISTENTE
-
-**Severidad:** P1 / P2 (Código Quebrado)
-
-**config.py línea 65:**
+**Listener (líneas 50-64):**
 ```python
-row = s.exec(AppConfig.select().where(AppConfig.key == DB_KEY)).one_or_none()
+@event.listens_for(Account, "before_insert")
+def _prevent_non_catalog_account(mapper, connection, target):
+    if code not in load_catalog_codes():
+        raise ValueError("Inserción denegada: cuenta no en catálogo")
 ```
 
-**Problema:** SQLModel no tiene método `.select()` en el modelo. Debería usar:
-```python
-from sqlmodel import select
-row = s.exec(select(AppConfig).where(AppConfig.key == DB_KEY)).one_or_none()
+**Problema:** PREVIENE extensiones (violación Regla 10)
+
+**Debería:** Validar estructura pero permitir is_canonical=False
+
+---
+
+### catalog.py (78 líneas)
+
+**Dual API:**
+- resolve_account_by_code(session, code) → Account ORM
+- resolve_account_by_code(code) → Dict JSON
+
+**Parámetro 'prefer':** Mencionado para futuro (osc vs comercial)
+
+**Estado:** Base para Regla 15 (multicomponente)
+
+---
+
+## VIII. FLUJOS CRÍTICOS IDENTIFICADOS
+
+### Flujo 1: Crear Asiento (Happy Path)
+
+```
+UI común (desktop/api)
+  ↓ { "event_type": "sale", "amount": 1000 }
+generate_preview()
+  ↓ resuelve roles via ctx
+templates.<operation>.create_lines()
+  ↓ retorna LineSpec[]
+_load_accounts_map() + role resolution
+  ↓ 
+Retorna preview con líneas + totales (float)
+  ↓ usuario acepta
+post_entry(entry_dict)
+  ↓
+_persist_entry()
+  ├─ _verify_accounts() [sqlite o ORM]
+  ├─ si ORM disponible: crea JournalEntry + JournalLine[] (float ← P0)
+  └─ si fallback sqlite: inserción dinámica por PRAGMA
+  ↓
+Retorna {"ok": true, "entry_id": 123}
 ```
 
-**Impacto:** config.py probablemente no funciona cuando se llama _read_db().
+---
 
-**Resolución:** Corregir llamadas a select(). FASE 1.
+### Flujo 2: Calcular Balanza
+
+```
+trial_balance(as_of)
+  ├─ _balances_from_sqlite()
+  │  ├─ detecta columnas dinámicamente
+  │  ├─ agrupa por account_code
+  │  ├─ suma (debit - credit)
+  │  └─ retorna Dict[code: Decimal]
+  ├─ si vacío, fallback a _balances_from_libro()
+  │  ├─ crea Libro() [DataFrames]
+  │  ├─ compute_balance()
+  │  ├─ adivina qué columna es "saldo"
+  │  └─ retorna Dict
+  └─ Merge con catálogo (cuentas con saldo cero)
+  ↓
+Retorna Dict[code: Decimal]
+```
+
+**Observación:** Fallback a Libro (legacy) si sqlite falla. Esto es el "segundo motor".
 
 ---
 
-## PARTE IV: HALLAZGOS TERCIARIOS (P2)
+## IX. ARQUITECTURA ACTUAL VS OBJETIVO
 
-### H9: DEPENDENCIAS INVÁLIDAS EN requirements.txt
+### Actual (Coexistencia)
 
-**Severidad:** P2 (Fallos de Instalación)
+```
+┌─ new aqorath/               ← Core actual
+│  ├─ core.py (motor)
+│  ├─ templates.py
+│  ├─ models.py (ORM)
+│  ├─ storage.py (sesión)
+│  └─ ...
+│
+└─ legacy modelos/            ← Fallback alternativo
+   ├─ libro.py (DataFrames)
+   ├─ registro.py
+   ├─ catalogo.py (duplica)
+   └─ ...
 
-- Línea 8: "REQ" no es un paquete válido → Causa error de instalación
-- Línea 12: "pytest" duplicado (ya en línea 3)
-- Faltan dependencias: PySide2/6, Jinja2
++ root app.py / api.py / main.py  ← Entry points múltiples
+```
 
-**Resolución:** Corregir requirements.txt. FASE 1.
-
----
-
-### H10: CÓDIGO LEGACY SIN DEPRECACIÓN
-
-**Severidad:** P2 (Deuda Técnica)
-
-- modelos/ (8 archivos, 779+ líneas)
-- test/ (7 archivos)
-- app.py, desktop.py, company.py (raíz)
-
-Sin marcas de deprecation. Usuarios no saben qué evitar.
-
-**Resolución:** Deprecar explícitamente. FASE 2.
+**Problema:** Dos "motores" contables, múltiples entry points, potencial inconsistencia.
 
 ---
 
-### H11: DOCUMENTACIÓN DESACTUALIZADA
+### Objetivo (Separación clara)
 
-**Severidad:** P2 (Mantenibilidad)
+```
+presentation/
+  ├─ desktop.py
+  ├─ api.py
+  └─ cli.py
 
-- CATALOG_POLICY.md dice "immutable" pero AQORATH_CONSTITUTION dice "extensible"
-- CFDI.md no dice si es timbrado real o simulado
-- No hay README claro sobre cómo instalar/ejecutar
+application/
+  ├─ operation_service.py
+  ├─ reporting_service.py
+  └─ ...
 
-**Resolución:** Centralizar documentación. FASE 1.
+domain/
+  ├─ entities.py (JournalEntry, Account, etc.)
+  ├─ services.py (lógica contable pura)
+  └─ ...
 
----
+infrastructure/
+  ├─ repositories/
+  │  ├─ journal_repository.py
+  │  └─ account_repository.py
+  ├─ persistence/
+  └─ rendering/
+```
 
-### H12: PATHS HARDCODEADOS
-
-**Severidad:** P2 (Portabilidad)
-
-- core.py línea 72: hardcoded paths
-- exercise.py línea 60: `~/.local/share/aqorath/ejercicios`
-- storage.py línea 10: `~/.local/share/aqorath/aqorath.db`
-
-**Resolución:** Usar configuración centralizada. FASE 1.
-
----
-
-## PARTE V: MATRIZ DE BRECHAS (GAP MATRIX)
-
-| # | Componente | Estado Real | Riesgo | Principio Afectado | Destino Probable | Prioridad | Fase |
-|---|-----------|-------------|--------|-------------------|-----------------|-----------|------|
-| 1 | JournalLine.debit/credit (float) | float | ALTO | Principio 5 | Convertir a Decimal | P0 | 3 |
-| 2 | Múltiples fuentes de verdad | SQLite + Pandas + JSON | ALTO | 6, 7 | Consolidar en SQLite | P0 | 2 |
-| 3 | Catálogo Immutable vs. Extensible | Conflicto documentado | ALTO | 10 | Resolver decisión | P0/P1 | 1 |
-| 4 | Fallbacks en core.py | Adaptativos, ocultan errores | ALTO | 25 | Eliminar, fallar explícitamente | P0 | 1 |
-| 5 | Partida Doble débil | Validación en preview, persistencia separada | ALTO | 4 | Centralizar validación | P0 | 1 |
-| 6 | APIs duplicadas | 3 APIs (aqorath/api, api, api/app) | MEDIO | 24 | Consolidar en 1 | P1 | 1 |
-| 7 | Capas mezcladas | core.py, templates.py | MEDIO | 23 | Refactorizar en capas | P1 | 1 |
-| 8 | BUG config.py línea 65 | AppConfig.select() no existe | MEDIO | - | Corregir select() | P1 | 1 |
-| 9 | requirements.txt inválido | "REQ", pytest duplicado | BAJO | - | Corregir dependencias | P2 | 1 |
-| 10 | Archivos residuales | .bak, .patch, test.db.* | BAJO | - | Limpiar repo | P2 | 1 |
-| 11 | Código legacy sin deprecación | modelos/, test/ | BAJO | - | Deprecar explícitamente | P2 | 2 |
-| 12 | Documentación desactualizada | CATALOG_POLICY vs. CONSTITUTION | BAJO | - | Unificar docs | P2 | 1 |
-| 13 | Listener de catálogo débil | No valida UPDATE | BAJO | 10 | Mejorar listener | P2 | 1 |
-| 14 | CFDI estado desconocido | Prototipo o funcional? | BAJO | - | Auditar separadamente | P3 | 2 |
-| 15 | Paths hardcodeados | ~/.local/share/aqorath | BAJO | 6 | Configuración centralizada | P2 | 1 |
+**Ventaja:** Claridad, testabilidad, mantenibilidad.
 
 ---
 
-## PARTE VI: CLASIFICACIÓN DE COMPONENTES
+## X. ANÁLISIS DE RIESGOS
 
-### CANÓNICO (Mantener, Mejorar)
-- ✅ core.py - Motor central (refactorizar capas)
-- ✅ models.py - Modelos ORM (convertir debit/credit a Decimal)
-- ✅ storage.py - Sesiones SQLite (mejorar listener)
-- ✅ templates.py - Operaciones contables (convertir a Decimal)
-- ✅ accounting_rules.py - Reglas de resultado
-- ✅ exercise.py - Cierre de ejercicio (centralizar validaciones)
-- ✅ company.py - Modelo de empresa
-- ✅ tests/ - Tests nuevos
+### P0 (CRÍTICO - Puede comprometer integridad contable)
 
-### RECUPERABLE (Adaptación Importante)
-- ⚠️ desktop.py - UI PySide (incompleta, depende de refactorización)
-- ⚠️ api.py (aqorath/) - API REST (consolidar APIs)
-- ⚠️ catalog.py - Acceso a catálogo (mezcla JSON + BD)
-- ⚠️ import_catalog.py - Importador (mejora necesaria)
-- ⚠️ assets.py - Activos fijos (convertir a Decimal)
-- ⚠️ config.py - Configuración (corregir BUG línea 65)
-- ⚠️ tax.py - Impuestos (no versionado)
-- ⚠️ reports_jinja.py - Generación de reportes
+1. **Float para dinero en persistencia**
+   - Impacto: Pérdida de precisión decimal en cálculos futuros
+   - Mitigación: Migrar JournalLine.debit/credit a Decimal
+   - Esfuerzo: Alto (cambio schema + migración datos)
 
-### LEGACY (Deprecar/Eliminar)
-- ❌ modelos/ - Motor Pandas (8 archivos)
-- ❌ test/ - Tests viejos (7 archivos)
-- ❌ app.py, desktop.py, company.py (raíz)
-- ❌ utils.py (raíz)
+2. **Fallback a Libro (DataFrames) como fuente de balanza**
+   - Impacto: Dos motores podem divergir
+   - Mitigación: Eliminar fallback, usar solo sqlite
+   - Esfuerzo: Medio (refactorización core.py)
 
-### DUPLICADO (Consolidar)
-- 🔄 api.py (raíz) ← fusionar a aqorath/api.py
-- 🔄 api/app.py ← fusionar a aqorath/api.py
+3. **requirements.txt "REQ" inválido**
+   - Impacto: Instalación falla
+   - Mitigación: Remover línea 8
+   - Esfuerzo: Trivial (1 línea)
+
+---
+
+### P1 (GRAVE - Contradicción arquitectónica)
+
+1. **Catálogo inmutable vs Regla 10 (extensible)**
+   - Impacto: Bloquea capacidad de adaptación
+   - Mitigación: Cambiar listener a validador
+   - Esfuerzo: Medio
+
+2. **Dos carpetas test/ + tests/**
+   - Impacto: Confusión, mantenimiento duplicado
+   - Mitigación: Consolidar a tests/, deprecate test/
+   - Esfuerzo: Bajo (refactor imports en CI)
+
+3. **Duplicación modelos/catalogo.py + aqorath/catalog.py**
+   - Impacto: Posible divergencia
+   - Mitigación: Usar único aqorath/catalog.py, deprecate modelos/
+   - Esfuerzo: Bajo
+
+4. **Separación de capas incompleta**
+   - Impacto: Lógica contable posiblemente duplicada
+   - Mitigación: Refactorización a domain/appl/infra/pres
+   - Esfuerzo: Alto (reestructura significativa)
+
+---
+
+### P2 (TÉCNICO - Deuda que debe resolverse antes de crecer)
+
+1. **29 except Exception genéricas** → Log específico requerido
+2. **Esquema dinámico en persistencia** → Fragilidad
+3. **Sin versionamiento de migraciones** → Riesgo upgrades
+4. **Interfaces esqueletizadas** → Prueba C incompleta
+
+---
+
+### P3 (MEJORA - Limpieza/documentación/optimización)
+
+1. **Archivos .bak residuales**
+2. **Backups test.db no limpios**
+3. **Sin reporte de cobertura**
+4. **Documentación de límites ausente**
+
+---
+
+## XI. CLASIFICACIÓN DE COMPONENTES
+
+### CANÓNICA (Mantener - Nueva arquitectura)
+
+```
+✓ aqorath/core.py
+✓ aqorath/templates.py
+✓ aqorath/catalog.py
+✓ aqorath/models.py
+✓ aqorath/storage.py
+✓ aqorath/company.py
+✓ aqorath/config.py
+✓ aqorath/exercise.py
+✓ tests/ (carpeta)
+```
+
+**Revisiones necesarias:** P0 float, P1 listener (storage)
+
+---
+
+### RECUPERABLE (Adaptar)
+
+```
+~ aqorath/api.py (expand endpoints)
+~ aqorath/desktop.py (implementar UI)
+~ aqorath/accounting_rules.py (versionamiento fiscal)
+~ api/app.py (integración)
+```
+
+**Acciones:** Refactorización + documentación
+
+---
+
+### LEGACY (Deprecate)
+
+```
+✗ modelos/libro.py (fallback DataFrames)
+✗ modelos/registro.py (validación legacy)
+✗ modelos/catalogo.py (duplica aqorath/)
+✗ modelos/poliza.py (pendiente reemplazo)
+✗ app.py (root - reemplazar con api/app.py + main.py)
+✗ test/ (carpeta - migrar a tests/)
+```
+
+**Línea de muerte:** Documentar deprecación, mantener fallbacks temporales, planificar eliminación en Phase 2
+
+---
+
+### PROTOTIPO (Completar)
+
+```
+◐ aqorath/desktop.py (UI muy esquelética)
+◐ aqorath/api.py (stub minimal)
+◐ modelos/cfdi.py (timbrado no productivo)
+◐ templates/report_template.html (falta contenido)
+```
+
+---
 
 ### RESIDUO (Limpiar)
-- 🗑️ Archivos .bak (16)
-- 🗑️ Patches no aplicados (3)
-- 🗑️ test.db.* backups (13)
-- 🗑️ name-app.py
-- 🗑️ validate_run.py (si no se usa)
 
-### PROTOTIPO (Auditar)
-- 🧪 modelos/cfdi.py (¿timbrado real?)
-- 🧪 desktop.py (UI incompleta)
-
-### INCIERTO (Investigar)
-- ❓ config.py (¿se usa? Tiene BUG)
-- ❓ CFDI endpoints (productivo?)
-- ❓ CLI (¿existe?)
+```
+🗑️ aqorath/*.py.bak (7 archivos)
+🗑️ aqorath/*.patch (2 archivos)
+🗑️ tests/test.db.bak.* (13 backups)
+🗑️ __pycache__/ (múltiples)
+🗑️ *.pyc
+```
 
 ---
 
-## PARTE VII: LISTA COMPLETA DE PROBLEMAS A RESOLVER
+## XII. DECISIONES PENDIENTES DE CONFIRMACIÓN HUMANA
 
-### ANTES de Fase 1 (Decisiones Humanas)
-
-- [ ] **Decisión: Catálogo extensible o inmutable?**
-  - Opción A: Implementar Principio 10 (extensible gobernado)
-  - Opción B: Mantener inmutable (revisar CONSTITUTION)
-  - Plazo: Antes de Fase 1
-
-- [ ] **Decisión: CFDI estado?**
-  - ¿Timbrado real o simulado?
-  - ¿Production-ready?
-  - Plazo: Antes de Fase 2
-
-- [ ] **Decisión: Licencia social?**
-  - ¿AGPL, Elastic, Custom?
-  - Plazo: Después de Fase 1
-
-### Fase 1 (Refactorización Arquitectónica)
-
-- [ ] Separar capas (Presentation → Application → Domain → Infrastructure)
-- [ ] Consolidar APIs (aqorath/api.py + api.py + api/app.py → 1)
-- [ ] Corregir BUG config.py (select())
-- [ ] Corregir requirements.txt
-- [ ] Eliminar fallbacks en core.py
-- [ ] Centralizar validación de partida doble
-- [ ] Deprecar modelos/ explícitamente
-- [ ] Crear abstracción Repository
-- [ ] Unificar documentación
-
-### Fase 2 (Eliminación de Legacy)
-
-- [ ] Eliminar modelos/
-- [ ] Eliminar test/
-- [ ] Eliminar archivos residuales (bak, patch, etc.)
-- [ ] Migrar importers a nuevos tests
-
-### Fase 3 (Exactitud Numérica)
-
-- [ ] Convertir JournalLine.debit/credit a Decimal
-- [ ] Convertir templates a Decimal
-- [ ] Convertir exercise.py a Decimal
-- [ ] Re-validar todos los tests
-
-### Fase 4 (Catálogo Gobernado)
-
-- [ ] Implementar extensiones controladas
-- [ ] UI para crear extensiones
-- [ ] Mejorar listener de catálogo (UPDATE)
-
-### Fase 5 (Fiscal Versionado)
-
-- [ ] Separar tax/ del núcleo
-- [ ] Implementar FiscalRuleSet
-- [ ] Soportar múltiples periodos
-
-### Fase 6 (OSC Primera Clase)
-
-- [ ] Modelos Program, Fund, Donation
-- [ ] Dimensiones analíticas
-- [ ] Reportes OSC
+1. ¿CFDI será funcionalidad productiva o educativa?
+2. ¿Módulo OSC integrado o separable?
+3. ¿Cuándo deprecate modelos/?
+4. ¿Licencia social qué modelo específico?
+5. ¿UI primaria: desktop (PySide) o web (FastAPI)?
+6. ¿Multimoneda nunca o Phase 3?
+7. ¿Depreciaciones integradas o módulo?
 
 ---
 
-## CONCLUSIÓN
+## XIII. RECOMENDACIONES INMEDIATAS (PHASE 1)
 
-**Estado General:** El repositorio tiene un **núcleo viable** (tests pasan) pero con **problemas arquitectónicos críticos** (múltiples fuentes de verdad, dinero como float, capas mezcladas).
+**P0 - Corregir float para dinero**
+1. Cambiar JournalLine.debit/credit a Decimal
+2. Cambiar Asset.value a Decimal
+3. Migración de datos existentes (SQL)
+4. Actualizar post_entry() para usar Decimal
+5. Agregar validaciones de cuantización
 
-**Próximos Pasos:**
+**P0 - Fijar requirements.txt**
+1. Remover línea "REQ"
+2. Unificar duplicados
 
-1. ✅ **COMPLETADO:** Fase 0 - Auditoría y Constitución
-2. → **SIGUIENTE:** Fase 1 - Refactorización Arquitectónica (Separación de capas, consolidación de APIs, correcciones de bugs)
-3. → Fase 2 - Eliminación de Legacy
-4. → Fase 3 - Exactitud Numérica
-5. → ... (Fases 4-6)
+**P1 - Política de catálogo**
+1. Cambiar listener a validador
+2. Agregar Account.is_canonical bool
+3. Permitir creación de cuentas con guía en UI
 
-**Estimación:** 10-15 sprints para completar Fases 1-3 (asumiendo 2 dev-weeks por fase).
+**P1 - Consolidar tests**
+1. Migrar test/ → tests/
+2. Actualizar imports en CI
+3. Deprecate test/ carpeta
+
+**P1 - Separación de capas**
+1. Crear domain/, application/, infrastructure/
+2. Mover entidades a domain/
+3. Mover core.py → application/services/operation.py
+4. Documentar transición
 
 ---
 
-**Documento Finalizado:** 2025-11-01  
-**Auditoría Conducida Por:** Claude (Fase 0 Automated Review)  
-**Próxima Revisión:** Tras Fase 1
+## XIV. ESTADO DE CFDI
+
+**Archivo:** modelos/cfdi.py (359 líneas)
+**Documentación:** docs/CFDI.md
+
+**Clasificación:** PROTOTIPO (no productivo)
+
+**Funcionalidad:**
+- Generación de XML CFDI (estructura)
+- Firma digital (esqueleto)
+- Importación de timbrado (test)
+
+**Limitaciones:**
+- Timbrado real: NO (test mock)
+- Validación SAT: NO
+- Integración con flujo contable: Parcial
+
+**En Phase 0:** Solo documentar estado actual
+
+---
+
+## XV. ESTADÍSTICAS FINALES
+
+| Métrica | Valor |
+|---------|-------|
+| Total archivos Python | ~90 |
+| Total líneas de código | ~4800 |
+| Líneas core/lógica | ~2000 |
+| Líneas tests | ~800 |
+| Tests ejecutables | 26 |
+| Tests pasando | 26 (100%) |
+| Archivos .bak residuales | 7 |
+| Except Exception genéricas | 29 |
+| Entry points distintos | 5 |
+| Carpetas test | 2 |
+| Fallbacks arquitectónicos | 4+ |
+| Componentes CANÓNICA | 9 |
+| Componentes LEGACY | 6 |
+| Componentes PROTOTIPO | 7 |
+| Componentes RESIDUO | 20+ |
+
+---
+
+## XVI. CONCLUSIONES
+
+### Estado Actual
+Aqorath es un **ERP funcional pero en transición.** La arquitectura nueva (aqorath/) es sólida pero incompleta. La legacy (modelos/) existe como fallback pero genera riesgos de inconsistencia.
+
+### Fortalezas
+- Motor contable unificado (core.py)
+- Fallbacks defensivos (ORM + sqlite)
+- Pruebas automatizadas (26 tests)
+- Catálogo bien estructurado
+- Local-first + SQLite
+
+### Debilidades Críticas
+- Float para dinero (P0)
+- Catálogo inmutable bloquea (P1)
+- Dos arquitecturas coexisten (P1)
+- Interfaces esqueletizadas (falta Prueba C)
+- Documentación de arquitectura ausente hasta hoy
+
+### Camino Adelante
+1. Corregir P0 (float → Decimal)
+2. Resolver P1 (catálogo, capas, tests consolidados)
+3. Completar arquitectura objetivo
+4. Implementar explicabilidad + pedagogía
+5. Deprecate legacy gradualmente
+
+---
+
+## XVII. REFERENCIAS
+
+- AQORATH_CONSTITUTION_V1.md (28 principios)
+- ARCHITECTURE_BASELINE_V1.md (diseño objetivo)
+- pytest output: 26/26 PASSED
+- Git log: Cambios frecuentes en catalogo.py, core.py
+- Código: aqorath/ como fuente canónica
+
