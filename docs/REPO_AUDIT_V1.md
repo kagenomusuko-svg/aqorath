@@ -152,7 +152,13 @@ Caso concreto:
 - Debe ser RECHAZADO con mensaje "Cuenta no existe en catálogo"
 - Actual: Permitido (BUG)
 
-**Clasificación:** **P0 (CRÍTICO)** — Permite persistencia de póliza estructuralmente inválida aunque algebraicamente balanceada. Viola Regla 4 (PARTIDA DOBLE COMO INVARIANTE ABSOLUTA) en interpretación estricta: un asiento inválido no debe persistirse.
+**Violaciones:**
+- **Integridad de cuenta:** JournalLine referencia Account inexistente
+- **Catálogo gobernado (R10):** Permite código de cuenta no gobernado
+- **Consistencia estructural:** Asiento algebraicamente correcto pero estructura inválida
+- **NO es violación de R4 (partida doble):** El asiento está balanceado. El problema es que es estructuralmente inválido sin ser algebraicamente inválido.
+
+**Clasificación:** **P0 (CRÍTICO)** — Permite persistencia de póliza estructuralmente inválida. Los datos referen cuentas inexistentes en catálogo, causando inconsistencia de base de datos y reportes incompletos.
 
 ---
 
@@ -388,11 +394,11 @@ from .storage import ...
 
 | Componente | Clasificación | Descripción |
 |-----------|---|---|
-| aqorath/core.py | CANÓNICA | Motor contable, tiene bugs P0 pero reparable |
+| aqorath/core.py | TRANSICIONAL | Motor contable, tiene bugs P0/P1 y fallbacks silenciosos. Requiere refactor. |
 | aqorath/models.py | TRANSICIONAL | ORM SQLModel, mezcla persistencia+domain. Phase 1 separará. |
 | aqorath/templates.py | CANÓNICA | Plantillas de reglas contables, funcional |
 | aqorath/storage.py | TRANSICIONAL | Sesión/listener, problemas P1 pero recoverable |
-| aqorath/catalog.py | CANÓNICA | Catálogo, funcional aunque bloquea extensibilidad |
+| aqorath/catalog.py | TRANSICIONAL | Catálogo, contradice R10 (bloquea extensibilidad). Debe revisarse. |
 | aqorath/exercise.py | TRANSICIONAL | Cierres, requiere bug fix as_of. No es canónica hasta P0-3 esté reparado. |
 | aqorath/config.py | TRANSICIONAL | Tiene fallback silencioso (P1-2). Candidato a refactor. |
 | aqorath/api.py | ROOTA | NO IMPORTABLE (missing reports_jinja). Candidata a deprecación si se elige desktop. |
@@ -402,7 +408,7 @@ from .storage import ...
 | tests/ | CANÓNICA | 10 tests. Suite objetivo. |
 | app.py (root) | RECUPERABLE | Punto de entrada híbrido. Uso actual TBD. |
 | api/app.py | PROTOTIPO | FastAPI app stub, candidata a consolidación. |
-| reports_jinja.py | RECUPERABLE | Importable pero ubicación inconsistente (ver P2-12). |
+| reports_jinja.py | RECUPERABLE | Importable pero ubicación inconsistente (ver P2-4). |
 
 **REGLA DE CLASIFICACIÓN:**
 - **CANÓNICA:** Componente alineado con ARCHITECTURE_BASELINE_V1, sin bugs críticos, sin fallbacks silenciosos.

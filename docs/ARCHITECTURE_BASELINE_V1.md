@@ -37,12 +37,13 @@ Propone una estructura conceptual que:
 │  EntityService (gestionar entidad)                  │
 │  ExerciseService (cierres contables)                │
 │                                                     │
-│  Mapea entre DTO e inversiones Domain.              │
-│  NO conoce implementaciones de persistencia.        │
+│  Mapea entre DTO y Domain Model.                    │
+│  Depende de Domain + Ports (abstracciones).         │
+│  NUNCA importa implementaciones concretas.          │
 └───────────────┬─────────────────────────────────────┘
                 │
         ├───────┴───────┐
-        ↓               ↓ depende de
+        ↓               ↓
 
 ┌─────────────────────┐  ┌────────────────────────┐
 │  DOMAIN             │  │  INFRASTRUCTURE         │
@@ -50,15 +51,20 @@ Propone una estructura conceptual que:
 │                     │  │                        │
 │  Entidades puras    │  │  SQLiteRepository      │
 │  Reglas de negocio  │  │  FileBackupService     │
-│  Sin dependencias   │  │  ReportRenderer        │
-│  externas           │  │  (PDF, Excel, JSON)    │
-└─────────────────────┘  │  ConfigurationManager  │
-                         │  CFDIService           │
+│  Ports/Abstracciones│  │  ReportRenderer        │
+│  Sin dependencias   │  │  (PDF, Excel, JSON)    │
+│  externas           │  │  ConfigurationManager  │
+└─────────────────────┘  │  CFDIService           │
+                         │                        │
+                         │  COMPOSITION ROOT      │
+                         │  (instancia e inyecta  │
+                         │   implementaciones)    │
                          └────────────────────────┘
 
-REGLA: Domain no importa nada externo (dataclasses, typing, decimal, datetime solo).
-REGLA: Infrastructure implementa interfaces/puertos definidos por Domain/Application.
-REGLA: Application importa Domain + abstracciones, no implementaciones concretas.
+REGLA: Domain define Ports (interfaces), NO implementaciones.
+REGLA: Infrastructure implementa los Ports definidos por Domain/Application.
+REGLA: Application importa Domain + Ports, NUNCA importa Infrastructure.
+REGLA: Composition Root (bootstrapping) instancia las implementaciones y las inyecta.
 ```
 
 ---
@@ -77,26 +83,26 @@ class Entity:
     id: Optional[int]
     name: str
     rfc: Optional[str]
-    juridical_nature: str      # "persona_fisica", "persona_moral", "osc"
+    
+    # Identidad jurídica (conceptos neutrales)
+    legal_personality: str      # "persona_fisica", "persona_moral"
+    legal_form: str             # Forma específica (S.A., S.L., A.C., etc.)
     
     # Composición, no herencia
-    profile: EntityProfile
+    profile: EntityProfile      # Contiene economic_purpose, capabilities, etc.
 ```
 
-#### 2. **EntityProfile** - Características económicas y jurídicas
+#### 2. **EntityProfile** - Características económicas y capacidades
 ```python
 @dataclass
 class EntityProfile:
-    """Describe características ECONÓMICAS y JURÍDICAS, NO fiscales"""
+    """Describe características ECONÓMICAS y CAPACIDADES especiales"""
     entity_id: int
     
-    # Identidad económico-jurídica
-    juridical_nature: str       # persona_fisica, persona_moral
-    legal_form: str             # forma jurídica específica
-    economic_purpose: str       # lucro / no_lucro
+    # Propósito económico
+    economic_purpose: str       # "lucrativo", "no_lucrativo"
     
-    # Capacidades especiales (ej. A.C. puede tener donataria)
-    is_nonprofit: bool          # ¿es no lucrativa?
+    # Capacidades especiales
     is_donor_authorized: bool   # ¿Donataria autorizada SAT?
     special_capabilities: List[str]  # ["osc", "payroll_reporting", "inventory_control"]
     
@@ -563,7 +569,7 @@ class AuditEvent:
 
 ## APPLICATION LAYER (Casos de Uso)
 
-Los servicios de Application orquestan Domain + Infrastructure.
+Los servicios de Application orquestan Domain Models mediante Ports (abstracciones). Infrastructure implementa esos Ports.
 
 ### Patrón: User Story → Service → Domain
 
@@ -571,13 +577,15 @@ Los servicios de Application orquestan Domain + Infrastructure.
 CreateJournalEntryRequest (DTO)
     ↓
 OperationService.create_entry(request)
-    ├─ Interpreta EconomicEvent
-    ├─ Aplica TemplateRule
-    ├─ Genera AccountingDecision
-    ├─ Valida partida doble
-    ├─ Llama JournalRepository.save()
+    ├─ Interpreta EconomicEvent (Domain)
+    ├─ Aplica TemplateRule (Domain)
+    ├─ Genera AccountingDecision (Domain)
+    ├─ Valida partida doble (Domain)
+    ├─ Llama Port: JournalRepository.save() (implementado en Infrastructure)
     └─ Retorna CreatedEntryResponse (DTO)
 ```
+
+**Importante:** Application NUNCA importa implementaciones concretas (SQLiteRepository, SQLModel, etc.). Solo importa Domain + Ports/abstracciones.
 
 ### Servicios Principales
 
@@ -641,11 +649,13 @@ class ReportRenderer:
 - Asumir cuantización universal (ej: "siempre 2 decimales")
 - Redondeo sin justificación reglamentaria
 
-**Phase 1 definirá:**
+**Phase 1 determinará mediante pruebas:**
+- Representación persistente exacta: evaluará opciones (SQLite NUMERIC/DECIMAL y alternativas)
+- Pruebas round-trip (guardar → leer → verificar exactitud): requisito no negociable
 - Políticas concretas de redondeo por tipo de valor y contexto
-- Representación persistente exacta (SQLite NUMERIC/DECIMAL)
-- Pruebas round-trip (guardar → leer → verificar exactitud)
 - Reglas en frontera contable y fiscal
+
+**IMPORTANTE:** No se asumirá que la afinidad NUMERIC/DECIMAL de SQLite garantiza exactitud por sí sola. Phase 1 debe verificar mediante round-trip tests antes de validar la estrategia.
 
 ---
 
