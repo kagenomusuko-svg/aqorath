@@ -147,11 +147,13 @@ class FiscalProfile:
     id: Optional[int]
     entity_id: int
     
-    # Régimen (códigos SAT neutrales)
-    fiscal_regime_code: str     # RIF, RGSO, RGSO+, RFSC, etc.
-    tax_obligation_level: str   # ordinary, simplified, micro, exempt
+    # Régimen fiscal
+    fiscal_regime_code: str     # Código del régimen (define el catálogo fiscal versionado)
     
-    # Efectivas desde
+    # Características aplicables
+    tax_characteristics: Dict[str, bool]  # Obligaciones aplicables: CFDI, VAT, ISR, etc.
+    
+    # Vigencia
     effective_from: date
     effective_to: Optional[date]
     
@@ -167,7 +169,7 @@ class FiscalProfile:
     # Un Entity puede cambiar FiscalProfile a lo largo del tiempo
 ```
 
-**IMPORTANTE:** Una A.C. (EntityProfile.is_nonprofit=true) PUEDE tener FiscalProfile.fiscal_regime_code="RFSC" (Régimen Fiscal de Contribuyentes Morales). Los dos conceptos son independientes y complementarios.
+**IMPORTANTE:** EntityProfile (naturaleza económico-jurídica) y FiscalProfile (régimen fiscal) son conceptualmente independientes. Una entidad puede cambiar de régimen fiscal sin cambiar su naturaleza jurídica. El catálogo fiscal versionado define qué regímenes son válidos para qué perfiles.
 
 #### 3. **ThirdParty** - Contrapartes (Clientes, Proveedores, Donantes, etc.)
 ```python
@@ -617,35 +619,37 @@ class ReportRenderer:
 
 ---
 
-## EXACTITUD MONETARIA (Política de Escala y Redondeo)
+## EXACTITUD MONETARIA
 
-**PROHIBIDO:** Asumir que "2 decimales" es universal para TODO tipo de valor.
+**Principio:** Toda cantidad monetaria debe conservar representación exacta. Escala y redondeo dependen del tipo de valor y de la regla contable/fiscal aplicable.
 
-**Distinción de tipos:**
+**Tipos de valores conceptuales:**
 
-| Tipo | Rango de Escala | Política de Redondeo | Ejemplos |
-|------|-----------------|---------------------|----------|
-| Money (dinero) | 2 decimales | Redondeo bancario (half-even) | Ingresos, gastos, bancos |
-| TaxRate | Variable (2-6) | Truncar, nunca redondear | ISR al 17.15%, IVA 16% |
-| ExchangeRate | Variable (4-8) | Usar precisión del mercado | USD/MXN: 20.5234 |
-| Percentage | 2 decimales | Truncar/redondear según contexto | 15.25% de margen |
-| Intermediate Calculation | Decimal exacto | SIN redondeo intermedio | Cálculos internos mantienen precisión |
+- **Money:** Cantidad monetaria (dinero en persistencia, cálculos)
+- **TaxRate:** Tasa impositiva (porcentaje de aplicación fiscal)
+- **ExchangeRate:** Tipo de cambio (para conversión de monedas)
+- **PercentageOrFactor:** Factor de cálculo (márgenes, comisiones, distribuciones)
+- **IntermediateCalculation:** Resultado de operaciones internas (mantiene precisión total)
 
-**DECISIONES EN PHASE 1:**
-- Especificar representación persistente exacta (SQLite NUMERIC vs DECIMAL)
-- Definir redondeo en frontera contable (qué operaciones pueden perder precisión)
-- Definir redondeo en frontera fiscal (cálculos de impuestos)
-- Realizar round-trip tests (guardar → leer → verificar exactitud)
+**Cada tipo posee una política explícita de escala y redondeo definida por:**
+- Las reglas contables aplicables
+- Las reglas fiscales en vigor
+- Los requisitos de precisión del contexto
 
-**ACTUAL (NO DECISIVO):**
-- NO imponer cuantización a 2 decimales en TODOS los cálculos
-- Float PROHIBIDO en persistencia (core.py línea 690 bug conocido)
-- Decimal permitido siempre en memoria
-- Serialización JSON puede usar string decimal
+**Prohibido:**
+- Usar float binario como representación autoritativa de dinero
+- Asumir cuantización universal (ej: "siempre 2 decimales")
+- Redondeo sin justificación reglamentaria
+
+**Phase 1 definirá:**
+- Políticas concretas de redondeo por tipo de valor y contexto
+- Representación persistente exacta (SQLite NUMERIC/DECIMAL)
+- Pruebas round-trip (guardar → leer → verificar exactitud)
+- Reglas en frontera contable y fiscal
 
 ---
 
-## MODELO CONCEPTUAL COMPLETO (30+ Elementos Evaluados)
+## MODELO CONCEPTUAL COMPLETO (29 Conceptos Requeridos)
 
 ### Tabla Resumida
 

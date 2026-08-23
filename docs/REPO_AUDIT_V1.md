@@ -258,7 +258,7 @@ except Exception:
 
 ---
 
-### P1-5: DUPLICACIÓN test/ + tests/ (Autoridad Única de Tests)
+### P2-1: DUPLICACIÓN test/ + tests/ (Autoridad Única de Tests)
 
 **Ubicación:** Dos carpetas paralelas
 
@@ -274,13 +274,13 @@ tests/        10 tests → todos PASSED
 - CI debe ejecutar ambas (ineficiente)
 - Deprecación de una requiere refactor
 
-**Clasificación:** **P2 (IMPORTANTE)** — No es crítica para integridad de datos (anterior P1-4 es más urgente). Pero viola Regla 24 (una autoridad única) en testing. Consolidar a tests/, deprecate test/ en Phase 1.
+**Clasificación:** **P2 (IMPORTANTE)** — Deuda de testing. Viola Regla 24 (una autoridad única) en testing. Consolidar a tests/, deprecate test/ en Phase 1.
 
 ---
 
 ## HALLAZGOS TÉCNICOS P2 (Deuda Importante)
 
-### P2-1: DEPENDENCIAS NO DECLARADAS (4)
+### P2-2: DEPENDENCIAS NO DECLARADAS (4)
 
 **Verificado directamente contra requirements.txt y código:**
 
@@ -308,7 +308,7 @@ python -c "import aqorath.desktop"
 
 ---
 
-### P2-2: aqorath/api.py IMPORTA reports_jinja CON PATH INCORRECTO
+### P2-3: aqorath/api.py IMPORTA reports_jinja CON PATH INCORRECTO
 
 **Ubicación:** `aqorath/api.py` línea 15
 
@@ -329,21 +329,6 @@ reports_jinja.py  ← en raíz, no en aqorath/
 - FastAPI endpoints no disponibles
 
 **Clasificación:** **P2 (IMPORTANTE)** — API no funcional.
-
----
-
-### P2-3: main.py ES CLI, NO DESKTOP
-
-**Estado anterior (INCORRECTO):**
-- Clasificado como "Desktop entry point"
-
-**Estado actual (CORRECTO):**
-- CLI orientada a:
-  - `fetch-xsds` (descargar esquemas XSD)
-  - `generate-cfdi` (generar CFDI mínimo)
-  - `import-timbrado` (importar CFDI timbrado)
-
-**Clasificación:** **Corrección factual** — main.py NO es superficie Desktop.
 
 ---
 
@@ -468,10 +453,11 @@ python-multipart        → FastAPI file uploads
 | 6 | **P1** | config.py falla silenciosa (P1-2) | AppConfig.select() no existe en SQLModel | Usar select(AppConfig) de sqlalchemy |
 | 7 | **P1** | Catálogo inmutable bloquea (P1-3) | Listener previene inserción fuera catálogo | Cambiar a validador, permitir extensiones |
 | 8 | **P1** | Fallback Excel/Pandas bifurca autoridad (P1-4) | Except captura, cae a trial_balance_from_pandas | Eliminar fallback, fallar explícitamente |
-| 9 | **P2** | test/ + tests/ duplicados (P1-5 downgrade P2) | Dos suites paralelas | Consolidar a tests/, deprecate test/ |
-| 10 | **P2** | Dependencias no declaradas (P2-1) | PySide6, python-multipart no en requirements.txt | Agregar a requirements.txt o requirements-*.txt |
-| 11 | **P2** | reports_jinja path inconsistente (P2-4) | En raíz pero usa imports relativos | Ubicar en aqorath/ O refactorizar imports |
-| 12 | **P2** | 29 except Exception genéricas (P2-5) | Captura genérica, debugging difícil | Especificar excepciones (ValidationError, etc) |
+| 9 | **P2** | test/ + tests/ duplicados (P2-1) | Dos suites paralelas | Consolidar a tests/, deprecate test/ |
+| 10 | **P2** | Dependencias no declaradas (P2-2) | PySide6, python-multipart no en requirements.txt | Agregar a requirements.txt o requirements-*.txt |
+| 11 | **P2** | api.py path reports_jinja incorrecto (P2-3) | Intenta importar desde aqorath/ pero archivo en raíz | Mover a aqorath/ O refactorizar imports |
+| 12 | **P2** | reports_jinja ubicación inconsistente (P2-4) | En raíz con imports relativos conflictivos | Ubicar en aqorath/ O refactorizar imports |
+| 13 | **P2** | 29 except Exception genéricas (P2-5) | Captura genérica, debugging difícil | Especificar excepciones (ValidationError, etc) |
 
 ---
 
@@ -490,7 +476,7 @@ python-multipart        → FastAPI file uploads
 ## PRÓXIMOS PASOS
 
 **Phase 0.2 (correcciones documentales):** 
-- Completar modelo conceptual (30+ elementos)
+- Completar modelo conceptual (29 conceptos)
 - Formalizar LedgerSignedBalance vs NormalBalanceAmount
 - Separar EntityProfile / FiscalProfile
 - Revisar prioridades (account_code es P0, no P1)
@@ -503,16 +489,17 @@ python-multipart        → FastAPI file uploads
 4. P0-4: account_code validado contra catálogo
 5. P1-4: Eliminar fallback Excel/Pandas (bifurcación de autoridad)
 
-**Phase 2 (Corregir P1 + P2-1/2):**
+**Phase 2 (Corregir P1 + P2):**
 - P1-1: JournalEntry ORM compatible
 - P1-2: config.py sin falla silenciosa
 - P1-3: Catálogo permitir extensiones
-- P1-5: Consolidar test/ → tests/
-- P2-1: Declarar dependencias (PySide6, etc)
-- P2-4: Ubicar reports_jinja correctamente
+- P2-1: Consolidar test/ → tests/ (deuda de testing)
+- P2-2: Declarar dependencias (PySide6, python-multipart, etc)
+- P2-3: Path de api.py → reports_jinja correcto
+- P2-4: Ubicación reports_jinja inconsistente
 
 **Phase 3 (Deuda técnica):**
-- P2-5: Reemplazar 29 except Exception
-- Refactorización arquitectónica
-- Documentación completa
+- P2-5: Reemplazar 29 except Exception genéricas
+- Refactorización arquitectónica completa
+- Documentación de especialidades
 

@@ -90,13 +90,15 @@ Toda arquitectura, API, interfaz y motor contable debe poder justificarse contra
 
 ### R5: DINERO EXACTO (Decimal)
 
-**Regla:** Los valores monetarios persistentes y los cálculos contables no deben depender de float binario.
+**Regla:** Toda cantidad monetaria debe conservar representación exacta en persistencia, cálculos, y cruces de límites (API, UI, importación, exportación).
 
 **Consecuencia arquitectónica:**
-- Valores monetarios en persistencia: usar Decimal (SQL NUMERIC, DECIMAL o equivalente)
-- Cálculos intermedios: usar Decimal Python
-- Float permitido SOLO para: display temporal, transmisión por API, operaciones no críticas
-- Cuantización: 2 decimales para dinero (0.01)
+- Valores monetarios: usar Decimal, nunca float binario como representación autoritativa
+- Persistencia: NUMERIC/DECIMAL o equivalente exacto
+- Cálculos intermedios: Decimal Python
+- Serialización (JSON, API, importación): formato exacto (decimal textual u otro)
+- No existe cuantización universal a 2 decimales. Escala y redondeo dependen del tipo de valor y de la regla contable/fiscal aplicable
+- Phase 1 definirá políticas concretas de redondeo por contexto
 
 ---
 
@@ -128,41 +130,47 @@ Toda arquitectura, API, interfaz y motor contable debe poder justificarse contra
 
 **Regla:** Una instalación está diseñada para un propietario/usuario local.
 
-**Consecuencia arquitectónica:**
-- NO construir arquitectura de concurrencia multiusuario
-- NO implementar usuarios, roles, permisos, auditoría por usuario (aún)
-- La existencia de mecanismos administrativos NO debe convertir Aqorath accidentalmente en multiusuario
-- APIs deben ser locales (IPC, localhost) no expuestas en red
+**Permitido:**
+- Identidad/perfil local del propietario
+- Preferencias del usuario (pedagógicas, UI)
+- UserKnowledgeState (tracking de aprendizaje)
+- Autenticación local (si posteriormente se considera necesaria)
+- Trazabilidad de acciones locales (cuando sea necesaria)
+
+**Prohibido:**
+- Múltiples operadores concurrentes
+- RBAC empresarial
+- Arquitectura multiusuario
+- APIs expuestas en red (solo locales: IPC, localhost)
 
 ---
 
 ### R9: MONOENTIDAD
 
-**Regla:** Una instalación representa una entidad económica activa.
+**Regla:** Una instalación administra una sola entidad contable activa. Puede administrar cualquier cantidad de terceros relacionados.
 
-**Consecuencia arquitectónica:**
-- Una DB por instalación = una entidad
-- NO crear "modo seleccionar empresa" en UI
-- NO implementar tabla clientes/empresas en Aqorath
-- Cambiar de entidad requiere procedimiento explícito (migración, no "abrir otra empresa en lista")
-- Invariante: Nunca debe existir más de una fila Company activa en una instalación
-- Persistencia debe garantizar monoentidad (constraint UNIQUE si es necesario)
+**Permitido:**
+- Tabla ThirdParty (clientes, proveedores, donantes, acreedores, deudores, empleados, otras contrapartes)
+
+**Prohibido:**
+- Selector de entidades contables en UI
+- Múltiples empresas/RFC contables administradas simultáneamente
+- Múltiples filas Company/Entity activas en una instalación
+- "Modo cambiar empresa" (cambio requiere migración explícita)
+
+**Invariante:** Máximo una entidad contable activa por instalación.
 
 ---
 
 ### R10: CATÁLOGO GOBERNADO Y EXTENSIBLE
 
-**Regla:** Abandonar catálogo absolutamente cerrado. Requerir distinción entre estructura canónica protegida y extensiones legítimas.
+**Regla:** Toda cuenta debe preservar las invariantes del catálogo gobernado. La estructura canónica está protegida y las extensiones legítimas deben poder incorporarse sin quebrantarla.
 
 **Consecuencia arquitectónica:**
-- A) Estructura contable canónica protegida (Activo/Pasivo/Patrimonio/Ingresos/Gastos)
-- B) Cuentas/extensiones creadas por usuario para su realidad concreta
-- Usuario puede describir "Mi cuenta BBVA" → Sistema la ubica en estructura canónica sin pedir código
-- Validación de estructura (no bloqueo de creación):
-  - Validador debe rechazar cuentas que rompen estructura canónica
-  - Pero permitir cuentas válidas que el usuario necesita
-  - Extensiones deben marcarse con atributo (ej: is_canonical=false)
-- Estructura canónica (tipos, subtipos, naturaleza) no puede romperse
+- Estructura canónica (Activo/Pasivo/Patrimonio/Ingresos/Gastos) es invariante no negociable
+- Usuario puede describir necesidades de cuenta; el sistema las ubica en estructura canónica
+- Extensiones legítimas pueden incorporarse si respetan las invariantes
+- Representación técnica (índices, constraints, atributos, listeners) se decide fuera de esta Constitución
 
 ---
 
@@ -296,17 +304,12 @@ PAQUETE ("Bancos")
 
 ### R20: REUTILIZACIÓN DE INFORMACIÓN
 
-**Regla:** Un dato capturado correctamente una vez debe reutilizarse en todos los lugares donde corresponda.
+**Regla:** La información ya conocida por Aqorath debe reutilizarse y no solicitarse nuevamente, salvo que sea necesario confirmar que cambió o resolver una ambigüedad material.
 
 **Consecuencia arquitectónica:**
-- Si Aqorath conoce al tercero/importe/CFDI, no los pide nuevamente
-- Dato conocido se reutiliza mediante la arquitectura de datos correspondiente:
-  - ThirdParty en base de datos para terceros
-  - Historial de asientos para importes recientes
-  - Catálogo de cuentas para referencias contables
-  - (Implementación: caché, índices, queries optimizadas — Phase 1 decide)
-- UI debe autocompletar/sugerir basado en datos conocidos
-- Nunca re-preguntar dato ya persistido
+- Si Aqorath ha capturado correctamente: tercero, importe, CFDI, documento, fecha, cálculo, no volver a pedirlo
+- UI debe reflejar información conocida (autocompletar, sugestiones, presets)
+- Arquitectura de datos, estrategias de caché, indexación, queries: decididas en Phase 1 según rendimiento y contexto
 
 ---
 
