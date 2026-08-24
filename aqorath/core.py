@@ -627,94 +627,38 @@ def _balances_from_libro() -> Dict[str, Decimal]:
 
 def trial_balance(as_of: Optional[str] = None) -> Dict[str, Decimal]:
     """
-    Return mapping account_code -> Decimal(saldo).
+    P1-4: Return mapping account_code -> Decimal(saldo).
+    SQLite is the sole authority. No Libro fallback.
+    
     Strategy:
-      1) Try sqlite aggregation first.
-      2) If sqlite returns empty, try modelos.libro.Libro.
-      3) Always include account catalog codes with zero saldo if they are missing from aggregation.
+      1) Get balances from SQLite (aggregation).
+      2) If SQLite valid but empty: fill with account catalog codes at zero.
+      3) If SQLite fails: propagate error (do NOT fallback to Libro).
     """
-    # 1) sqlite
-    try:
-        db_path = _find_db_path()
-        balances_sqlite = {}
+    db_path = _find_db_path()
+    
+    # P1-4: SQLite aggregation is the sole source
+    balances_sqlite = _balances_from_sqlite(db_path, as_of=as_of)
+    
+    # Merge account catalog codes with zero saldo for any missing codes
+    if db_path:
         try:
-            balances_sqlite = _balances_from_sqlite(db_path, as_of=as_of)
-        except Exception as e:
-            LOG.debug("trial_balance: sqlite aggregation failed: %s", e)
-            balances_sqlite = {}
-
-        # Merge account catalog codes with zero saldo for any missing codes
-        try:
-            if db_path:
-                conn = sqlite3.connect(str(db_path))
-                try:
-                    cur = conn.cursor()
-                    cur.execute("SELECT code FROM account")
-                    for (code,) in cur.fetchall():
-                        if code is None:
-                            continue
-                        key = str(code)
-                        if key not in balances_sqlite:
-                            balances_sqlite[key] = Decimal("0")
-                finally:
-                    conn.close()
-        except Exception as e:
-            LOG.debug("trial_balance: failed to merge account catalog codes: %s", e)
-
-        if balances_sqlite:
-            return balances_sqlite
-    except Exception as e:
-        LOG.debug("trial_balance sqlite attempt raised: %s", e)
-
-    # 2) libro fallback
-    try:
-        balances_libro = _balances_from_libro()
-        if balances_libro:
-            # also merge catalog zeros if any missing
-            try:
-                db_path = _find_db_path()
-                if db_path:
-                    conn = sqlite3.connect(str(db_path))
-                    try:
-                        cur = conn.cursor()
-                        cur.execute("SELECT code FROM account")
-                        for (code,) in cur.fetchall():
-                            if code is None:
-                                continue
-                            key = str(code)
-                            if key not in balances_libro:
-                                balances_libro[key] = Decimal("0")
-                    finally:
-                        conn.close()
-            except Exception:
-                pass
-            return balances_libro
-    except Exception as e:
-        LOG.debug("trial_balance: Libro fallback failed: %s", e)
-
-    # 3) final fallback: return account codes with zero saldo (do not create accounts)
-    try:
-        db_path = _find_db_path()
-        if db_path:
             conn = sqlite3.connect(str(db_path))
             try:
                 cur = conn.cursor()
                 cur.execute("SELECT code FROM account")
-                rows = cur.fetchall()
-                zeros: Dict[str, Decimal] = {}
-                for (code,) in rows:
+                for (code,) in cur.fetchall():
                     if code is None:
                         continue
-                    zeros[str(code)] = Decimal("0")
-                if zeros:
-                    LOG.info("trial_balance: returning account codes with zero saldo as final fallback")
-                    return zeros
+                    key = str(code)
+                    if key not in balances_sqlite:
+                        balances_sqlite[key] = Decimal("0")
             finally:
                 conn.close()
-    except Exception as e:
-        LOG.debug("trial_balance final fallback failed: %s", e)
-
-    return {}
+        except Exception as e:
+            LOG.debug("trial_balance: failed to merge account catalog codes: %s", e)
+    
+    return balances_sqlite
 
 
 # -------------------------
@@ -722,324 +666,121 @@ def trial_balance(as_of: Optional[str] = None) -> Dict[str, Decimal]:
 # -------------------------
 def _persist_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Persist an entry dict:
-      entry = {"description": str, "lines": [ {"account_code":..., "account_id":..., "debit":..., "credit":..., "description":...}, ... ]}
+    Persist an entry dict via ORM only.
+    ORM (SQLModel) is the sole persistence authority.
+    No raw SQLite fallback.
 
-    Validates accounts exist (sqlite check preferred for account_id), then inserts via ORM if available else sqlite.
+    entry = {
+      "description": str,
+      "date": datetime | str | None,
+      "doc_ref": str | None,
+      "period_id": int | None,
+      "posted_by": str | None,
+      "state": str,
+      "lines": [{"account_code":..., "account_id":..., "debit":..., "credit":...}, ...]
+    }
+
     Returns {"ok": True, "entry_id": id} or {"ok": False, "error": msg}.
     """
     desc = entry.get("description", "") or ""
     lines = entry.get("lines", []) or []
 
-    def _verify_accounts(lines_list: List[Dict[str, Any]]) -> List[str]:
-        """
-        Verify referenced accounts exist and are consistent.
-        - account_id must exist in Account.id (if provided)
-        - account_code must exist in Account.code (if provided) ← CHANGED FOR P0-4
-        - If both provided: must reference the SAME account
-        - If neither provided: reject the line
-        
-        Returns list of validation error messages.
-        """
-        errors: List[str] = []
-        
-        # 1) sqlite check first (preferred for consistency)
-        try:
-            db = _find_db_path()
-            if db is not None and Path(db).exists():
-                conn = sqlite3.connect(str(db))
+    # P1-1: ORM as sole persistence authority
+    if JournalEntry is None or JournalLine is None or get_session is None:
+        return {"ok": False, "error": "ORM infrastructure (JournalEntry/JournalLine/get_session) not available"}
+
+    try:
+        with get_session() as s:
+            # Resolve and validate accounts within same session
+            resolved_accounts: Dict[int, Account] = {}  # line_idx -> Account
+
+            for ln_idx, ln in enumerate(lines):
+                account_id = ln.get("account_id")
+                account_code = ln.get("account_code")
+
+                # Both missing: invalid
+                if not account_id and not account_code:
+                    return {"ok": False, "error": f"Línea {ln_idx}: ni account_id ni account_code proporcionados"}
+
+                # Resolve account_id (if provided)
+                account = None
+                if account_id:
+                    try:
+                        account = s.get(Account, int(account_id))
+                    except Exception:
+                        account = None
+                    if not account:
+                        return {"ok": False, "error": f"Línea {ln_idx}: account_id {account_id} no existe"}
+
+                # Resolve account_code (if provided)
+                if account_code:
+                    from sqlmodel import select
+                    try:
+                        sel = select(Account).where(Account.code == str(account_code))
+                        acc_by_code = s.exec(sel).one_or_none()
+                    except Exception:
+                        acc_by_code = None
+                    if not acc_by_code:
+                        return {"ok": False, "error": f"Línea {ln_idx}: account_code '{account_code}' no existe"}
+
+                    # If both provided: verify same account
+                    if account and acc_by_code.id != account.id:
+                        return {"ok": False, "error": f"Línea {ln_idx}: account_id {account_id} y account_code '{account_code}' refieren cuentas distintas"}
+
+                    account = acc_by_code
+
+                if not account:
+                    return {"ok": False, "error": f"Línea {ln_idx}: no se pudo resolver cuenta"}
+
+                resolved_accounts[ln_idx] = account
+
+            # Build JournalEntry with correct fields
+            resolved_date = entry.get("date")
+            if resolved_date is None:
+                resolved_date = datetime.datetime.now(datetime.timezone.utc)
+            elif isinstance(resolved_date, str):
                 try:
-                    cur = conn.cursor()
-                    for ln_idx, ln in enumerate(lines_list):
-                        account_id = ln.get("account_id")
-                        account_code = ln.get("account_code")
-                        
-                        # Both missing: invalid
-                        if not account_id and not account_code:
-                            errors.append(f"Línea {ln_idx}: ni account_id ni account_code proporcionados")
-                            continue
-                        
-                        # Check account_id exists (if provided)
-                        existing_id = None
-                        if account_id:
-                            cur.execute("SELECT code FROM account WHERE id = ? LIMIT 1", (int(account_id),))
-                            row = cur.fetchone()
-                            if not row:
-                                errors.append(f"Línea {ln_idx}: account_id {account_id} no existe")
-                                continue
-                            existing_id = int(account_id)
-                        
-                        # Check account_code exists (if provided) ← P0-4 ADDED
-                        if account_code:
-                            cur.execute("SELECT id FROM account WHERE code = ? LIMIT 1", (str(account_code),))
-                            row = cur.fetchone()
-                            if not row:
-                                errors.append(f"Línea {ln_idx}: account_code '{account_code}' no existe")
-                                continue
-                            existing_code_id = int(row[0])
-                            
-                            # If both provided: verify they refer to same account
-                            if account_id and existing_code_id != existing_id:
-                                errors.append(f"Línea {ln_idx}: account_id {account_id} y account_code '{account_code}' refieren cuentas distintas")
-                    
-                    if errors:
-                        return errors
-                    return []  # All valid
-                finally:
-                    conn.close()
-        except Exception as e:
-            LOG.debug("sqlite account verification failed; will fallback to ORM check: %s", e)
+                    # Parse ISO format strictly
+                    resolved_date = datetime.datetime.fromisoformat(resolved_date.replace("Z", "+00:00"))
+                except Exception:
+                    return {"ok": False, "error": f"Invalid date format: {resolved_date}"}
+            elif isinstance(resolved_date, datetime.date) and not isinstance(resolved_date, datetime.datetime):
+                # Convert date to datetime
+                resolved_date = datetime.datetime.combine(resolved_date, datetime.time.min, tzinfo=datetime.timezone.utc)
 
-        # 2) ORM fallback for more complex verification
-        try:
-            if Account is not None and get_session is not None:
-                with get_session() as s:
-                    for ln_idx, ln in enumerate(lines_list):
-                        account_id = ln.get("account_id")
-                        account_code = ln.get("account_code")
-                        
-                        # Both missing: invalid
-                        if not account_id and not account_code:
-                            errors.append(f"Línea {ln_idx}: ni account_id ni account_code proporcionados")
-                            continue
-                        
-                        # Check account_id exists (if provided)
-                        existing_id = None
-                        if account_id:
-                            try:
-                                acc = s.get(Account, int(account_id))
-                            except Exception:
-                                acc = None
-                            if not acc:
-                                errors.append(f"Línea {ln_idx}: account_id {account_id} no existe")
-                                continue
-                            existing_id = int(account_id)
-                        
-                        # Check account_code exists (if provided) ← P0-4 ADDED
-                        if account_code:
-                            try:
-                                sel = __import__("sqlmodel").sql.select(Account).where(Account.code == str(account_code))
-                                acc = s.exec(sel).one_or_none()
-                            except Exception:
-                                acc = None
-                            if not acc:
-                                errors.append(f"Línea {ln_idx}: account_code '{account_code}' no existe")
-                                continue
-                            existing_code_id = int(acc.id)
-                            
-                            # If both provided: verify they refer to same account
-                            if account_id and existing_code_id != existing_id:
-                                errors.append(f"Línea {ln_idx}: account_id {account_id} y account_code '{account_code}' refieren cuentas distintas")
-                    
-                    if errors:
-                        return errors
-                    return []  # All valid
-        except Exception as e:
-            LOG.debug("ORM account verification failed as well: %s", e)
+            # P1-1: ONE TRANSACTION for JournalEntry + JournalLines
+            je = JournalEntry(
+                date=resolved_date,
+                concept=desc,
+                doc_ref=entry.get("doc_ref"),
+                period_id=entry.get("period_id"),
+                posted_by=entry.get("posted_by"),
+                state=entry.get("state", "draft"),
+            )
+            s.add(je)
+            s.flush()  # Get je.id without commit
 
-        # If neither method ran successfully, raise to signal verification cannot be done
-        raise RuntimeError("No se pudo verificar la existencia de cuentas (ni sqlite ni ORM disponibles).")
+            # Add all JournalLines
+            for ln_idx, ln in enumerate(lines):
+                account = resolved_accounts[ln_idx]
+                # P0-2: Use to_decimal_exact for safe monetary conversion
+                jl = JournalLine(
+                    entry_id=je.id,
+                    account_id=account.id,
+                    account_code=account.code,
+                    debit=str(to_decimal_exact(ln.get("debit") or 0)),
+                    credit=str(to_decimal_exact(ln.get("credit") or 0)),
+                    description=ln.get("description"),
+                )
+                s.add(jl)
 
-    # perform verification (only checks account_id existence)
-    try:
-        missing = _verify_accounts(lines)
-    except Exception as e:
-        return {"ok": False, "error": f"Error verifying accounts: {e}"}
-    if missing:
-        return {"ok": False, "error": "Cuentas no encontradas (por id): " + ", ".join(missing)}
-
-    # ORM insertion if available: try to include account_code if account_id not present
-    if JournalEntry is not None and JournalLine is not None and get_session is not None:
-        try:
-            with get_session() as s:
-                je = JournalEntry(description=desc, created_at=datetime.datetime.now(datetime.timezone.utc))
-                s.add(je)
-                s.commit()
-                s.refresh(je)
-                for ln in lines:
-                    account_id = ln.get("account_id")
-                    account_code = ln.get("account_code")
-                    if not account_id and account_code:
-                        # try to resolve account_id by code; if not found, we'll set account_code on line
-                        try:
-                            sel = __import__("sqlmodel").sql.select(Account).where(Account.code == str(account_code))
-                            acc = s.exec(sel).one_or_none()
-                            if acc:
-                                account_id = acc.id
-                        except Exception:
-                            account_id = None
-                    # create JournalLine, prefer account_id but allow account_code property if model supports it
-                    # P0-2: Use to_decimal_exact for safe monetary conversion
-                    jl_kwargs: Dict[str, Any] = {
-                        "entry_id": je.id,
-                        "debit": str(to_decimal_exact(ln.get("debit") or 0)),
-                        "credit": str(to_decimal_exact(ln.get("credit") or 0)),
-                        "description": ln.get("description"),
-                    }
-                    if account_id:
-                        jl_kwargs["account_id"] = int(account_id)
-                    else:
-                        # set account_code if model has field. We'll attempt to set attribute name 'account_code'
-                        if hasattr(JournalLine, "account_code"):
-                            jl_kwargs["account_code"] = str(account_code) if account_code is not None else None
-                        else:
-                            # If model doesn't have account_code, still proceed by leaving account_id None
-                            jl_kwargs["account_id"] = None
-                    jl = JournalLine(**jl_kwargs)
-                    s.add(jl)
-                s.commit()
+            # SINGLE COMMIT for entire transaction
+            s.commit()
             return {"ok": True, "entry_id": je.id}
-        except Exception:
-            LOG.debug("ORM persist failed, falling back to sqlite", exc_info=True)
 
-    # sqlite fallback insertion (preferred in tests)
-    db = _find_db_path()
-    if db is None:
-        return {"ok": False, "error": "No se encontró base de datos para persistir entry."}
-    conn = sqlite3.connect(str(db))
-    try:
-        cur = conn.cursor()
-        # find entry table name
-        entry_table = None
-        for candidate in ("entry", "journalentry", "journal_entry"):
-            cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?;", (candidate,))
-            if cur.fetchone():
-                entry_table = candidate
-                break
-        if not entry_table:
-            return {"ok": False, "error": "No se encontró tabla de entries en la DB."}
-
-        # Inspect entry table columns dynamically and build insert columns accordingly.
-        cur.execute(f"PRAGMA table_info('{entry_table}')")
-        pragma_rows = cur.fetchall()  # rows: (cid, name, type, notnull, dflt_value, pk)
-
-        now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
-        today_iso = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
-
-        insert_cols = []
-        insert_vals = []
-
-        # Build values for columns that are present and required.
-        # We will fill known semantic columns first, then ensure any NOT NULL w/o default gets a sensible default.
-        for cid, colname, coltype, notnull, dflt_value, pk in pragma_rows:
-            # skip pk autoincrement (usually INTEGER PRIMARY KEY)
-            if pk:
-                continue
-            lname = colname.lower()
-
-            # Known semantic columns
-            if lname in ("description", "name", "concept", "title", "label"):
-                insert_cols.append(colname)
-                insert_vals.append(desc)
-                continue
-            if lname == "date":
-                insert_cols.append(colname)
-                insert_vals.append(today_iso)
-                continue
-            if lname in ("created_at", "created", "timestamp", "ts"):
-                insert_cols.append(colname)
-                insert_vals.append(now_iso)
-                continue
-
-            # If column already has a default in schema, skip it (DB will use default)
-            if dflt_value is not None:
-                continue
-
-            # If column is NOT NULL without default, supply a reasonable fallback based on declared type
-            if notnull:
-                ctype = (coltype or "").upper()
-                if "CHAR" in ctype or "CLOB" in ctype or "TEXT" in ctype:
-                    # likely a 'state' or status field
-                    insert_cols.append(colname)
-                    insert_vals.append("posted")
-                elif "INT" in ctype or "NUM" in ctype:
-                    insert_cols.append(colname)
-                    insert_vals.append(0)
-                elif "DATE" in ctype or "TIME" in ctype:
-                    insert_cols.append(colname)
-                    insert_vals.append(now_iso)
-                else:
-                    # generic fallback for unknown types
-                    insert_cols.append(colname)
-                    insert_vals.append("")
-
-        # Perform insert: if we have columns to insert, insert them; else use DEFAULT VALUES
-        if not insert_cols:
-            try:
-                cur.execute(f"INSERT INTO {entry_table} DEFAULT VALUES")
-                entry_id = cur.lastrowid
-            except Exception as e:
-                conn.rollback()
-                return {"ok": False, "error": f"No se pudo insertar en {entry_table}: {e}"}
-        else:
-            placeholders = ",".join("?" for _ in insert_cols)
-            cols_sql = ",".join(insert_cols)
-            try:
-                cur.execute(f"INSERT INTO {entry_table} ({cols_sql}) VALUES ({placeholders})", tuple(insert_vals))
-                entry_id = cur.lastrowid
-            except Exception as e:
-                conn.rollback()
-                return {"ok": False, "error": f"Error inserting into {entry_table}: {e}"}
-
-        # find journalline table
-        jl_table = None
-        for candidate in ("journalline", "journal_line", "line", "journalentryline"):
-            cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?;", (candidate,))
-            if cur.fetchone():
-                jl_table = candidate
-                break
-        if not jl_table:
-            conn.rollback()
-            return {"ok": False, "error": "No se encontró tabla journalline en la DB."}
-
-        # Inspect journalline columns to decide which columns to insert
-        cur.execute(f"PRAGMA table_info('{jl_table}')")
-        jl_cols = [r[1] for r in cur.fetchall()]
-        has_account_code_col = "account_code" in jl_cols
-        has_account_id_col = "account_id" in jl_cols
-
-        for ln in lines:
-            acct_id = ln.get("account_id")
-            account_code = ln.get("account_code")
-            if not acct_id and account_code:
-                # try to resolve id by code; if not found, we will insert account_code text
-                cur.execute("SELECT id FROM account WHERE code = ? LIMIT 1", (str(account_code),))
-                r = cur.fetchone()
-                if r:
-                    acct_id = r[0]
-            # Build insertion columns dynamically
-            insert_cols = ["entry_id"]
-            insert_vals = [entry_id]
-            if has_account_id_col:
-                insert_cols.append("account_id")
-                insert_vals.append(int(acct_id) if acct_id is not None else None)
-            if has_account_code_col:
-                insert_cols.append("account_code")
-                insert_vals.append(str(account_code) if account_code is not None else None)
-            # add debit, credit, description, created_at when present in table
-            # P0-2: Use to_decimal_exact for safe monetary conversion
-            if "debit" in jl_cols:
-                insert_cols.append("debit"); insert_vals.append(str(to_decimal_exact(ln.get("debit") or 0)))
-            if "credit" in jl_cols:
-                insert_cols.append("credit"); insert_vals.append(str(to_decimal_exact(ln.get("credit") or 0)))
-            if "description" in jl_cols:
-                insert_cols.append("description"); insert_vals.append(ln.get("description"))
-            if "created_at" in jl_cols:
-                insert_cols.append("created_at"); insert_vals.append(now_iso)
-
-            # If account_id is required and not provided (and account_code not present), abort
-            if ("account_id" in jl_cols) and ("account_code" not in jl_cols) and not acct_id:
-                conn.rollback()
-                return {"ok": False, "error": f"Cuenta no encontrada para línea y no hay columna account_code para almacenar el code: {ln}"}
-
-            placeholders = ",".join("?" for _ in insert_cols)
-            cols_sql = ",".join(insert_cols)
-            sql = f"INSERT INTO {jl_table} ({cols_sql}) VALUES ({placeholders})"
-            cur.execute(sql, tuple(insert_vals))
-        conn.commit()
-        return {"ok": True, "entry_id": entry_id}
-    finally:
-        conn.close()
+    except Exception as e:
+        LOG.debug("ORM persistence failed: %s", exc_info=True)
+        return {"ok": False, "error": f"Error persisting entry: {str(e)}"}
 
 
 # -------------------------

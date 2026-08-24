@@ -68,28 +68,36 @@ def _register_account_listener():
 
 def _create_engine(db_path: str):
     """
-    Crea y devuelve un engine SQLModel/SQLAlchemy para la ruta dada.
+    P1-1: Crea y devuelve un engine SQLModel/SQLAlchemy para la ruta dada.
     Registra listeners necesarios.
     """
-    global _engine, _DB_PATH
-    if _engine is None:
-        url = f"sqlite:///{db_path}"
-        _engine = create_engine(url, connect_args={"check_same_thread": False})
-        _DB_PATH = db_path
-        # intentar registrar listener ahora que imports deberían resolverse
-        _register_account_listener()
-    return _engine
+    url = f"sqlite:///{db_path}"
+    engine = create_engine(url, connect_args={"check_same_thread": False})
+    # intentar registrar listener ahora que imports deberían resolverse
+    _register_account_listener()
+    return engine
 
 
 def get_engine():
     """
-    Obtener (y crear si hace falta) el engine usando AQORATH_DB o DEFAULT_DB.
+    P1-1: Obtener (y crear si hace falta) el engine usando AQORATH_DB o DEFAULT_DB.
+    Path-aware: Si AQORATH_DB cambió, recrea el engine.
     """
-    global _engine, DB_PATH
-    if _engine is None:
-        db_path = get_db_path()
-        DB_PATH = db_path
-        _engine = _create_engine(db_path)
+    global _engine, _DB_PATH, DB_PATH
+    desired_path = get_db_path()
+    
+    # Si engine no existe o la ruta ha cambiado: recrear
+    if _engine is None or _DB_PATH != desired_path:
+        # Disponer del engine anterior si existe
+        if _engine is not None:
+            try:
+                _engine.dispose()
+            except Exception:
+                pass
+        _engine = _create_engine(desired_path)
+        _DB_PATH = desired_path
+        DB_PATH = desired_path
+    
     return _engine
 
 
