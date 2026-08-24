@@ -30,7 +30,10 @@ from types import SimpleNamespace
 LOG = logging.getLogger(__name__)
 LOG.addHandler(logging.NullHandler())
 
-# Defensive imports to avoid circular import problems and allow sqlite fallback
+# P0-2: Import to_decimal_exact from money module
+# money.py is mandatory; if it cannot be imported, aqorath must fail
+from aqorath.money import to_decimal_exact
+
 try:
     from aqorath.storage import get_session
 except Exception:
@@ -62,13 +65,14 @@ except Exception:
 # -------------------------
 def _find_db_path() -> Optional[Path]:
     """
-    Locate sqlite DB. Prefer env AQORATH_DB then common locations used in tests.
+    Locate sqlite DB. Prefer env AQORATH_DB (if set, use it even if not yet created)
+    then common locations used in tests.
     """
     cand = os.environ.get("AQORATH_DB")
     if cand:
-        p = Path(cand)
-        if p.exists():
-            return p
+        # If AQORATH_DB is explicitly set, use it (even if it doesn't exist yet; init_db will create it)
+        return Path(cand)
+    # Otherwise search standard locations
     for p in ("tests/test.db", "datos/aqorath.db", "aqorath.db", "test.db"):
         if Path(p).exists():
             return Path(p)
@@ -151,7 +155,7 @@ def _load_accounts_map() -> Dict[str, Any]:
 # -------------------------
 # Preview generation (resolves roles -> real account codes)
 # -------------------------
-def generate_preview(template_key: str, amount: float, ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def generate_preview(template_key: str, amount: float | Decimal, ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Build a preview of the journal entry lines produced by a template.
 
@@ -226,30 +230,19 @@ def generate_preview(template_key: str, amount: float, ctx: Optional[Dict[str, A
             amount_expr = getattr(ls, "amount_expr", None)
             if callable(amount_expr) and (side == "debit" or side == "credit"):
                 raw = amount_expr(amount, ctx or {})
-                try:
-                    val_dec = Decimal(str(raw))
-                except (InvalidOperation, TypeError, ValueError):
-                    val_dec = Decimal(float(raw or 0))
+                # P0-2: use to_decimal_exact to avoid float authority
+                val_dec = to_decimal_exact(raw)
                 if side == "debit":
                     debit_dec = val_dec
                 else:
                     credit_dec = val_dec
             else:
                 if hasattr(ls, "debit") and getattr(ls, "debit") is not None:
-                    try:
-                        debit_dec = Decimal(str(getattr(ls, "debit") or 0))
-                    except Exception:
-                        debit_dec = Decimal(float(getattr(ls, "debit") or 0))
+                    debit_dec = to_decimal_exact(getattr(ls, "debit") or 0)
                 if hasattr(ls, "credit") and getattr(ls, "credit") is not None:
-                    try:
-                        credit_dec = Decimal(str(getattr(ls, "credit") or 0))
-                    except Exception:
-                        credit_dec = Decimal(float(getattr(ls, "credit") or 0))
+                    credit_dec = to_decimal_exact(getattr(ls, "credit") or 0)
                 if hasattr(ls, "amount") and getattr(ls, "amount") is not None and side:
-                    try:
-                        val_dec = Decimal(str(getattr(ls, "amount") or 0))
-                    except Exception:
-                        val_dec = Decimal(float(getattr(ls, "amount") or 0))
+                    val_dec = to_decimal_exact(getattr(ls, "amount") or 0)
                     if side == "debit":
                         debit_dec = val_dec
                     else:
@@ -271,6 +264,9 @@ def generate_preview(template_key: str, amount: float, ctx: Optional[Dict[str, A
             "account_name": getattr(accounts_map.get(resolved_code), "name", None) if resolved_code else None,
             "debit": debit_display,
             "credit": credit_display,
+            # P0-2: Store exact values for persistence (not display)
+            "_debit_exact": str(debit_dec),
+            "_credit_exact": str(credit_dec),
             "description": getattr(ls, "description", "") or "",
             "_declared": declared,
         })
@@ -317,12 +313,14 @@ def generate_preview(template_key: str, amount: float, ctx: Optional[Dict[str, A
 # -------------------------
 # Trial balance computation
 # -------------------------
-def _balances_from_sqlite(db_path: Optional[Path]) -> Dict[str, Decimal]:
+def _balances_from_sqlite(db_path: Optional[Path], as_of: Optional[str] = None) -> Dict[str, Decimal]:
     """
     Aggregate journalline (debit - credit) grouped by account code (or account_id joined to account.code).
-    Improved to handle cases where journalline has both account_code and account_id:
-    it will prefer the explicit account_code when present, otherwise use the joined account.code,
-    otherwise fallback to the textified account_id.
+    Supports as_of parameter to filter by date: includes only JournalEntry with date <= as_of.
+    
+    P0-2 CHANGE: Sums are now calculated in Python using Decimal arithmetic (not SQLite SUM)
+    to preserve exact monetary values. Values are read as-is (strings or floats) and converted
+    to Decimal before aggregation.
     """
     if db_path is None:
         raise RuntimeError("No sqlite DB path found for fallback")
@@ -342,92 +340,215 @@ def _balances_from_sqlite(db_path: Optional[Path]) -> Dict[str, Decimal]:
         q_credit = credit_col if credit_col else "0"
 
         balances: Dict[str, Decimal] = {}
+        
+        # P0-3: Construir condición WHERE para as_of
+        # Semántica: as_of="2026-03-31" debe incluir TODO el 31 de marzo (hasta 23:59:59)
+        # Implementar como límite exclusivo del día siguiente
+        where_clause = ""
+        params = []
+        if as_of is not None:
+            # P0-3: as_of format must be ISO YYYY-MM-DD; no fallback on parsing failure
+            try:
+                if isinstance(as_of, str):
+                    # Parse string "2026-03-31" to date (ISO format required)
+                    as_of_date = __import__('datetime').datetime.strptime(as_of[:10], "%Y-%m-%d").date()
+                else:
+                    as_of_date = as_of if isinstance(as_of, __import__('datetime').date) else as_of.date()
+                
+                # Next day for exclusive boundary
+                next_day = as_of_date + __import__('datetime').timedelta(days=1)
+                
+                # Use DATE(je.date) < DATE(next_day) for robust date comparison
+                where_clause = " WHERE DATE(je.date) < ?"
+                params.append(str(next_day))
+            except ValueError as e:
+                # Explicit failure: as_of must be ISO YYYY-MM-DD
+                raise ValueError(
+                    f"as_of must be ISO format YYYY-MM-DD (e.g., '2026-03-31'), "
+                    f"got: {as_of!r}"
+                ) from e
+            except Exception as e:
+                # Unexpected error: re-raise
+                raise ValueError(f"Invalid as_of value: {as_of!r}") from e
 
-        # If both columns exist, use a COALESCE that prefers explicit account_code,
-        # then joined account.code, then account_id as text.
+        # P0-2: Aggregate in Python with Decimal arithmetic instead of SQLite SUM
+        # Read individual lines and sum in Python to preserve exact Decimal values
+        
+        # Si ambas columnas existen
         if has_account_code and has_account_id:
-            # join to account to obtain a.code when account_code NULL
             cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='account'")
             has_account_table = bool(cur.fetchone())
             if has_account_table:
                 sql = f"""
                     SELECT COALESCE(jl.account_code, a.code, CAST(jl.account_id AS TEXT)) as acct_code,
-                           SUM(COALESCE(jl.{q_debit},0) - COALESCE(jl.{q_credit},0)) as saldo
+                           jl.{q_debit}, jl.{q_credit}
                     FROM journalline jl
                     LEFT JOIN account a ON jl.account_id = a.id
-                    GROUP BY acct_code
+                    LEFT JOIN journalentry je ON jl.entry_id = je.id
+                    {where_clause}
+                    ORDER BY acct_code
                 """
-                cur.execute(sql)
+                cur.execute(sql, params)
                 rows = cur.fetchall()
-                for acct_code, saldo in rows:
+                
+                # Aggregate in Python with Decimal
+                current_code = None
+                current_sum = Decimal("0")
+                for acct_code, debit_val, credit_val in rows:
                     if acct_code is None or acct_code == "":
                         continue
-                    balances[str(acct_code)] = Decimal(str(saldo or 0))
+                    # Convert to Decimal (handles both str and float from DB)
+                    d = Decimal(str(debit_val or 0))
+                    c = Decimal(str(credit_val or 0))
+                    line_balance = d - c
+                    
+                    if acct_code != current_code:
+                        if current_code is not None:
+                            balances[str(current_code)] = current_sum
+                        current_code = acct_code
+                        current_sum = line_balance
+                    else:
+                        current_sum += line_balance
+                
+                if current_code is not None:
+                    balances[str(current_code)] = current_sum
                 return balances
             else:
-                # no account table: fallback to coalesce account_code or account_id text
+                # Sin tabla account: coalesce account_code o account_id
                 sql = f"""
-                    SELECT COALESCE(account_code, CAST(account_id AS TEXT)) as acct_code,
-                           SUM(COALESCE({q_debit},0) - COALESCE({q_credit},0)) as saldo
-                    FROM journalline
-                    GROUP BY acct_code
+                    SELECT COALESCE(jl.account_code, CAST(jl.account_id AS TEXT)) as acct_code,
+                           jl.{q_debit}, jl.{q_credit}
+                    FROM journalline jl
+                    LEFT JOIN journalentry je ON jl.entry_id = je.id
+                    {where_clause}
+                    ORDER BY acct_code
                 """
-                cur.execute(sql)
+                cur.execute(sql, params)
                 rows = cur.fetchall()
-                for acct_code, saldo in rows:
+                
+                current_code = None
+                current_sum = Decimal("0")
+                for acct_code, debit_val, credit_val in rows:
                     if acct_code is None or acct_code == "":
                         continue
-                    balances[str(acct_code)] = Decimal(str(saldo or 0))
+                    d = Decimal(str(debit_val or 0))
+                    c = Decimal(str(credit_val or 0))
+                    line_balance = d - c
+                    
+                    if acct_code != current_code:
+                        if current_code is not None:
+                            balances[str(current_code)] = current_sum
+                        current_code = acct_code
+                        current_sum = line_balance
+                    else:
+                        current_sum += line_balance
+                
+                if current_code is not None:
+                    balances[str(current_code)] = current_sum
                 return balances
 
-        # If only account_id exists (no account_code column), join to account to get code when possible
+        # Si solo account_id existe
         if has_account_id and not has_account_code:
             cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='account'")
             if cur.fetchone():
-                q = f"""
+                sql = f"""
                     SELECT COALESCE(a.code, CAST(jl.account_id AS TEXT)) as acct_code,
-                           SUM(COALESCE(jl.{q_debit},0) - COALESCE(jl.{q_credit},0)) as saldo
+                           jl.{q_debit}, jl.{q_credit}
                     FROM journalline jl
                     LEFT JOIN account a ON jl.account_id = a.id
-                    GROUP BY acct_code
+                    LEFT JOIN journalentry je ON jl.entry_id = je.id
+                    {where_clause}
+                    ORDER BY acct_code
                 """
-                cur.execute(q)
+                cur.execute(sql, params)
                 rows = cur.fetchall()
-                for acct_code, saldo in rows:
+                
+                current_code = None
+                current_sum = Decimal("0")
+                for acct_code, debit_val, credit_val in rows:
                     if acct_code is None or acct_code == "":
                         continue
-                    balances[str(acct_code)] = Decimal(str(saldo or 0))
+                    d = Decimal(str(debit_val or 0))
+                    c = Decimal(str(credit_val or 0))
+                    line_balance = d - c
+                    
+                    if acct_code != current_code:
+                        if current_code is not None:
+                            balances[str(current_code)] = current_sum
+                        current_code = acct_code
+                        current_sum = line_balance
+                    else:
+                        current_sum += line_balance
+                
+                if current_code is not None:
+                    balances[str(current_code)] = current_sum
                 return balances
             else:
-                q = f"""
-                    SELECT CAST(account_id AS TEXT) as acct_code,
-                           SUM(COALESCE({q_debit},0) - COALESCE({q_credit},0)) as saldo
-                    FROM journalline
-                    GROUP BY acct_code
+                sql = f"""
+                    SELECT CAST(jl.account_id AS TEXT) as acct_code,
+                           jl.{q_debit}, jl.{q_credit}
+                    FROM journalline jl
+                    LEFT JOIN journalentry je ON jl.entry_id = je.id
+                    {where_clause}
+                    ORDER BY acct_code
                 """
-                cur.execute(q)
+                cur.execute(sql, params)
                 rows = cur.fetchall()
-                for acct_code, saldo in rows:
-                    balances[str(acct_code)] = Decimal(str(saldo or 0))
+                
+                current_code = None
+                current_sum = Decimal("0")
+                for acct_code, debit_val, credit_val in rows:
+                    d = Decimal(str(debit_val or 0))
+                    c = Decimal(str(credit_val or 0))
+                    line_balance = d - c
+                    
+                    if acct_code != current_code:
+                        if current_code is not None:
+                            balances[str(current_code)] = current_sum
+                        current_code = acct_code
+                        current_sum = line_balance
+                    else:
+                        current_sum += line_balance
+                
+                if current_code is not None:
+                    balances[str(current_code)] = current_sum
                 return balances
 
-        # If only account_code exists (no account_id), group by account_code directly
+        # Si solo account_code existe
         if has_account_code and not has_account_id:
             sql = f"""
-                SELECT COALESCE(account_code, '') as acct_code,
-                       SUM(COALESCE({q_debit},0) - COALESCE({q_credit},0)) as saldo
-                FROM journalline
-                GROUP BY acct_code
+                SELECT COALESCE(jl.account_code, '') as acct_code,
+                       jl.{q_debit}, jl.{q_credit}
+                FROM journalline jl
+                LEFT JOIN journalentry je ON jl.entry_id = je.id
+                {where_clause}
+                ORDER BY acct_code
             """
-            cur.execute(sql)
+            cur.execute(sql, params)
             rows = cur.fetchall()
-            for acct_code, saldo in rows:
+            
+            current_code = None
+            current_sum = Decimal("0")
+            for acct_code, debit_val, credit_val in rows:
                 if acct_code is None or acct_code == "":
                     continue
-                balances[str(acct_code)] = Decimal(str(saldo or 0))
+                d = Decimal(str(debit_val or 0))
+                c = Decimal(str(credit_val or 0))
+                line_balance = d - c
+                
+                if acct_code != current_code:
+                    if current_code is not None:
+                        balances[str(current_code)] = current_sum
+                    current_code = acct_code
+                    current_sum = line_balance
+                else:
+                    current_sum += line_balance
+            
+            if current_code is not None:
+                balances[str(current_code)] = current_sum
             return balances
 
-        # Nothing relevant found
+        # Nada relevante
         return {}
     finally:
         conn.close()
@@ -517,7 +638,7 @@ def trial_balance(as_of: Optional[str] = None) -> Dict[str, Decimal]:
         db_path = _find_db_path()
         balances_sqlite = {}
         try:
-            balances_sqlite = _balances_from_sqlite(db_path)
+            balances_sqlite = _balances_from_sqlite(db_path, as_of=as_of)
         except Exception as e:
             LOG.debug("trial_balance: sqlite aggregation failed: %s", e)
             balances_sqlite = {}
@@ -612,49 +733,112 @@ def _persist_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
 
     def _verify_accounts(lines_list: List[Dict[str, Any]]) -> List[str]:
         """
-        Verify referenced accounts exist where necessary.
-        - If account_id provided -> verify that id exists (sqlite preferred).
-        - If only account_code provided -> allow (we will persist account_code text).
-        Returns list of missing identifiers (strings) for account_id checks only.
+        Verify referenced accounts exist and are consistent.
+        - account_id must exist in Account.id (if provided)
+        - account_code must exist in Account.code (if provided) ← CHANGED FOR P0-4
+        - If both provided: must reference the SAME account
+        - If neither provided: reject the line
+        
+        Returns list of validation error messages.
         """
-        missing: List[str] = []
-        # 1) sqlite check first for account_id
+        errors: List[str] = []
+        
+        # 1) sqlite check first (preferred for consistency)
         try:
             db = _find_db_path()
             if db is not None and Path(db).exists():
                 conn = sqlite3.connect(str(db))
                 try:
                     cur = conn.cursor()
-                    for ln in lines_list:
-                        if ln.get("account_id"):
-                            cur.execute("SELECT 1 FROM account WHERE id = ? LIMIT 1", (int(ln["account_id"]),))
-                            if not cur.fetchone():
-                                missing.append(str(ln.get("account_id")))
-                        # if only account_code present, we accept it for persistence (no creation)
-                    return missing
+                    for ln_idx, ln in enumerate(lines_list):
+                        account_id = ln.get("account_id")
+                        account_code = ln.get("account_code")
+                        
+                        # Both missing: invalid
+                        if not account_id and not account_code:
+                            errors.append(f"Línea {ln_idx}: ni account_id ni account_code proporcionados")
+                            continue
+                        
+                        # Check account_id exists (if provided)
+                        existing_id = None
+                        if account_id:
+                            cur.execute("SELECT code FROM account WHERE id = ? LIMIT 1", (int(account_id),))
+                            row = cur.fetchone()
+                            if not row:
+                                errors.append(f"Línea {ln_idx}: account_id {account_id} no existe")
+                                continue
+                            existing_id = int(account_id)
+                        
+                        # Check account_code exists (if provided) ← P0-4 ADDED
+                        if account_code:
+                            cur.execute("SELECT id FROM account WHERE code = ? LIMIT 1", (str(account_code),))
+                            row = cur.fetchone()
+                            if not row:
+                                errors.append(f"Línea {ln_idx}: account_code '{account_code}' no existe")
+                                continue
+                            existing_code_id = int(row[0])
+                            
+                            # If both provided: verify they refer to same account
+                            if account_id and existing_code_id != existing_id:
+                                errors.append(f"Línea {ln_idx}: account_id {account_id} y account_code '{account_code}' refieren cuentas distintas")
+                    
+                    if errors:
+                        return errors
+                    return []  # All valid
                 finally:
                     conn.close()
-        except Exception:
-            LOG.debug("sqlite account-id verification failed; will fallback to ORM check", exc_info=True)
+        except Exception as e:
+            LOG.debug("sqlite account verification failed; will fallback to ORM check: %s", e)
 
-        # 2) ORM fallback for account_id
+        # 2) ORM fallback for more complex verification
         try:
             if Account is not None and get_session is not None:
                 with get_session() as s:
-                    for ln in lines_list:
-                        if ln.get("account_id"):
+                    for ln_idx, ln in enumerate(lines_list):
+                        account_id = ln.get("account_id")
+                        account_code = ln.get("account_code")
+                        
+                        # Both missing: invalid
+                        if not account_id and not account_code:
+                            errors.append(f"Línea {ln_idx}: ni account_id ni account_code proporcionados")
+                            continue
+                        
+                        # Check account_id exists (if provided)
+                        existing_id = None
+                        if account_id:
                             try:
-                                acc = s.get(Account, int(ln["account_id"]))
+                                acc = s.get(Account, int(account_id))
                             except Exception:
                                 acc = None
                             if not acc:
-                                missing.append(str(ln.get("account_id")))
-                return missing
-        except Exception:
-            LOG.debug("ORM account-id verification failed as well", exc_info=True)
+                                errors.append(f"Línea {ln_idx}: account_id {account_id} no existe")
+                                continue
+                            existing_id = int(account_id)
+                        
+                        # Check account_code exists (if provided) ← P0-4 ADDED
+                        if account_code:
+                            try:
+                                sel = __import__("sqlmodel").sql.select(Account).where(Account.code == str(account_code))
+                                acc = s.exec(sel).one_or_none()
+                            except Exception:
+                                acc = None
+                            if not acc:
+                                errors.append(f"Línea {ln_idx}: account_code '{account_code}' no existe")
+                                continue
+                            existing_code_id = int(acc.id)
+                            
+                            # If both provided: verify they refer to same account
+                            if account_id and existing_code_id != existing_id:
+                                errors.append(f"Línea {ln_idx}: account_id {account_id} y account_code '{account_code}' refieren cuentas distintas")
+                    
+                    if errors:
+                        return errors
+                    return []  # All valid
+        except Exception as e:
+            LOG.debug("ORM account verification failed as well: %s", e)
 
         # If neither method ran successfully, raise to signal verification cannot be done
-        raise RuntimeError("No se pudo verificar la existencia de cuentas por id (ni sqlite ni ORM disponibles).")
+        raise RuntimeError("No se pudo verificar la existencia de cuentas (ni sqlite ni ORM disponibles).")
 
     # perform verification (only checks account_id existence)
     try:
@@ -685,10 +869,11 @@ def _persist_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
                         except Exception:
                             account_id = None
                     # create JournalLine, prefer account_id but allow account_code property if model supports it
+                    # P0-2: Use to_decimal_exact for safe monetary conversion
                     jl_kwargs: Dict[str, Any] = {
                         "entry_id": je.id,
-                        "debit": float(ln.get("debit") or 0),
-                        "credit": float(ln.get("credit") or 0),
+                        "debit": str(to_decimal_exact(ln.get("debit") or 0)),
+                        "credit": str(to_decimal_exact(ln.get("credit") or 0)),
                         "description": ln.get("description"),
                     }
                     if account_id:
@@ -832,10 +1017,11 @@ def _persist_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
                 insert_cols.append("account_code")
                 insert_vals.append(str(account_code) if account_code is not None else None)
             # add debit, credit, description, created_at when present in table
+            # P0-2: Use to_decimal_exact for safe monetary conversion
             if "debit" in jl_cols:
-                insert_cols.append("debit"); insert_vals.append(float(ln.get("debit") or 0))
+                insert_cols.append("debit"); insert_vals.append(str(to_decimal_exact(ln.get("debit") or 0)))
             if "credit" in jl_cols:
-                insert_cols.append("credit"); insert_vals.append(float(ln.get("credit") or 0))
+                insert_cols.append("credit"); insert_vals.append(str(to_decimal_exact(ln.get("credit") or 0)))
             if "description" in jl_cols:
                 insert_cols.append("description"); insert_vals.append(ln.get("description"))
             if "created_at" in jl_cols:
@@ -857,6 +1043,11 @@ def _persist_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # -------------------------
+# P0-2: Exact monetary conversion utility
+# -------------------------
+
+
+# -------------------------
 # Public wrapper: post_entry
 # -------------------------
 def post_entry(first: Any, amount: Optional[float] = None, ctx: Optional[Dict[str, Any]] = None, user: Optional[str] = None) -> Any:
@@ -872,11 +1063,13 @@ def post_entry(first: Any, amount: Optional[float] = None, ctx: Optional[Dict[st
         return _persist_entry(first)
 
     # template mode
+    # P0-2: Convert amount to Decimal exacto for monetary calculations
     template_key = first
-    amount = float(amount or 0)
+    amount_decimal = to_decimal_exact(amount or 0)
     ctx = ctx or {}
 
-    preview = generate_preview(template_key, amount, ctx=ctx)
+    # Pass Decimal directly to generate_preview (not float)
+    preview = generate_preview(template_key, amount_decimal, ctx=ctx)
     if not isinstance(preview, dict):
         raise RuntimeError("generate_preview did not return a preview dict")
 
@@ -892,11 +1085,14 @@ def post_entry(first: Any, amount: Optional[float] = None, ctx: Optional[Dict[st
         "lines": [],
     }
     for ln in preview.get("lines", []):
+        # P0-2: Use exact values (_debit_exact, _credit_exact) if available, not display floats
+        debit_val = ln.get("_debit_exact") or ln.get("debit")
+        credit_val = ln.get("_credit_exact") or ln.get("credit")
         entry["lines"].append({
             "account_code": ln.get("account_code"),
             "account_id": ln.get("account_id"),
-            "debit": ln.get("debit"),
-            "credit": ln.get("credit"),
+            "debit": debit_val,
+            "credit": credit_val,
             "description": ln.get("description"),
         })
 

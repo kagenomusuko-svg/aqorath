@@ -21,6 +21,58 @@ def load_catalog(path: Path | None = None) -> Dict[str, dict]:
         return {}
     return accounts
 
+def normal_balance_amount(ledger_signed_balance: Decimal, naturaleza: str | None) -> Decimal:
+    """
+    Convierte LedgerSignedBalance a magnitud según naturaleza de la cuenta.
+    
+    LedgerSignedBalance = Debe - Haber (forma algebraica)
+    
+    Naturalezas válidas reconocidas:
+      - debit / DEBIT (English)
+      - credit / CREDIT (English)
+      - Deudora / deudora (Spanish)
+      - Acreedora / acreedora (Spanish)
+    
+    Para naturaleza deudora (debit-like): NormalBalance = LedgerSignedBalance (sin cambio)
+    Para naturaleza acreedora (credit-like): NormalBalance = -LedgerSignedBalance (negación)
+    
+    Ejemplo:
+      Ingreso (Acreedora): LedgerSignedBalance = -100 → NormalBalance = +100
+      Gasto (Deudora): LedgerSignedBalance = +40 → NormalBalance = +40
+      Resultado normalizado: 100 - 40 = +60
+      
+    IMPORTANTE: Una naturaleza desconocida o None lanza ValueError.
+    No es aceptable retornar saldo algebraico sin confirmar naturaleza.
+    """
+    # Validar que naturaleza sea conocida
+    if naturaleza is None or naturaleza.strip() == "":
+        raise ValueError(
+            "Naturaleza de cuenta no puede ser None o vacía. "
+            "Se requiere un valor válido: debit, credit, Deudora, o Acreedora."
+        )
+    
+    naturaleza_lower = naturaleza.lower().strip()
+    
+    # Vocabulario English (debit/credit)
+    if naturaleza_lower in ("debit",):
+        return ledger_signed_balance
+    elif naturaleza_lower in ("credit",):
+        return -ledger_signed_balance
+    
+    # Vocabulario Spanish (Deudora/Acreedora)
+    elif naturaleza_lower in ("deudora",):
+        return ledger_signed_balance
+    elif naturaleza_lower in ("acreedora",):
+        return -ledger_signed_balance
+    
+    else:
+        # Naturaleza desconocida: FALLAR
+        raise ValueError(
+            f"Naturaleza de cuenta desconocida: '{naturaleza}'. "
+            f"Valores válidos: debit, credit, Deudora, Acreedora."
+        )
+
+
 def compute_totals_by_tipo(balances: Dict[str, Decimal], catalog: Dict[str, dict]) -> Dict[str, Decimal]:
     totals: Dict[str, Decimal] = {
         "Ingreso": Decimal(0),
@@ -31,17 +83,22 @@ def compute_totals_by_tipo(balances: Dict[str, Decimal], catalog: Dict[str, dict
         "Patrimonio": Decimal(0),
         "otros": Decimal(0),
     }
-    for acct_key, saldo in balances.items():
+    for acct_key, saldo_algebraico in balances.items():
         entry = catalog.get(str(acct_key))
         if not entry:
-            totals["otros"] += saldo
+            totals["otros"] += saldo_algebraico
             continue
+        
+        # Normalizar saldo según naturaleza
+        naturaleza = entry.get("naturaleza")
+        saldo_normalizado = normal_balance_amount(saldo_algebraico, naturaleza)
+        
         tipo = entry.get("tipo") or entry.get("Tipo") or entry.get("tipo_contable") or ""
         tipo_norm = str(tipo).strip().capitalize()
         if tipo_norm in totals:
-            totals[tipo_norm] += saldo
+            totals[tipo_norm] += saldo_normalizado
         else:
-            totals["otros"] += saldo
+            totals["otros"] += saldo_normalizado
     return totals
 
 def compute_resultado_ejercicio(balances: Dict[str, Decimal], catalog: Dict[str, dict]) -> Tuple[Decimal, Dict[str, Decimal]]:

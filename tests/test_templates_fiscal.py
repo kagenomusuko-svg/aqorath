@@ -29,20 +29,24 @@ def test_ingreso_gross_with_vat(tmp_path, monkeypatch):
 def test_honorarios_with_isr_and_post(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     init_db()
-    with get_session() as s:
-        # BLOCKED_NON_CATALOG_INSERT: removed insert of Account(code='1000')
-# \n#         s.add(Account(code="1000", name="Bancos", nature="DEBIT"))
-        # BLOCKED_NON_CATALOG_INSERT: removed insert of Account(code='5000')
-# \n#         s.add(Account(code="5000", name="Gastos honorarios", nature="DEBIT"))
-        # BLOCKED_NON_CATALOG_INSERT: removed insert of Account(code='2300')
-# \n#         s.add(Account(code="2300", name="ISR retenido", nature="CREDIT"))
-        s.commit()
-    ctx = {"account_codes": {"bank":"1000","expense":"5000","isr_ret":"2300"}, "isr_ret_rate": 0.1, "desc":"Honorarios prueba"}
+    # Phase 1B.2: Use real canonical accounts from catalogo_base.json:
+    # - 1101: Bancos (Deudora/debit)
+    # - 5303: Servicios profesionales (Deudora/debit)
+    # - 2160: ISR retenido a terceros (Acreedora/credit, Pasivo)
+    ctx = {
+        "account_codes": {
+            "bank": "1101",       # Bancos
+            "expense": "5303",    # Servicios profesionales
+            "isr_ret": "2160"     # ISR retenido a terceros
+        },
+        "isr_ret_rate": 0.1,
+        "desc": "Honorarios prueba"
+    }
     preview = generate_preview("honorarios", 1000.0, ctx=ctx)
     assert preview["balanced"] is True
     # net to bank should be 900
-    bank_line = next((l for l in preview["lines"] if l["account_code"] == "1000"), None)
-    isr_line = next((l for l in preview["lines"] if l["account_code"] == "2300"), None)
+    bank_line = next((l for l in preview["lines"] if l["account_code"] == "1101"), None)
+    isr_line = next((l for l in preview["lines"] if l["account_code"] == "2160"), None)
     assert bank_line and bank_line["credit"] == 900.0
     assert isr_line and isr_line["credit"] == 100.0
     # test post_entry persists

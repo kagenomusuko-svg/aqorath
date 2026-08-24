@@ -38,10 +38,15 @@ class JournalLine(SQLModel, table=True):
     entry_id: Optional[int] = Field(default=None)
     # Guardamos el código de cuenta siempre (clave en el catálogo)
     account_code: Optional[str] = Field(default=None)
-    # account_id se mantiene opcional: si hay row en Account la vinculamos, si no, la dejamos NULL
+    # P0-4: account_id es Optional en schema para compatibilidad, pero toda JournalLine
+    # persistida por la aplicación DEBE resolver una Account existente.
+    # _verify_accounts() y _persist_entry() garantizan que nunca se persiste sin una Account válida.
     account_id: Optional[int] = Field(default=None)
-    debit: float = 0.0
-    credit: float = 0.0
+    # P0-2: Changed from float to str to preserve exact Decimal representation.
+    # Values are stored as string representation of Decimal to avoid float precision loss.
+    # Reading code must convert str -> Decimal for calculations.
+    debit: str = "0"
+    credit: str = "0"
     description: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -49,5 +54,6 @@ class JournalLine(SQLModel, table=True):
 class Asset(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
-    value: float
+    # P0-2: Changed from float to str to preserve exact Decimal representation.
+    value: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

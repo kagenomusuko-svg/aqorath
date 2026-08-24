@@ -1,8 +1,10 @@
 from dataclasses import dataclass
 from typing import Any, Dict, List, Callable, Optional
 from datetime import date, datetime
+from decimal import Decimal
 from .models import Account, AppConfig
 from .storage import get_session
+from .money import to_decimal_exact
 from sqlmodel import select
 import math
 
@@ -32,41 +34,70 @@ def get_template(key: str) -> OperationTemplate:
 def list_templates() -> List[str]:
     return list(_TEMPLATES.keys())
 
-# Expresiones para cálculos de montos
+# Expresiones para cálculos de montos — P0-2: usar Decimal exacto, no float
 def fixed_amount_expr(amount_fixed: float):
-    return lambda amount, ctx: float(amount_fixed)
+    return lambda amount, ctx: to_decimal_exact(amount_fixed)
 
 def base_amount_expr():
-    return lambda amount, ctx: float(amount)
+    return lambda amount, ctx: to_decimal_exact(amount)
 
-def percent_expr(rate: float):
-    return lambda amount, ctx: round(float(amount) * float(rate), 2)
+def percent_expr(rate: float | Decimal):
+    def fn(amount, ctx):
+        amt = to_decimal_exact(amount)
+        r = to_decimal_exact(rate)
+        result = amt * r
+        # Redondear a 2 decimales
+        return result.quantize(Decimal("0.01"))
+    return fn
 
 def total_with_vat_expr(vat_key: str = "vat_rate", amount_is_net: bool = True):
     def fn(amount, ctx):
-        vat = float(ctx.get(vat_key, 0.0))
+        vat = to_decimal_exact(ctx.get(vat_key, 0.0))
+        amt = to_decimal_exact(amount)
         if amount_is_net:
-            return round(float(amount) + (float(amount) * vat), 2)
+            result = amt + (amt * vat)
         else:
-            return round(float(amount), 2)
+            result = amt
+        return result.quantize(Decimal("0.01"))
     return fn
 
 def gross_base_expr(vat_key: str = "vat_rate"):
     def fn(amount, ctx):
-        vat = float(ctx.get(vat_key, 0.0))
+        vat = to_decimal_exact(ctx.get(vat_key, 0.0))
+        amt = to_decimal_exact(amount)
         if vat == 0:
-            return round(float(amount), 2)
-        return round(float(amount) / (1.0 + vat), 2)
+            return amt.quantize(Decimal("0.01"))
+        result = amt / (Decimal("1") + vat)
+        return result.quantize(Decimal("0.01"))
     return fn
 
 def gross_vat_expr(vat_key: str = "vat_rate"):
     def fn(amount, ctx):
-        vat = float(ctx.get(vat_key, 0.0))
+        vat = to_decimal_exact(ctx.get(vat_key, 0.0))
+        amt = to_decimal_exact(amount)
         if vat == 0:
-            return 0.0
-        base = float(amount) / (1.0 + vat)
-        return round(float(amount) - base, 2)
+            return Decimal("0")
+        base = amt / (Decimal("1") + vat)
+        result = amt - base
+        return result.quantize(Decimal("0.01"))
     return fn
+
+# P0-2: Auxiliary function for net amount calculation (amount * (1 - rate))
+def net_amount_expr(retention_rate: float | Decimal):
+    """
+    Returns a lambda that calculates: amount * (1 - retention_rate) using Decimal exactness.
+    """
+    rate_dec = to_decimal_exact(retention_rate)
+    return lambda a, c: (to_decimal_exact(a) * (Decimal("1") - rate_dec)).quantize(Decimal("0.01"))
+
+# P0-2: Auxiliary function for net amount with two retention rates
+def net_amount_dual_expr(rate1: float | Decimal, rate2: float | Decimal):
+    """
+    Returns a lambda that calculates: amount * (1 - rate1 - rate2) using Decimal exactness.
+    """
+    r1_dec = to_decimal_exact(rate1)
+    r2_dec = to_decimal_exact(rate2)
+    return lambda a, c: (to_decimal_exact(a) * (Decimal("1") - r1_dec - r2_dec)).quantize(Decimal("0.01"))
 
 # Helper para forzar account_codes en ctx
 def _get_account_code(ctx: Dict[str, Any], logical: str) -> str:
@@ -97,9 +128,10 @@ def ingreso_venta_create(amount: float, ctx: Dict[str, Any]):
     ]
     vat_rate = ctx.get("vat_rate", 0.0)
     if vat_rate:
+        # P0-2: Use Decimal exacto, no float
         lines.append(LineSpec(account_code=_get_account_code(ctx, "vat_tr"),
                               side="credit",
-                              amount_expr=lambda a,c: round(a * float(c.get("vat_rate",0.0)),2),
+                              amount_expr=percent_expr(vat_rate),
                               description="IVA trasladado"))
     return lines
 
@@ -141,9 +173,10 @@ def egreso_compra_create(amount: float, ctx: Dict[str, Any]):
     ]
     vat_rate = ctx.get("vat_rate", 0.0)
     if vat_rate:
+        # P0-2: Use Decimal exacto via percent_expr
         lines.append(LineSpec(account_code=_get_account_code(ctx, "vat_ac"),
                               side="debit",
-                              amount_expr=lambda a,c: round(a * float(c.get("vat_rate",0.0)),2),
+                              amount_expr=percent_expr(vat_rate),
                               description="IVA acreditable"))
     return lines
 
@@ -171,10 +204,13 @@ register_template(OperationTemplate(
 
 # Pago a proveedor con retención IVA
 def pago_con_retencion_create(amount: float, ctx: Dict[str, Any]):
-    vat_rate = float(ctx.get("vat_rate", 0.0))
-    vat_ret_rate = float(ctx.get("vat_ret_rate", 0.0))
-    vat = round(amount * vat_rate, 2)
-    vat_ret = round(vat * vat_ret_rate, 2)
+    # P0-2: Convert to Decimal for exact calculations
+    amt_dec = to_decimal_exact(amount)
+    vat_rate_dec = to_decimal_exact(ctx.get("vat_rate", 0.0))
+    vat_ret_rate_dec = to_decimal_exact(ctx.get("vat_ret_rate", 0.0))
+    
+    vat = (amt_dec * vat_rate_dec).quantize(Decimal("0.01"))
+    vat_ret = (vat * vat_ret_rate_dec).quantize(Decimal("0.01"))
 
     acct = ctx.get("account_codes", {})
     lines = []
@@ -182,18 +218,25 @@ def pago_con_retencion_create(amount: float, ctx: Dict[str, Any]):
     lines.append(LineSpec(account_code=_get_account_code(ctx, "expense"), side="debit",
                           amount_expr=base_amount_expr(), description=ctx.get("desc")))
     if vat > 0:
+        # P0-2: Use percent_expr for exact VAT (pass Decimal directly)
         lines.append(LineSpec(account_code=_get_account_code(ctx, "vat_ac"), side="debit",
-                              amount_expr=lambda a,c: round(a*float(c.get("vat_rate",0.0)),2),
+                              amount_expr=percent_expr(vat_rate_dec),
                               description="IVA acreditable"))
     lines.append(LineSpec(account_code=_get_account_code(ctx, "payable"), side="credit",
-                          amount_expr=lambda a,c: round(a + (a * float(c.get("vat_rate",0.0))),2),
+                          amount_expr=total_with_vat_expr("vat_rate", amount_is_net=True),
                           description=ctx.get("desc")))
     # Pago
     lines.append(LineSpec(account_code=_get_account_code(ctx, "payable"), side="debit",
-                          amount_expr=lambda a,c: round(a + (a * float(c.get("vat_rate",0.0))),2),
+                          amount_expr=total_with_vat_expr("vat_rate", amount_is_net=True),
                           description="Liquidación proveedor"))
+    # P0-2: Bank payment with exact VAT and retention
+    def bank_payment_expr():
+        return lambda a, c: (
+            to_decimal_exact(a) + (to_decimal_exact(a) * to_decimal_exact(c.get("vat_rate", 0.0))) - vat_ret
+        ).quantize(Decimal("0.01"))
+    
     lines.append(LineSpec(account_code=_get_account_code(ctx, "bank"), side="credit",
-                          amount_expr=lambda a,c: round(a + (a * float(c.get("vat_rate",0.0))) - vat_ret,2),
+                          amount_expr=bank_payment_expr(),
                           description="Pago proveedor"))
     if vat_ret > 0:
         lines.append(LineSpec(account_code=_get_account_code(ctx, "vat_ret"), side="credit",
@@ -214,9 +257,10 @@ def nota_credito_create(amount: float, ctx: Dict[str, Any]):
     ]
     vat_rate = ctx.get("vat_rate", 0.0)
     if vat_rate:
+        # P0-2: Use percent_expr for exact VAT
         lines.append(LineSpec(account_code=_get_account_code(ctx, "vat_tr"),
                               side="debit",
-                              amount_expr=lambda a,c: round(a*float(c.get("vat_rate",0.0)),2),
+                              amount_expr=percent_expr(vat_rate),
                               description="Reversión IVA"))
     lines.append(LineSpec(account_code=_get_account_code(ctx, "receivable"),
                           side="credit", amount_expr=total_with_vat_expr("vat_rate", amount_is_net=True),
@@ -235,16 +279,16 @@ def honorarios_create(amount: float, ctx: Dict[str, Any]):
     Honorarios: gasto / banco neto + ISR retenido (si aplica)
     - amount is gross (base) by convention here
     """
-    isr_rate = float(ctx.get("isr_ret_rate", 0.0))
+    # P0-2: Use Decimal exactness for retention rates
+    isr_rate = to_decimal_exact(ctx.get("isr_ret_rate", 0.0))
     acct = ctx.get("account_codes", {})
     lines = []
     # gasto (cargo = base)
     lines.append(LineSpec(account_code=_get_account_code(ctx, "expense"),
                           side="debit", amount_expr=base_amount_expr(), description=ctx.get("desc")))
-    # banco (abono = base * (1 - isr_rate))
-    net_expr = (lambda r: (lambda a,c: round(a * (1.0 - r), 2)))(isr_rate)
+    # banco (abono = base * (1 - isr_rate)) — P0-2: use Decimal exactness
     lines.append(LineSpec(account_code=_get_account_code(ctx, "bank"),
-                          side="credit", amount_expr=net_expr, description=ctx.get("desc")))
+                          side="credit", amount_expr=net_amount_expr(isr_rate), description=ctx.get("desc")))
     # ISR retenido (si aplica)
     if isr_rate and isr_rate > 0:
         lines.append(LineSpec(account_code=_get_account_code(ctx, "isr_ret"),
@@ -274,9 +318,10 @@ def nomina_create(amount: float, ctx: Dict[str, Any]):
       - imss_obrero_rate
       - imss_patronal_rate
     """
-    isr = float(ctx.get("isr_ret_rate", 0.15))
-    imss_obr = float(ctx.get("imss_obrero_rate", 0.0275))
-    imss_pat = float(ctx.get("imss_patronal_rate", 0.10))
+    # P0-2: Use Decimal exactness for retention rates
+    isr = to_decimal_exact(ctx.get("isr_ret_rate", 0.15))
+    imss_obr = to_decimal_exact(ctx.get("imss_obrero_rate", 0.0275))
+    imss_pat = to_decimal_exact(ctx.get("imss_patronal_rate", 0.10))
     lines = []
 
     # Gasto por sueldos (cargo = bruto)
@@ -295,10 +340,9 @@ def nomina_create(amount: float, ctx: Dict[str, Any]):
         except ValueError:
             acct_employer = None
 
-    # Pago neto al trabajador (abono = bruto * (1 - isr - imss_obr))
-    net_expr = (lambda i, o: (lambda a, c: round(a * (1.0 - i - o), 2)))(isr, imss_obr)
+    # Pago neto al trabajador (abono = bruto * (1 - isr - imss_obr)) — P0-2: use Decimal exactness
     lines.append(LineSpec(account_code=_get_account_code(ctx, "bank"),
-                          side="credit", amount_expr=net_expr, description=ctx.get("desc")))
+                          side="credit", amount_expr=net_amount_dual_expr(isr, imss_obr), description=ctx.get("desc")))
 
     # ISR retenido (abono)
     if isr and isr > 0:
