@@ -132,3 +132,33 @@ def test_accounting_model_write_uses_sqlite_without_json_fallback(tmp_path, monk
         assert configs[0].value == "comercial", (
             f"P1-2 Config write: SQLite has '{configs[0].value}', expected 'comercial'"
         )
+
+
+def test_accounting_model_db_failure_is_explicit(monkeypatch):
+    """
+    P1-2A: DB failure is NOT "not configured".
+    
+    Distinguish:
+    - None: row not found (not configured)
+    - RuntimeError: DB infrastructure failed (explicit)
+    
+    CONTRATO:
+    - if get_session() fails: RuntimeError propagated
+    - NOT: return None
+    - NOT: fallback to JSON
+    """
+    import aqorath.storage as storage
+
+    # Mock get_session to fail
+    def failing_get_session():
+        raise RuntimeError("forced config DB failure")
+
+    monkeypatch.setattr(storage, "get_session", failing_get_session)
+
+    # Try to read config
+    with pytest.raises(RuntimeError) as exc_info:
+        config.get_accounting_model()
+
+    assert "forced config DB failure" in str(exc_info.value), (
+        "P1-2A Config: DB failure should propagate, not be silenced"
+    )

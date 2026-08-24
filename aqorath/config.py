@@ -50,6 +50,9 @@ def _read_db() -> Optional[str]:
     """
     P1-2: Read accounting_model from SQLite via ORM.
     SQLite is the sole authority; no JSON fallback.
+    
+    Returns None if row not found (not configured).
+    Raises exception if DB infrastructure fails.
     """
     try:
         from aqorath.models import AppConfig  # type: ignore
@@ -59,15 +62,12 @@ def _read_db() -> Optional[str]:
         LOG.debug("DB access not available for config read: %s", e)
         return None
 
-    try:
-        with get_session() as s:
-            # P1-2: Use select(AppConfig) not AppConfig.select()
-            row = s.exec(select(AppConfig).where(AppConfig.key == DB_KEY)).one_or_none()
-            if row:
-                return getattr(row, "value", None)
-    except Exception as e:
-        LOG.exception("Error reading accounting_model from DB: %s", e)
-    return None
+    # P1-2A: Do NOT swallow DB/query failures
+    with get_session() as s:
+        row = s.exec(select(AppConfig).where(AppConfig.key == DB_KEY)).one_or_none()
+        if row is None:
+            return None
+        return getattr(row, "value", None)
 
 
 def _write_db(value: str) -> bool:

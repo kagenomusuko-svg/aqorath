@@ -640,23 +640,21 @@ def trial_balance(as_of: Optional[str] = None) -> Dict[str, Decimal]:
     # P1-4: SQLite aggregation is the sole source
     balances_sqlite = _balances_from_sqlite(db_path, as_of=as_of)
     
-    # Merge account catalog codes with zero saldo for any missing codes
+    # P1-4A: Merge account catalog codes with zero saldo for any missing codes
+    # If catalog read fails: propagate error (part of authoritative SQLite read)
     if db_path:
+        conn = sqlite3.connect(str(db_path))
         try:
-            conn = sqlite3.connect(str(db_path))
-            try:
-                cur = conn.cursor()
-                cur.execute("SELECT code FROM account")
-                for (code,) in cur.fetchall():
-                    if code is None:
-                        continue
-                    key = str(code)
-                    if key not in balances_sqlite:
-                        balances_sqlite[key] = Decimal("0")
-            finally:
-                conn.close()
-        except Exception as e:
-            LOG.debug("trial_balance: failed to merge account catalog codes: %s", e)
+            cur = conn.cursor()
+            cur.execute("SELECT code FROM account")
+            for (code,) in cur.fetchall():
+                if code is None:
+                    continue
+                key = str(code)
+                if key not in balances_sqlite:
+                    balances_sqlite[key] = Decimal("0")
+        finally:
+            conn.close()
     
     return balances_sqlite
 

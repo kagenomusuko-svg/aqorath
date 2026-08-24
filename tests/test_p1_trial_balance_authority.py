@@ -6,6 +6,7 @@ P1-4: Si SQLite válido pero vacío, retorna ceros sin consultar Libro.
 """
 
 import pytest
+import sqlite3
 from decimal import Decimal
 from pathlib import Path
 from sqlalchemy import create_engine
@@ -111,3 +112,64 @@ def test_trial_balance_empty_sqlite_does_not_consult_libro(tmp_path, monkeypatch
 
     # Verify ceros for accounts (or at least that result was computed)
     assert isinstance(result, dict), "trial_balance should return dict for empty SQLite"
+
+
+def test_trial_balance_account_catalog_failure_is_explicit(tmp_path, monkeypatch):
+    """
+    P1-4A: Account catalog read failure propagates.
+    
+    If catalog (SELECT code FROM account) fails:
+    - Error must propagate
+    - NOT: return partial balances
+    - NOT: consultar Libro
+    
+    CONTRATO:
+    - _balances_from_sqlite returns valid {"1101": Decimal("100")}
+    - catalog read fails with RuntimeError
+    - trial_balance() must raise RuntimeError
+    - NOT: return partial {"1101": Decimal("100")} as if valid
+    """
+    from unittest.mock import MagicMock
+
+    db_file = tmp_path / "catalog_fail_test.db"
+
+    monkeypatch.setenv("AQORATH_DB", str(db_file))
+
+    # Mock _balances_from_sqlite to return valid balances
+    def mock_balances_from_sqlite(db_path=None, as_of=None):
+        return {"1101": Decimal("100")}
+
+    # Mock _find_db_path to return our temp db
+    def mock_find_db_path():
+        return str(db_file)
+
+    # Create a mock connection that fails on catalog read
+    def failing_connect(*args, **kwargs):
+        mock_conn = MagicMock()
+        
+        def mock_cursor(*args, **kwargs):
+            mock_cur = MagicMock()
+            
+            def execute_with_failure(sql, *args, **kwargs):
+                if "SELECT code FROM account" in sql:
+                    raise RuntimeError("forced account catalog DB failure")
+                return MagicMock()
+            
+            mock_cur.execute = execute_with_failure
+            mock_cur.fetchall = lambda: []
+            return mock_cur
+        
+        mock_conn.cursor = mock_cursor
+        mock_conn.close = MagicMock()
+        return mock_conn
+
+    with patch("aqorath.core._balances_from_sqlite", side_effect=mock_balances_from_sqlite):
+        with patch("aqorath.core._find_db_path", side_effect=mock_find_db_path):
+            with patch("sqlite3.connect", side_effect=failing_connect):
+                # Catalog read fails → error propagates
+                with pytest.raises(RuntimeError) as exc_info:
+                    trial_balance()
+
+                assert "forced account catalog DB failure" in str(exc_info.value), (
+                    "P1-4A trial_balance: catalog failure should propagate, not return partial balance"
+                )
