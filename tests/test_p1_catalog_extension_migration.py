@@ -13,6 +13,7 @@ from pathlib import Path
 from sqlalchemy import inspect
 from sqlmodel import Session
 import aqorath.storage as storage
+import aqorath.core as core
 from aqorath.models import Account
 
 
@@ -146,3 +147,129 @@ def test_migration_is_idempotent(tmp_path, monkeypatch):
         for acc in accounts:
             assert acc.origin == "canonical", f"{acc.code} must have origin=canonical"
             assert acc.parent_id is None, f"{acc.code} must have parent_id=None"
+
+
+def test_partial_legacy_origin_is_backfilled(tmp_path, monkeypatch):
+    """
+    P1-3B2: Migration backfills origin NULL and empty to 'canonical'.
+    
+    Scenario: DB was partially migrated (columns exist but origin has NULL/blank)
+    
+    SETUP: Create table with origin column already present (but with NULL/empty values)
+    INSERT: 1101 with origin=NULL
+           4101 with origin=''
+    
+    ACTION: Execute init_db()
+    
+    VERIFICATION:
+    - 1101.origin == "canonical"
+    - 4101.origin == "canonical"
+    - All data otherwise preserved
+    """
+    db_file = tmp_path / "partial_legacy_test.db"
+    
+    # Create partially migrated schema
+    conn = sqlite3.connect(str(db_file))
+    try:
+        conn.execute("""
+            CREATE TABLE account (
+                id INTEGER PRIMARY KEY,
+                code VARCHAR UNIQUE,
+                name VARCHAR NOT NULL,
+                nature VARCHAR NOT NULL,
+                vat_flag BOOLEAN NOT NULL DEFAULT 0,
+                created_at DATETIME,
+                origin VARCHAR,
+                parent_id INTEGER NULL
+            )
+        """)
+        
+        # Insert with NULL origin
+        conn.execute(
+            "INSERT INTO account (code, name, nature, origin, parent_id) VALUES (?, ?, ?, ?, ?)",
+            ("1101", "Bancos", "Deudora", None, None)
+        )
+        
+        # Insert with empty origin
+        conn.execute(
+            "INSERT INTO account (code, name, nature, origin, parent_id) VALUES (?, ?, ?, ?, ?)",
+            ("4101", "Ventas", "Acreedora", "", None)
+        )
+        
+        conn.commit()
+    finally:
+        conn.close()
+    
+    monkeypatch.setenv("AQORATH_DB", str(db_file))
+    
+    # Execute migration
+    engine = storage.init_db(str(db_file), create_tables=True)
+    
+    # Verify backfill
+    with Session(engine) as session:
+        account_1101 = session.query(Account).filter(Account.code == "1101").one_or_none()
+        account_4101 = session.query(Account).filter(Account.code == "4101").one_or_none()
+        
+        assert account_1101 is not None
+        assert account_4101 is not None
+        
+        assert account_1101.origin == "canonical", "1101 origin must be backfilled"
+        assert account_4101.origin == "canonical", "4101 origin must be backfilled"
+        
+        assert account_1101.parent_id is None
+        assert account_4101.parent_id is None
+
+
+def test_create_entity_account_rolls_back_on_commit_failure(tmp_path, monkeypatch):
+    """
+    P1-3B2: create_entity_account rolls back on commit failure.
+    
+    If session.commit() fails, the entity row should not be created.
+    """
+    db_file = tmp_path / "rollback_test.db"
+    monkeypatch.setenv("AQORATH_DB", str(db_file))
+    
+    from aqorath.catalog import create_entity_account
+    from unittest.mock import patch
+    
+    # Create initial DB with parent
+    engine = storage.init_db(str(db_file), create_tables=True)
+    
+    with Session(engine) as session:
+        parent_1101 = session.query(Account).filter(Account.code == "1101").one_or_none()
+        if not parent_1101:
+            # If 1101 doesn't exist (fixture didn't create it), insert it
+            parent_1101 = Account(
+                code="1101",
+                name="Bancos",
+                nature="Deudora",
+                origin="canonical",
+                parent_id=None
+            )
+            session.add(parent_1101)
+            session.commit()
+    
+    # Patch commit to fail
+    call_count = [0]
+    original_commit = Session.commit
+    
+    def failing_commit(self):
+        call_count[0] += 1
+        # Fail only on the entity creation commit, not on parent lookup
+        raise RuntimeError("Forced commit failure for testing")
+    
+    with patch.object(Session, 'commit', failing_commit):
+        with pytest.raises(RuntimeError) as exc_info:
+            with core.get_session() as session:
+                create_entity_account(
+                    session=session,
+                    parent_code="1101",
+                    name="BBVA"
+                )
+        
+        assert "Forced commit failure" in str(exc_info.value)
+    
+    # Verify that entity was not created
+    with Session(engine) as session:
+        bbva = session.query(Account).filter(Account.code == "1101.001").one_or_none()
+        assert bbva is None, "1101.001 must not exist after rollback"

@@ -664,3 +664,128 @@ def test_entity_account_inherits_canonical_reporting_classification(isolated_cat
     assert totals.get("otros") == Decimal("0"), (
         f"No unclassified balance expected. Got: {totals}"
     )
+
+
+# ============================================================
+# Update invariant tests
+# ============================================================
+
+def test_entity_account_name_can_be_updated_without_structural_change(isolated_catalog_engine):
+    """
+    P1-3B2: Entity account name IS editable.
+    
+    Protección estructural (code, origin, parent_id) debe permitir
+    cambios a campos como name.
+    
+    Create: BBVA bajo 1101
+    Update: BBVA → "BBVA Cuenta Principal"
+    Contrato: name updated, estructurales intactos
+    """
+    from aqorath.catalog import create_entity_account
+    
+    with core.get_session() as session:
+        bbva = create_entity_account(
+            session=session,
+            parent_code="1101",
+            name="BBVA"
+        )
+        
+        original_code = bbva.code
+        original_origin = bbva.origin
+        original_parent_id = bbva.parent_id
+        
+        # Cambiar nombre
+        bbva.name = "BBVA Cuenta Principal"
+        session.add(bbva)
+        session.commit()
+        session.refresh(bbva)
+        
+        # Verificar que nombre cambió
+        assert bbva.name == "BBVA Cuenta Principal", "name debe cambiar"
+        
+        # Verificar que estructurales no cambiaron
+        assert bbva.code == original_code, "code debe permanecer igual"
+        assert bbva.origin == original_origin, "origin debe permanecer igual"
+        assert bbva.parent_id == original_parent_id, "parent_id debe permanecer igual"
+
+
+@pytest.mark.parametrize("field_name,new_value", [
+    ("code", "1101.999"),
+    ("origin", "canonical"),
+    ("parent_id", None),
+])
+def test_entity_account_structural_fields_cannot_change(
+    isolated_catalog_engine, field_name, new_value
+):
+    """
+    P1-3B2: Campos estructurales (code, origin, parent_id) están protegidos.
+    
+    Cada intento de cambiarlos debe fallar.
+    """
+    from aqorath.catalog import create_entity_account
+    
+    with core.get_session() as session:
+        bbva = create_entity_account(
+            session=session,
+            parent_code="1101",
+            name="BBVA"
+        )
+        
+        # Guardar original
+        original_value = getattr(bbva, field_name)
+        
+        # Intentar cambiar
+        setattr(bbva, field_name, new_value)
+        session.add(bbva)
+        
+        # Debe fallar
+        with pytest.raises(ValueError) as exc_info:
+            session.commit()
+        
+        assert "modificar" in str(exc_info.value).lower() or field_name in str(exc_info.value).lower()
+        
+        # Rollback y verificar que original se mantiene
+        session.rollback()
+        session.refresh(bbva)
+        
+        assert getattr(bbva, field_name) == original_value, (
+            f"{field_name} debe permanecer igual después de fallo"
+        )
+
+
+def test_entity_account_nature_cannot_override_parent(isolated_catalog_engine):
+    """
+    P1-3B2: Naturaleza de entity debe permanecer igual a padre.
+    
+    Intentar cambiar: REJECT
+    """
+    from aqorath.catalog import create_entity_account
+    
+    with core.get_session() as session:
+        bbva = create_entity_account(
+            session=session,
+            parent_code="1101",
+            name="BBVA"
+        )
+        
+        parent_1101 = session.exec(
+            select(Account).where(Account.code == "1101")
+        ).one_or_none()
+        
+        original_nature = bbva.nature
+        wrong_nature = "Acreedora" if original_nature == "Deudora" else "Deudora"
+        
+        # Intentar override
+        bbva.nature = wrong_nature
+        session.add(bbva)
+        
+        with pytest.raises(ValueError) as exc_info:
+            session.commit()
+        
+        assert "hereda" in str(exc_info.value).lower() or "naturaleza" in str(exc_info.value).lower()
+        
+        # Rollback y verificar
+        session.rollback()
+        session.refresh(bbva)
+        
+        assert bbva.nature == original_nature, "nature debe revertir"

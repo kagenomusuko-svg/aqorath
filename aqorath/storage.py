@@ -34,8 +34,9 @@ def _migrate_account_extension_schema(engine):
     P1-3: Migración determinística de schema legacy.
     
     Añade origin y parent_id a tabla Account existente.
+    Backfill origin NULL/vacío a 'canonical'.
     Idempotente: seguro de ejecutar multiple veces.
-    NO modifica datos existentes.
+    NO modifica datos existentes (excepto backfill).
     """
     from sqlalchemy import inspect, text
     
@@ -56,16 +57,16 @@ def _migrate_account_extension_schema(engine):
             # Añadir origin si no existe
             if "origin" not in columns:
                 conn.execute(text("ALTER TABLE account ADD COLUMN origin VARCHAR NOT NULL DEFAULT 'canonical'"))
+            else:
+                # Backfill origin NULL/vacío a canonical si ya existe la columna
+                conn.execute(text("UPDATE account SET origin = 'canonical' WHERE origin IS NULL OR TRIM(origin) = ''"))
             
             # Añadir parent_id si no existe
             if "parent_id" not in columns:
                 conn.execute(text("ALTER TABLE account ADD COLUMN parent_id INTEGER NULL"))
             
-            # Crear índice si no existe
-            try:
-                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_account_parent_id ON account(parent_id)"))
-            except Exception:
-                pass  # índice puede ya existir
+            # Crear índice si no existe (NO silenciar errores)
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_account_parent_id ON account(parent_id)"))
         
     except Exception as e:
         # Errores de migración son críticos
@@ -190,37 +191,40 @@ def _register_account_listener():
     
     @event.listens_for(Account, "before_update")
     def _prevent_structural_changes(mapper, connection: Connection, target):
-        """Prevenir cambios de estructura: code, origin, parent_id"""
-        # Obtener estado anterior
-        insp = object.__getattribute__(target, "_sa_instance_state")
-        if not insp.has_identity:
+        """
+        P1-3: Proteger campos estructurales: code, origin, parent_id
+        Permitir cambios en campos editables como name.
+        """
+        from sqlalchemy import inspect as sa_inspect
+        
+        state = sa_inspect(target)
+        if not state.has_identity:
             return  # Inserción, no actualización
         
-        old_code = insp.committed_state.get("code")
-        old_origin = insp.committed_state.get("origin", "canonical")
-        old_parent_id = insp.committed_state.get("parent_id")
+        # Verificar si campos estructurales han cambiado usando history
+        if state.attrs.code.history.has_changes():
+            old_val = state.attrs.code.history.deleted[0] if state.attrs.code.history.deleted else None
+            new_val = state.attrs.code.history.added[0] if state.attrs.code.history.added else target.code
+            raise ValueError(f"No se puede modificar code de cuenta: {old_val} → {new_val}")
         
-        new_code = target.code
-        new_origin = target.origin
-        new_parent_id = target.parent_id
+        if state.attrs.origin.history.has_changes():
+            old_val = state.attrs.origin.history.deleted[0] if state.attrs.origin.history.deleted else None
+            new_val = state.attrs.origin.history.added[0] if state.attrs.origin.history.added else target.origin
+            raise ValueError(f"No se puede modificar origin de cuenta: {old_val} → {new_val}")
         
-        if new_code != old_code:
-            raise ValueError(f"No se puede modificar code de cuenta: {old_code} → {new_code}")
-        
-        if new_origin != old_origin:
-            raise ValueError(f"No se puede modificar origin de cuenta: {old_origin} → {new_origin}")
-        
-        if new_parent_id != old_parent_id:
-            raise ValueError(f"No se puede modificar parent_id de cuenta: {old_parent_id} → {new_parent_id}")
+        if state.attrs.parent_id.history.has_changes():
+            old_val = state.attrs.parent_id.history.deleted[0] if state.attrs.parent_id.history.deleted else None
+            new_val = state.attrs.parent_id.history.added[0] if state.attrs.parent_id.history.added else target.parent_id
+            raise ValueError(f"No se puede modificar parent_id de cuenta: {old_val} → {new_val}")
         
         # Validación adicional para entity: naturaleza debe mantenerse igual a padre
-        if new_origin == "entity" and new_parent_id:
+        if target.origin == "entity" and target.parent_id:
             try:
                 from sqlalchemy import text
                 
                 parent_nature = connection.execute(
                     text("SELECT nature FROM account WHERE id = :pid"),
-                    {"pid": new_parent_id}
+                    {"pid": target.parent_id}
                 ).scalar()
                 
                 if parent_nature and target.nature != parent_nature:

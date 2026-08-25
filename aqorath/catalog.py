@@ -162,7 +162,11 @@ def create_entity_account(session, parent_code: str, name: str):
     )
     
     session.add(entity_account)
-    session.commit()
+    try:
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
     session.refresh(entity_account)
     
     return entity_account
