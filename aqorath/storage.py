@@ -29,50 +29,6 @@ def get_db_path() -> str:
 DB_PATH = get_db_path()
 
 
-def _migrate_account_extension_schema(engine):
-    """
-    P1-3: Migración determinística de schema legacy.
-    
-    Añade origin y parent_id a tabla Account existente.
-    Backfill origin NULL/vacío a 'canonical'.
-    Idempotente: seguro de ejecutar multiple veces.
-    NO modifica datos existentes (excepto backfill).
-    """
-    from sqlalchemy import inspect, text
-    
-    try:
-        # Obtener inspector de SQLAlchemy
-        insp = inspect(engine)
-        
-        # ¿Existe tabla account?
-        if "account" not in insp.get_table_names():
-            # DB nueva: create_all la creará con schema completo
-            return
-        
-        # Obtener columnas existentes
-        columns = {c["name"] for c in insp.get_columns("account")}
-        
-        # Conectar directamente para migraciones ALTER TABLE
-        with engine.begin() as conn:
-            # Añadir origin si no existe
-            if "origin" not in columns:
-                conn.execute(text("ALTER TABLE account ADD COLUMN origin VARCHAR NOT NULL DEFAULT 'canonical'"))
-            else:
-                # Backfill origin NULL/vacío a canonical si ya existe la columna
-                conn.execute(text("UPDATE account SET origin = 'canonical' WHERE origin IS NULL OR TRIM(origin) = ''"))
-            
-            # Añadir parent_id si no existe
-            if "parent_id" not in columns:
-                conn.execute(text("ALTER TABLE account ADD COLUMN parent_id INTEGER NULL"))
-            
-            # Crear índice si no existe (NO silenciar errores)
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_account_parent_id ON account(parent_id)"))
-        
-    except Exception as e:
-        # Errores de migración son críticos
-        raise RuntimeError(f"Migración de schema account falló: {e}")
-
-
 def _register_account_listener():
     """
     P1-3: Registra listeners que gobiernan cuentas canónicas y de entidad.
@@ -244,15 +200,16 @@ def _register_account_listener():
 def _create_engine(db_path: str):
     """
     P1-1: Crea y devuelve un engine SQLModel/SQLAlchemy para la ruta dada.
-    P1-3: Ejecuta migración de schema si es necesario.
+    P1D.2: Delega migración de schema a autoridad central (aqorath.migrations).
     Registra listeners necesarios.
     """
+    # P1D.2: Ejecutar migración centralizada ANTES de crear engine
+    from aqorath.migrations import migrate_database
+    migrate_database(db_path)
+
     url = f"sqlite:///{db_path}"
     engine = create_engine(url, connect_args={"check_same_thread": False})
-    
-    # P1-3: Migrar schema si es necesario (legacy DB)
-    _migrate_account_extension_schema(engine)
-    
+
     # intentar registrar listener ahora que imports deberían resolverse
     _register_account_listener()
     return engine
