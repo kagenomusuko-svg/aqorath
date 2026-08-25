@@ -31,6 +31,26 @@ CURRENT_SCHEMA_VERSION = 1
 # Migration Registry
 # ============================================================
 
+def _create_current_schema(db_path):
+    """
+    Create complete current schema using models.
+
+    MUST be called AFTER structural migrations.
+    Imports models explicitly to ensure metadata is populated.
+    """
+    from aqorath import models as _models  # Explicit import
+    from sqlmodel import SQLModel
+    from sqlalchemy import create_engine
+
+    db_path = Path(db_path)
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    try:
+        SQLModel.metadata.create_all(engine)
+    finally:
+        engine.dispose()
+
+
 def _migrate_0_to_1(db_path):
     """
     Migrate from unversioned (0) to version 1.
@@ -40,6 +60,7 @@ def _migrate_0_to_1(db_path):
     - Account: add origin/parent_id, backfill
     - JournalLine: migrate REAL/FLOAT → TEXT for debit/credit
     - Asset: migrate value REAL/FLOAT → TEXT
+    - All structural changes in ONE transaction
     - Create remaining tables if missing
     """
     db_path = Path(db_path)
@@ -57,17 +78,14 @@ def _migrate_0_to_1(db_path):
 
     # If empty: create full schema and return
     if is_empty:
-        from sqlalchemy import create_engine
-        from sqlmodel import SQLModel
-
-        engine = create_engine(f"sqlite:///{db_path}")
-        SQLModel.metadata.create_all(engine)
-        engine.dispose()
+        _create_current_schema(str(db_path))
         return
 
-    # DB exists: perform migrations
+    # DB exists: perform migrations in single transaction
     conn = sqlite3.connect(str(db_path))
     try:
+        conn.execute("BEGIN IMMEDIATE")
+
         # Account migration
         if "account" in existing_tables:
             _migrate_account_legacy(conn)
@@ -88,12 +106,7 @@ def _migrate_0_to_1(db_path):
         conn.close()
 
     # Create any missing tables
-    from sqlalchemy import create_engine
-    from sqlmodel import SQLModel
-
-    engine = create_engine(f"sqlite:///{db_path}")
-    SQLModel.metadata.create_all(engine)
-    engine.dispose()
+    _create_current_schema(str(db_path))
 
 
 def _migrate_account_legacy(conn):
@@ -117,17 +130,17 @@ def _migrate_account_legacy(conn):
     if "parent_id" not in columns:
         conn.execute("ALTER TABLE account ADD COLUMN parent_id INTEGER NULL")
 
-    # Create index
-    try:
-        conn.execute("CREATE INDEX IF NOT EXISTS ix_account_parent_id ON account(parent_id)")
-    except sqlite3.OperationalError:
-        pass  # Index may already exist
+    # Create index (IF NOT EXISTS handles idempotency, errors must propagate)
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_account_parent_id ON account(parent_id)")
 
 
 def _migrate_journalline_legacy(conn):
     """
     Convert JournalLine debit/credit from REAL/FLOAT to TEXT.
     Preserves row identity and metadata.
+
+    CRITICAL: Called within _migrate_0_to_1's transaction.
+    Do NOT begin/commit transactions here.
     """
     cursor = conn.execute("PRAGMA table_info(journalline)")
     columns = {row[1]: row[2] for row in cursor.fetchall()}
@@ -149,66 +162,69 @@ def _migrate_journalline_legacy(conn):
             f"Cannot migrate journalline: missing required columns {missing}"
         )
 
-    # Check for unknown columns (not migrating silently)
-    known_columns = required | {"vat_flag", "concept"}  # known optional columns
+    # Check for unpreserved columns (not migrating silently)
+    known_columns = required  # ONLY these columns are supported
     unknown = set(columns.keys()) - known_columns
     if unknown:
         raise RuntimeError(
-            f"Cannot migrate journalline: unknown columns {unknown} "
-            f"would be silently lost. Please add migration logic."
+            f"Cannot migrate journalline: unknown columns {unknown} would be lost. "
+            f"Please add explicit migration logic for these columns."
         )
 
     # Rebuild journalline with TEXT money columns
-    conn.execute("BEGIN IMMEDIATE")
-    try:
-        # Create temporary table with TEXT money columns
-        conn.execute("""
-            CREATE TABLE journalline__aqorath_v1 (
-                id INTEGER PRIMARY KEY,
-                entry_id INTEGER,
-                account_code VARCHAR,
-                account_id INTEGER,
-                debit TEXT,
-                credit TEXT,
-                description VARCHAR,
-                created_at DATETIME
-            )
-        """)
+    # Create temporary table with TEXT money columns
+    conn.execute("""
+        CREATE TABLE journalline__aqorath_v1 (
+            id INTEGER PRIMARY KEY,
+            entry_id INTEGER,
+            account_code VARCHAR,
+            account_id INTEGER,
+            debit TEXT,
+            credit TEXT,
+            description VARCHAR,
+            created_at DATETIME
+        )
+    """)
 
-        # Copy and convert data
-        cursor = conn.execute(
-            "SELECT id, entry_id, account_code, account_id, debit, credit, description, created_at "
-            "FROM journalline"
+    # Copy and convert data
+    cursor = conn.execute(
+        "SELECT id, entry_id, account_code, account_id, debit, credit, description, created_at "
+        "FROM journalline"
+    )
+
+    for row in cursor:
+        line_id, entry_id, account_code, account_id, debit, credit, description, created_at = row
+
+        # Reject NULL monetary values
+        if debit is None or credit is None:
+            raise RuntimeError(
+                f"Cannot migrate journalline id={line_id}: NULL monetary value found. "
+                f"debit={debit}, credit={credit}. This represents inconsistent state."
+            )
+
+        # Convert money with exact precision
+        debit_str = str(to_decimal_exact(Decimal(str(debit))))
+        credit_str = str(to_decimal_exact(Decimal(str(credit))))
+
+        conn.execute(
+            "INSERT INTO journalline__aqorath_v1 "
+            "(id, entry_id, account_code, account_id, debit, credit, description, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (line_id, entry_id, account_code, account_id, debit_str, credit_str, description, created_at)
         )
 
-        for row in cursor:
-            line_id, entry_id, account_code, account_id, debit, credit, description, created_at = row
-
-            # Convert money with exact precision
-            debit_str = str(to_decimal_exact(Decimal(str(debit)))) if debit is not None else "0"
-            credit_str = str(to_decimal_exact(Decimal(str(credit)))) if credit is not None else "0"
-
-            conn.execute(
-                "INSERT INTO journalline__aqorath_v1 "
-                "(id, entry_id, account_code, account_id, debit, credit, description, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (line_id, entry_id, account_code, account_id, debit_str, credit_str, description, created_at)
-            )
-
-        # Drop old table and rename
-        conn.execute("DROP TABLE journalline")
-        conn.execute("ALTER TABLE journalline__aqorath_v1 RENAME TO journalline")
-
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
+    # Drop old table and rename
+    conn.execute("DROP TABLE journalline")
+    conn.execute("ALTER TABLE journalline__aqorath_v1 RENAME TO journalline")
 
 
 def _migrate_asset_legacy(conn):
     """
     Convert Asset.value from REAL/FLOAT to TEXT.
     Preserves row identity and metadata.
+
+    CRITICAL: Called within _migrate_0_to_1's transaction.
+    Do NOT begin/commit transactions here.
     """
     cursor = conn.execute("PRAGMA table_info(asset)")
     columns = {row[1]: row[2] for row in cursor.fetchall()}
@@ -227,46 +243,48 @@ def _migrate_asset_legacy(conn):
             f"Cannot migrate asset: missing required columns {missing}"
         )
 
-    # Check for unknown columns
-    known_columns = required | {"description", "category"}  # known optional
+    # Check for unpreserved columns
+    known_columns = required  # ONLY these columns are supported
     unknown = set(columns.keys()) - known_columns
     if unknown:
         raise RuntimeError(
-            f"Cannot migrate asset: unknown columns {unknown} would be silently lost."
+            f"Cannot migrate asset: unknown columns {unknown} would be lost. "
+            f"Please add explicit migration logic for these columns."
         )
 
     # Rebuild asset with TEXT value column
-    conn.execute("BEGIN IMMEDIATE")
-    try:
-        conn.execute("""
-            CREATE TABLE asset__aqorath_v1 (
-                id INTEGER PRIMARY KEY,
-                name VARCHAR,
-                value TEXT,
-                created_at DATETIME
-            )
-        """)
+    conn.execute("""
+        CREATE TABLE asset__aqorath_v1 (
+            id INTEGER PRIMARY KEY,
+            name VARCHAR,
+            value TEXT,
+            created_at DATETIME
+        )
+    """)
 
-        cursor = conn.execute(
-            "SELECT id, name, value, created_at FROM asset"
+    cursor = conn.execute(
+        "SELECT id, name, value, created_at FROM asset"
+    )
+
+    for row in cursor:
+        asset_id, name, value, created_at = row
+
+        # Reject NULL value
+        if value is None:
+            raise RuntimeError(
+                f"Cannot migrate asset id={asset_id}: NULL value found. "
+                f"This represents inconsistent state."
+            )
+
+        value_str = str(to_decimal_exact(Decimal(str(value))))
+
+        conn.execute(
+            "INSERT INTO asset__aqorath_v1 (id, name, value, created_at) VALUES (?, ?, ?, ?)",
+            (asset_id, name, value_str, created_at)
         )
 
-        for row in cursor:
-            asset_id, name, value, created_at = row
-            value_str = str(to_decimal_exact(Decimal(str(value)))) if value is not None else "0"
-
-            conn.execute(
-                "INSERT INTO asset__aqorath_v1 (id, name, value, created_at) VALUES (?, ?, ?, ?)",
-                (asset_id, name, value_str, created_at)
-            )
-
-        conn.execute("DROP TABLE asset")
-        conn.execute("ALTER TABLE asset__aqorath_v1 RENAME TO asset")
-
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
+    conn.execute("DROP TABLE asset")
+    conn.execute("ALTER TABLE asset__aqorath_v1 RENAME TO asset")
 
 
 MIGRATIONS = {
