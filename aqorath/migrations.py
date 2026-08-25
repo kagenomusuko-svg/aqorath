@@ -171,7 +171,7 @@ def _migrate_journalline_legacy(conn):
             f"Please add explicit migration logic for these columns."
         )
 
-    # Rebuild journalline with TEXT money columns
+    # Rebuild journalline with TEXT money columns (NOT NULL)
     # Create temporary table with TEXT money columns
     conn.execute("""
         CREATE TABLE journalline__aqorath_v1 (
@@ -179,8 +179,8 @@ def _migrate_journalline_legacy(conn):
             entry_id INTEGER,
             account_code VARCHAR,
             account_id INTEGER,
-            debit TEXT,
-            credit TEXT,
+            debit TEXT NOT NULL,
+            credit TEXT NOT NULL,
             description VARCHAR,
             created_at DATETIME
         )
@@ -252,12 +252,12 @@ def _migrate_asset_legacy(conn):
             f"Please add explicit migration logic for these columns."
         )
 
-    # Rebuild asset with TEXT value column
+    # Rebuild asset with TEXT value column (NOT NULL)
     conn.execute("""
         CREATE TABLE asset__aqorath_v1 (
             id INTEGER PRIMARY KEY,
             name VARCHAR,
-            value TEXT,
+            value TEXT NOT NULL,
             created_at DATETIME
         )
     """)

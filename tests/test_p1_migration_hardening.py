@@ -9,6 +9,7 @@ Freezes contracts for:
 - Asset legacy migration
 """
 
+import os
 import pytest
 import sqlite3
 import subprocess
@@ -27,6 +28,9 @@ def test_fresh_migration_does_not_depend_on_prior_model_import(tmp_path):
     This validates that _create_current_schema() explicitly imports models.
     """
     db_file = tmp_path / "fresh_isolated.db"
+
+    # Calculate repo root dynamically
+    repo_root = Path(__file__).resolve().parents[1]
 
     # Write a subprocess script that migrates without prior model imports
     script = f"""
@@ -57,10 +61,20 @@ assert version == CURRENT_SCHEMA_VERSION, f"Version mismatch: {{version}} != {{C
 print("OK")
 """
 
+    # Set up environment with dynamic PYTHONPATH
+    env = os.environ.copy()
+    existing_pythonpath = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = (
+        str(repo_root)
+        if not existing_pythonpath
+        else str(repo_root) + os.pathsep + existing_pythonpath
+    )
+
     # Run subprocess
     result = subprocess.run(
         [sys.executable, "-c", script],
-        cwd="/tmp/aqorath-work",
+        cwd=str(repo_root),
+        env=env,
         capture_output=True,
         text=True,
     )
@@ -440,3 +454,119 @@ def test_legacy_asset_real_migrates_to_exact_text(tmp_path):
     assert Decimal(rows_after[1][2]) == Decimal("1000.0"), "1000.0 preserved exactly"
 
     assert version_after == CURRENT_SCHEMA_VERSION
+
+
+def test_migrated_journalline_money_columns_are_not_nullable(tmp_path):
+    """
+    P1D.2B: After migration, JournalLine debit/credit are NOT NULL in schema.
+
+    Validates physical constraint prevents future NULL insertion.
+    """
+    db_file = tmp_path / "jl_not_null.db"
+
+    # Create legacy JournalLine with valid REAL values
+    conn = sqlite3.connect(str(db_file))
+    conn.execute("""
+        CREATE TABLE journalline (
+            id INTEGER PRIMARY KEY,
+            entry_id INTEGER,
+            account_code VARCHAR,
+            account_id INTEGER,
+            debit REAL,
+            credit REAL,
+            description VARCHAR,
+            created_at DATETIME
+        )
+    """)
+    conn.execute(
+        "INSERT INTO journalline (id, entry_id, account_code, account_id, debit, credit) "
+        "VALUES (1, 1, '1101', 1, 0.1, 0.0)"
+    )
+    conn.commit()
+    conn.close()
+
+    # Migrate
+    migrate_database(str(db_file))
+
+    # Verify schema: debit and credit are NOT NULL
+    conn = sqlite3.connect(str(db_file))
+    table_info = conn.execute("PRAGMA table_info(journalline)").fetchall()
+    schema_dict = {row[1]: row for row in table_info}
+
+    debit_row = schema_dict.get("debit")
+    credit_row = schema_dict.get("credit")
+
+    assert debit_row is not None, "debit column exists"
+    assert credit_row is not None, "credit column exists"
+
+    # notnull column is index 3; 1 = NOT NULL, 0 = nullable
+    assert debit_row[3] == 1, f"debit should be NOT NULL, got: {debit_row}"
+    assert credit_row[3] == 1, f"credit should be NOT NULL, got: {credit_row}"
+
+    # Verify types: should be TEXT, not REAL/FLOAT
+    assert "REAL" not in debit_row[2] and "FLOAT" not in debit_row[2], "debit type should be TEXT"
+    assert "REAL" not in credit_row[2] and "FLOAT" not in credit_row[2], "credit type should be TEXT"
+
+    # Attempt to insert NULL debit: should fail
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "INSERT INTO journalline (id, entry_id, account_code, account_id, debit, credit) "
+            "VALUES (999, 1, '1101', 1, NULL, '0')"
+        )
+        conn.commit()
+
+    # Attempt to insert NULL credit: should fail
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "INSERT INTO journalline (id, entry_id, account_code, account_id, debit, credit) "
+            "VALUES (998, 1, '1101', 1, '0', NULL)"
+        )
+        conn.commit()
+
+    conn.close()
+
+
+def test_migrated_asset_value_is_not_nullable(tmp_path):
+    """
+    P1D.2B: After migration, Asset value is NOT NULL in schema.
+
+    Validates physical constraint prevents future NULL insertion.
+    """
+    db_file = tmp_path / "asset_not_null.db"
+
+    # Create legacy Asset with valid REAL value
+    conn = sqlite3.connect(str(db_file))
+    conn.execute("""
+        CREATE TABLE asset (
+            id INTEGER PRIMARY KEY,
+            name VARCHAR,
+            value REAL,
+            created_at DATETIME
+        )
+    """)
+    conn.execute("INSERT INTO asset (id, name, value) VALUES (1, 'Asset A', 0.1)")
+    conn.commit()
+    conn.close()
+
+    # Migrate
+    migrate_database(str(db_file))
+
+    # Verify schema: value is NOT NULL
+    conn = sqlite3.connect(str(db_file))
+    table_info = conn.execute("PRAGMA table_info(asset)").fetchall()
+    schema_dict = {row[1]: row for row in table_info}
+
+    value_row = schema_dict.get("value")
+
+    assert value_row is not None, "value column exists"
+    assert value_row[3] == 1, f"value should be NOT NULL, got: {value_row}"
+    assert "REAL" not in value_row[2] and "FLOAT" not in value_row[2], "value type should be TEXT"
+
+    # Attempt to insert NULL value: should fail
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "INSERT INTO asset (id, name, value) VALUES (999, 'Invalid', NULL)"
+        )
+        conn.commit()
+
+    conn.close()
