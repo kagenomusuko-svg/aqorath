@@ -5,10 +5,8 @@ pyinstaller>=5.10
 reportlab>=4.0
 lxml>=4.9
 requests
-REQ
 sqlmodel
 sqlalchemy
 python-dateutil
-pytest
 fastapi
 uvicorn

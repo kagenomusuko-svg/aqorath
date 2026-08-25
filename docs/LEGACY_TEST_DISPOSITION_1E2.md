@@ -32,52 +32,52 @@ This mode of operation will NOT be preserved; the intent (if any) must be redesi
 
 | Test | Intent | Disposition | Future/Canonical Replacement |
 |------|--------|-------------|------------------------------|
-| `test_asientos_persisten_guardar_y_cargar` | Persistence of asientos (entries) to XLSX via Libro | RETIRED_LEGACY_BEHAVIOR | XLSX export as future document factory (Phase 2+) |
-| `test_export_asiento_csv_and_xlsx` | Export single asiento to CSV/XLSX | FUTURE_FUNCTIONAL_CAPABILITY | Document Factory (Phase 2+) CSV/XLSX output |
+| `test_asientos_persisten_guardar_y_cargar` | Persistence of asientos (entries) to XLSX via Libro | RETIRED_LEGACY_BEHAVIOR | XLSX export as future document factory |
+| `test_export_asiento_csv_and_xlsx` | Export single asiento to CSV/XLSX | FUTURE_FUNCTIONAL_CAPABILITY | Document factory CSV/XLSX output |
 
 ### test/test_libro.py
 
 | Test | Intent | Disposition | Future/Canonical Replacement |
 |------|--------|-------------|------------------------------|
-| `test_compute_libro_mayor_basic` | Compute libro mayor (ledger) from Libro | FUTURE_FUNCTIONAL_CAPABILITY | Trial balance / Ledger view on SQLite (Phase 1E.3+) |
-| `test_generar_movimientos_con_impuestos_autogenerados_y_signo_por_catalogo` | Auto-generated tax entries with catalog sign rules | FUTURE_FUNCTIONAL_CAPABILITY | Fiscal engine with automatic tax generation (Phase 2A) |
+| `test_compute_libro_mayor_basic` | Compute libro mayor (ledger) from Libro | FUTURE_FUNCTIONAL_CAPABILITY | Trial balance / Ledger view on SQLite |
+| `test_generar_movimientos_con_impuestos_autogenerados_y_signo_por_catalogo` | Auto-generated tax entries with catalog sign rules | FUTURE_FUNCTIONAL_CAPABILITY | Future fiscal integration |
 
 ### test/test_registro.py
 
 | Test | Intent | Disposition | Future/Canonical Replacement |
 |------|--------|-------------|------------------------------|
-| `test_validate_missing_fields` | Field validation in registro (transaction record) | FUTURE_FUNCTIONAL_CAPABILITY | Economic fact validation (Phase 2A) |
-| `test_validate_zero_amount` | Reject zero amounts | FUTURE_FUNCTIONAL_CAPABILITY | Economic fact validation (Phase 2A) |
-| `test_cfdi_requires_metodo_pago` | CFDI requires payment method field | FUTURE_FUNCTIONAL_CAPABILITY | CFDI engine (Phase 2+) |
-| `test_aplicar_impuestos_from_mapeo` | Tax application using mapping | FUTURE_FUNCTIONAL_CAPABILITY | Fiscal engine (Phase 2A) |
+| `test_validate_missing_fields` | Field validation in registro (transaction record) | FUTURE_FUNCTIONAL_CAPABILITY | Economic fact validation layer |
+| `test_validate_zero_amount` | Reject zero amounts | FUTURE_FUNCTIONAL_CAPABILITY | Economic fact validation layer |
+| `test_cfdi_requires_metodo_pago` | CFDI requires payment method field | FUTURE_FUNCTIONAL_CAPABILITY | Future CFDI/fiscal integration |
+| `test_aplicar_impuestos_from_mapeo` | Tax application using mapping | FUTURE_FUNCTIONAL_CAPABILITY | Future fiscal integration |
 
 ### test/test_fiscal.py
 
 | Test | Intent | Disposition | Future/Canonical Replacement |
 |------|--------|-------------|------------------------------|
-| `test_retencion_isr_autogenerada` | Auto-generated ISR withholding | FUTURE_FUNCTIONAL_CAPABILITY | Fiscal engine with Mexican tax rules (Phase 2A) |
-| `test_compra_egreso_iva_acreditable` | Purchase/expense with IVA credit | FUTURE_FUNCTIONAL_CAPABILITY | Fiscal engine with Mexican tax rules (Phase 2A) |
-| `test_fallback_sin_mapeo_no_impuestos` | No tax fallback when mapping absent | FUTURE_FUNCTIONAL_CAPABILITY | Fiscal engine fallback behavior (Phase 2A) |
+| `test_retencion_isr_autogenerada` | Auto-generated ISR withholding | FUTURE_FUNCTIONAL_CAPABILITY | Future fiscal integration (Mexican tax rules) |
+| `test_compra_egreso_iva_acreditable` | Purchase/expense with IVA credit | FUTURE_FUNCTIONAL_CAPABILITY | Future fiscal integration (Mexican tax rules) |
+| `test_fallback_sin_mapeo_no_impuestos` | No tax fallback when mapping absent | FUTURE_FUNCTIONAL_CAPABILITY | Future fiscal integration fallback behavior |
 
 ### test/test_cfdi.py
 
 | Test | Intent | Disposition | Future/Canonical Replacement |
 |------|--------|-------------|------------------------------|
-| `test_generate_cfdi_basic` | Generate basic CFDI (Mexican invoice) | FUTURE_FUNCTIONAL_CAPABILITY | CFDI engine (Phase 2+) |
+| `test_generate_cfdi_basic` | Generate basic CFDI (Mexican invoice) | FUTURE_FUNCTIONAL_CAPABILITY | Future CFDI/fiscal integration |
 
 ### test/test_cfdi_timbrado.py
 
 | Test | Intent | Disposition | Future/Canonical Replacement |
 |------|--------|-------------|------------------------------|
-| `test_import_timbrado_roundtrip` | Import stamped CFDI and round-trip | FUTURE_FUNCTIONAL_CAPABILITY | CFDI import/export (Phase 2+) |
+| `test_import_timbrado_roundtrip` | Import stamped CFDI and round-trip | FUTURE_FUNCTIONAL_CAPABILITY | Future CFDI/fiscal integration |
 
 ### test/test_reportes.py
 
 | Test | Intent | Disposition | Future/Canonical Replacement |
 |------|--------|-------------|------------------------------|
-| `test_export_balance_pdf` | Export balance sheet to PDF | FUTURE_FUNCTIONAL_CAPABILITY | Document Factory PDF reports (Phase 2+) |
-| `test_export_mayor_pdf` | Export ledger to PDF | FUTURE_FUNCTIONAL_CAPABILITY | Document Factory PDF reports (Phase 2+) |
-| `test_export_estado_resultados_pdf` | Export P&L statement to PDF | FUTURE_FUNCTIONAL_CAPABILITY | Document Factory PDF reports (Phase 2+) |
+| `test_export_balance_pdf` | Export balance sheet to PDF | FUTURE_FUNCTIONAL_CAPABILITY | Future document factory (PDF reports) |
+| `test_export_mayor_pdf` | Export ledger to PDF | FUTURE_FUNCTIONAL_CAPABILITY | Future document factory (PDF reports) |
+| `test_export_estado_resultados_pdf` | Export P&L statement to PDF | FUTURE_FUNCTIONAL_CAPABILITY | Future document factory (PDF reports) |
 
 ---
 
@@ -98,7 +98,14 @@ but must be redesigned and reimplemented against the canonical runtime (SQLite/O
 in future phases.
 
 Key architectural change:
-- **Before (Phases 0–1D):** Libro was the authoritative ledger; XLSX was the persistent medium.
-- **After (Phase 1E.2+):** SQLite is the sole accounting authority; ORM is the canonical interface.
+- **Legacy Aqorath** used Libro/XLSX as an accounting path.
+- **By Phase 1C**, SQLite had already become the sole accounting authority.
+- **Phase 1E** removes the remaining runtime and test dependencies on the retired Libro path.
 
-Document factory, fiscal rules, CFDI generation, and PDF export are deferred to Phase 2A onwards.
+Future phases will implement:
+- Economic Fact Application Layer (core accounting domain model)
+- Fiscal engine (tax rules, CFDI integration)
+- Document Factory (reporting, exports)
+- Additional integrations and compliance features
+
+All legacy test intents are catalogued for future reference and redesign.

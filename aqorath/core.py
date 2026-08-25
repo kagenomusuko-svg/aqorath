@@ -53,12 +53,9 @@ except Exception:
     get_template = None
     _list_templates = None
 
-# Try to import Libro for fallback balance computation
-try:
-    from modelos.libro import Libro  # type: ignore
-except Exception:
-    Libro = None  # type: ignore
 
+
+# Legacy modelos.libro is no longer imported (retired in Phase 1E.2)
 
 # -------------------------
 # Helpers: DB path & templates
@@ -556,73 +553,15 @@ def _balances_from_sqlite(db_path: Optional[Path], as_of: Optional[str] = None) 
 
 def _balances_from_libro() -> Dict[str, Decimal]:
     """
-    Compute balances using modelos.libro.Libro.compute_balance() if available.
-    Defensive handling of DataFrame emptiness.
+    Retired compatibility symbol. SQLite is Aqorath's sole accounting authority.
+
+    Legacy modelos.libro balance computation is intentionally unavailable.
+    This symbol is retained for historical test compatibility only.
     """
-    if Libro is None:
-        return {}
-    try:
-        libro = Libro()
-        df = libro.compute_balance()
-    except Exception as e:
-        LOG.debug("Libro compute_balance failed: %s", e)
-        return {}
-
-    try:
-        if df is None:
-            return {}
-        if hasattr(df, "empty") and df.empty:
-            return {}
-    except Exception:
-        LOG.debug("modelos.libro.compute_balance() returned unexpected type")
-        return {}
-
-    balances: Dict[str, Decimal] = {}
-    try:
-        for idx, row in df.iterrows():
-            code = None
-            for cand in ("code", "Codigo", "Cuenta", "codigo", "account", "cuenta"):
-                try:
-                    if hasattr(row, "get"):
-                        code = row.get(cand)
-                    else:
-                        code = getattr(row, cand, None)
-                except Exception:
-                    code = None
-                if code:
-                    break
-            if not code:
-                code = idx
-
-            saldo = None
-            for cand in ("saldo", "Saldo", "balance", "saldo_final", "saldo_actual", "amount"):
-                try:
-                    if hasattr(row, "get"):
-                        saldo = row.get(cand)
-                    else:
-                        saldo = getattr(row, cand, None)
-                except Exception:
-                    saldo = None
-                if saldo is not None:
-                    break
-
-            if saldo is None:
-                try:
-                    items = dict(row) if hasattr(row, "__iter__") else {}
-                    for k, v in items.items():
-                        if isinstance(v, (int, float, Decimal)):
-                            saldo = v
-                            break
-                except Exception:
-                    saldo = 0
-            try:
-                balances[str(code)] = Decimal(str(saldo or 0))
-            except Exception:
-                balances[str(code)] = Decimal(0)
-    except Exception as e:
-        LOG.exception("Error extracting balances from modelos.libro: %s", e)
-        return {}
-    return balances
+    raise RuntimeError(
+        "Legacy Libro balance authority is retired; "
+        "SQLite is the sole accounting source of truth"
+    )
 
 
 def trial_balance(as_of: Optional[str] = None) -> Dict[str, Decimal]:

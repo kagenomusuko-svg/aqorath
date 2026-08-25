@@ -4,6 +4,11 @@ venv/
 env/
 ENV/
 
+# Environment files
+.env
+.env.*
+!.env.example
+
 # Archivos compilados de Python
 __pycache__/
 *.pyc
@@ -23,9 +28,17 @@ uvicorn.log
 
 # Bases de datos y datos locales
 *.db
+*.sqlite
 *.sqlite3
+.aqorath_backups/
 datos/
 data/
+
+# Backups y artefactos generados
+*.bak
+*.bak.*
+*.orig
+*.rej
 
 # Archivos de construcción / distribución
 build/
@@ -38,6 +51,7 @@ dist/
 # Archivos del sistema
 .DS_Store
 Thumbs.db
+
 # Permitimos el catálogo dentro del paquete para CI/tests
 !/aqorath/data/
 !/aqorath/data/catalogo_base.json
