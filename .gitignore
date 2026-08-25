@@ -19,6 +19,8 @@ __pycache__/
 .vscode/
 *.sublime-project
 *.sublime-workspace
+.~lock.*#
+~$*
 
 # Logs y archivos de ejecución
 logs/
@@ -37,6 +39,7 @@ data/
 # Backups y artefactos generados
 *.bak
 *.bak.*
+*.manualbak.*
 *.orig
 *.rej
 
