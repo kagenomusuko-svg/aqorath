@@ -73,6 +73,33 @@ def normal_balance_amount(ledger_signed_balance: Decimal, naturaleza: str | None
         )
 
 
+def resolve_catalog_entry_for_account_code(account_code: str, catalog: Dict[str, dict]) -> dict:
+    """
+    P1-3: Resolver entrada de catálogo para una cuenta (canónica o entidad).
+    
+    Si account_code es exacto en catálogo: retorna entrada.
+    Si account_code es entidad (parent_code.NNN):
+      - Extrae parent_code
+      - Busca parent_code en catálogo
+      - Retorna metadata del padre (entidad hereda clasificación)
+    Si no encuentra: retorna None
+    """
+    import re
+    
+    # Intento 1: búsqueda exacta
+    if account_code in catalog:
+        return catalog[account_code]
+    
+    # Intento 2: patrón de entidad (XXXX.NNN)
+    match = re.match(r"^([^.]+)\.(\d{3})$", str(account_code))
+    if match:
+        parent_code = match.group(1)
+        if parent_code in catalog:
+            return catalog[parent_code]
+    
+    return None
+
+
 def compute_totals_by_tipo(balances: Dict[str, Decimal], catalog: Dict[str, dict]) -> Dict[str, Decimal]:
     totals: Dict[str, Decimal] = {
         "Ingreso": Decimal(0),
@@ -84,7 +111,8 @@ def compute_totals_by_tipo(balances: Dict[str, Decimal], catalog: Dict[str, dict
         "otros": Decimal(0),
     }
     for acct_key, saldo_algebraico in balances.items():
-        entry = catalog.get(str(acct_key))
+        # P1-3: Usar helper para resolver canónicas y entidades
+        entry = resolve_catalog_entry_for_account_code(str(acct_key), catalog)
         if not entry:
             totals["otros"] += saldo_algebraico
             continue

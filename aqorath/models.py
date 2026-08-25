@@ -12,6 +12,10 @@ class Account(SQLModel, table=True):
     name: str
     nature: str
     vat_flag: bool = Field(default=False)  # indica si la cuenta es afectable por IVA
+    # P1-3: origin distingue cuentas canónicas de extensiones de entidad
+    origin: str = Field(default="canonical")  # "canonical" | "entity"
+    # P1-3: parent_id vincula extensión de entidad a su cuenta canónica padre
+    parent_id: Optional[int] = Field(default=None, foreign_key="account.id", index=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 

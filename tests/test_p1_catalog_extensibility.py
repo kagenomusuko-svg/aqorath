@@ -599,3 +599,68 @@ def test_canonical_accounts_unchanged_by_extensions(isolated_catalog_engine):
         assert "1101.001" not in str(data), (
             "catalogo_base.json must not contain extensions"
         )
+
+
+# ============================================================
+# Reporting classification tests
+# ============================================================
+
+def test_entity_account_inherits_canonical_reporting_classification(isolated_catalog_engine):
+    """
+    P1-3: Entity accounts inherit reporting classification from parent.
+    
+    Entity 1101.001 (under Bancos):
+    - Should classify as Activo (like 1101)
+    - Should use Deudora nature from parent
+    
+    Entity 4101.001 (under Ventas):
+    - Should classify as Ingreso (like 4101)
+    - Should use Acreedora nature from parent
+    
+    Test using real accounting_rules and catalog.
+    """
+    from aqorath.accounting_rules import compute_totals_by_tipo
+    from aqorath.catalog import load_catalog, create_entity_account
+    from decimal import Decimal
+    
+    # Create entities within a session context
+    with core.get_session() as session:
+        bbva = create_entity_account(
+            session=session,
+            parent_code="1101",
+            name="BBVA"
+        )
+        bbva_code = bbva.code
+        
+        ventas_empresa = create_entity_account(
+            session=session,
+            parent_code="4101",
+            name="Empresa A"
+        )
+        ventas_code = ventas_empresa.code
+    
+    # Simulate balances with entity accounts
+    balances = {
+        bbva_code: Decimal("100"),       # Entity 1101.NNN: +100 (activo deudor)
+        ventas_code: Decimal("-100"),    # Entity 4101.NNN: -100 (ingreso acreedor)
+    }
+    
+    # Load real catalog
+    catalog_data = load_catalog()
+    catalog_accounts = catalog_data.get("accounts", {})
+    
+    # Compute totals using real function
+    totals = compute_totals_by_tipo(balances, catalog_accounts)
+    
+    # Verify classification inheritance
+    assert totals.get("Activo") == Decimal("100"), (
+        f"Entity {bbva_code} must inherit Activo classification. Got: {totals}"
+    )
+    
+    assert totals.get("Ingreso") == Decimal("100"), (
+        f"Entity {ventas_code} must inherit Ingreso classification. Got: {totals}"
+    )
+    
+    assert totals.get("otros") == Decimal("0"), (
+        f"No unclassified balance expected. Got: {totals}"
+    )

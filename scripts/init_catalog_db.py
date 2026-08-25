@@ -2,6 +2,11 @@
 """
 Inicializa la tabla `account` a partir de aqorath/data/catalogo_base.json.
 
+P1-3: Usa la ruta central de storage.init_db() para asegurar que:
+ - migración de schema se ejecuta;
+ - create_all usa ORM completo;
+ - listeners se registran.
+
 Comportamiento:
  - Crea las tablas que falten (SQLModel.metadata.create_all).
  - Deduplica (opcional, mantiene MIN(id) por code).
@@ -12,10 +17,11 @@ from pathlib import Path
 import os
 import json
 from datetime import datetime
-from sqlmodel import SQLModel, create_engine, Session, select, text
+from sqlmodel import Session, select, text
 
 from aqorath.models import Account, AppConfig
 from aqorath.config import get_accounting_model
+from aqorath import storage
 
 # ruta por defecto (igual que en storage.py)
 DEFAULT_DB = Path.home() / ".local" / "share" / "aqorath" / "aqorath.db"
@@ -46,11 +52,8 @@ def main():
     db_path = get_db_path()
     print("init_catalog_db: usando AQORATH_DB =", db_path)
 
-    # crear engine propio y asegurarnos de que el esquema existe
-    url = f"sqlite:///{db_path}"
-    engine = create_engine(url, connect_args={"check_same_thread": False})
-    # crear todas las tablas definidas por los modelos (si no existen)
-    SQLModel.metadata.create_all(engine)
+    # P1-3: Usar storage central (migra schema, crea tablas, registra listeners)
+    engine = storage.init_db(db_path, create_tables=True)
 
     data = load_catalog()
     version = data.get("version", "")
@@ -62,17 +65,20 @@ def main():
             s.exec(text("DELETE FROM account WHERE id NOT IN (SELECT MIN(id) FROM account GROUP BY code);"))
             s.commit()
         except Exception:
-            # si no existe la tabla o algo falla, continuar (ya hicimos create_all)
+            # si no existe la tabla o algo falla, continuar (ya hicimos init_db)
             pass
 
         added = 0
         for code, meta in accounts.items():
             rows = s.exec(select(Account).where(Account.code == str(code))).all()
             if len(rows) == 0:
+                # P1-3: Cuentas canónicas del JSON llevan origin="canonical" parent_id=None explícito
                 a = Account(
                     code=str(code),
                     name=_row_name_for_model(meta),
-                    nature=meta.get("naturaleza") or None
+                    nature=meta.get("naturaleza") or None,
+                    origin="canonical",  # Explícito para claridad
+                    parent_id=None,       # Explícito para claridad
                 )
                 s.add(a)
                 added += 1
@@ -94,3 +100,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

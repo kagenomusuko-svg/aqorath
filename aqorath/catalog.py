@@ -70,9 +70,108 @@ def resolve_account_by_code(session_or_code, code: Optional[str] = None, prefer:
     return _resolve_from_json(str(session_or_code))
 
 
+def create_entity_account(session, parent_code: str, name: str):
+    """
+    P1-3: Crear una cuenta de entidad bajo un padre canónico.
+    
+    Parámetros:
+    - session: SQLModel Session
+    - parent_code: código de cuenta canónica (ej. "1101")
+    - name: nombre de la entidad (ej. "BBVA")
+    
+    Retorna: Account creada y persistida
+    
+    El código es generado automáticamente como: parent_code.NNN
+    La naturaleza se hereda del padre.
+    origin se establece como "entity".
+    parent_id se establece al id del padre.
+    
+    Levanta ValueError si:
+    - parent_code no existe
+    - parent es entity (no canonical)
+    - name vacío
+    - error al generar código
+    """
+    from sqlmodel import select
+    from aqorath.models import Account
+    
+    # Normalizar entrada
+    parent_code = str(parent_code).strip()
+    name = str(name).strip()
+    
+    if not name:
+        raise ValueError("name no puede estar vacío")
+    
+    # Buscar padre
+    parent = session.exec(
+        select(Account).where(Account.code == parent_code)
+    ).one_or_none()
+    
+    if not parent:
+        raise ValueError(f"Parent account '{parent_code}' no existe")
+    
+    # Validar que padre es canónico
+    if parent.origin != "canonical":
+        raise ValueError(
+            f"Parent debe ser canónico. '{parent_code}' tiene origin='{parent.origin}'"
+        )
+    
+    # Validar que padre está en catálogo
+    catalog_codes = load_catalog_codes()
+    if parent_code not in catalog_codes:
+        raise ValueError(
+            f"Parent canónico '{parent_code}' no está en catálogo oficial"
+        )
+    
+    # Generar código para la entidad
+    import re
+    
+    existing_entity_codes = session.exec(
+        select(Account).where(
+            (Account.parent_id == parent.id) & 
+            (Account.origin == "entity")
+        )
+    ).all()
+    
+    # Extraer números siguientes el patrón parent_code.NNN
+    pattern = rf"^{re.escape(parent_code)}\.(\d{{3}})$"
+    max_suffix = 0
+    
+    for entity in existing_entity_codes:
+        match = re.match(pattern, entity.code)
+        if match:
+            suffix_num = int(match.group(1))
+            max_suffix = max(max_suffix, suffix_num)
+    
+    next_suffix = max_suffix + 1
+    if next_suffix > 999:
+        raise ValueError(
+            f"No se pueden crear más extensiones bajo '{parent_code}' "
+            f"(máximo 999 alcanzado)"
+        )
+    
+    entity_code = f"{parent_code}.{next_suffix:03d}"
+    
+    # Crear la entidad
+    entity_account = Account(
+        code=entity_code,
+        name=name,
+        nature=parent.nature,  # Hereda naturaleza
+        origin="entity",
+        parent_id=parent.id,
+    )
+    
+    session.add(entity_account)
+    session.commit()
+    session.refresh(entity_account)
+    
+    return entity_account
+
+
 __all__ = [
     "get_catalog_path",
     "load_catalog",
     "load_catalog_codes",
     "resolve_account_by_code",
+    "create_entity_account",
 ]
