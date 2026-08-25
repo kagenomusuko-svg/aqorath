@@ -1,0 +1,104 @@
+# Legacy Test Disposition — Phase 1E.2
+
+**Date:** 2026-08-25
+**Phase:** 1E.2 - Runtime and Repository Consolidation
+**Context:** Retirement of legacy motor (modelos.libro, modelos.registro, etc.) as accounting authority
+
+This document maps all legacy test functions from `test/` directory to their disposition category.
+These tests are intentionally retired from the active test suite because they validate a motor
+that is no longer the source of truth for accounting data. SQLite/ORM is the canonical authority.
+
+---
+
+## Disposition Categories
+
+### A. SUPERSEDED_BY_CANONICAL
+Coverage for this intent **already exists** in tests/ using SQLite/ORM as authority.
+Cite the canonical test file/function.
+
+### B. FUTURE_FUNCTIONAL_CAPABILITY
+The intent is **still desirable** but belongs to a future phase (2A onwards).
+The behavior depends on features not yet implemented (e.g., fiscal engine, document factory).
+
+### C. RETIRED_LEGACY_BEHAVIOR
+The behavior was **structurally dependent** on legacy Libro/XLSX as authority.
+This mode of operation will NOT be preserved; the intent (if any) must be redesigned.
+
+---
+
+## Legacy Test Inventory (16 functions)
+
+### test/test_asientos.py
+
+| Test | Intent | Disposition | Future/Canonical Replacement |
+|------|--------|-------------|------------------------------|
+| `test_asientos_persisten_guardar_y_cargar` | Persistence of asientos (entries) to XLSX via Libro | RETIRED_LEGACY_BEHAVIOR | XLSX export as future document factory (Phase 2+) |
+| `test_export_asiento_csv_and_xlsx` | Export single asiento to CSV/XLSX | FUTURE_FUNCTIONAL_CAPABILITY | Document Factory (Phase 2+) CSV/XLSX output |
+
+### test/test_libro.py
+
+| Test | Intent | Disposition | Future/Canonical Replacement |
+|------|--------|-------------|------------------------------|
+| `test_compute_libro_mayor_basic` | Compute libro mayor (ledger) from Libro | FUTURE_FUNCTIONAL_CAPABILITY | Trial balance / Ledger view on SQLite (Phase 1E.3+) |
+| `test_generar_movimientos_con_impuestos_autogenerados_y_signo_por_catalogo` | Auto-generated tax entries with catalog sign rules | FUTURE_FUNCTIONAL_CAPABILITY | Fiscal engine with automatic tax generation (Phase 2A) |
+
+### test/test_registro.py
+
+| Test | Intent | Disposition | Future/Canonical Replacement |
+|------|--------|-------------|------------------------------|
+| `test_validate_missing_fields` | Field validation in registro (transaction record) | FUTURE_FUNCTIONAL_CAPABILITY | Economic fact validation (Phase 2A) |
+| `test_validate_zero_amount` | Reject zero amounts | FUTURE_FUNCTIONAL_CAPABILITY | Economic fact validation (Phase 2A) |
+| `test_cfdi_requires_metodo_pago` | CFDI requires payment method field | FUTURE_FUNCTIONAL_CAPABILITY | CFDI engine (Phase 2+) |
+| `test_aplicar_impuestos_from_mapeo` | Tax application using mapping | FUTURE_FUNCTIONAL_CAPABILITY | Fiscal engine (Phase 2A) |
+
+### test/test_fiscal.py
+
+| Test | Intent | Disposition | Future/Canonical Replacement |
+|------|--------|-------------|------------------------------|
+| `test_retencion_isr_autogenerada` | Auto-generated ISR withholding | FUTURE_FUNCTIONAL_CAPABILITY | Fiscal engine with Mexican tax rules (Phase 2A) |
+| `test_compra_egreso_iva_acreditable` | Purchase/expense with IVA credit | FUTURE_FUNCTIONAL_CAPABILITY | Fiscal engine with Mexican tax rules (Phase 2A) |
+| `test_fallback_sin_mapeo_no_impuestos` | No tax fallback when mapping absent | FUTURE_FUNCTIONAL_CAPABILITY | Fiscal engine fallback behavior (Phase 2A) |
+
+### test/test_cfdi.py
+
+| Test | Intent | Disposition | Future/Canonical Replacement |
+|------|--------|-------------|------------------------------|
+| `test_generate_cfdi_basic` | Generate basic CFDI (Mexican invoice) | FUTURE_FUNCTIONAL_CAPABILITY | CFDI engine (Phase 2+) |
+
+### test/test_cfdi_timbrado.py
+
+| Test | Intent | Disposition | Future/Canonical Replacement |
+|------|--------|-------------|------------------------------|
+| `test_import_timbrado_roundtrip` | Import stamped CFDI and round-trip | FUTURE_FUNCTIONAL_CAPABILITY | CFDI import/export (Phase 2+) |
+
+### test/test_reportes.py
+
+| Test | Intent | Disposition | Future/Canonical Replacement |
+|------|--------|-------------|------------------------------|
+| `test_export_balance_pdf` | Export balance sheet to PDF | FUTURE_FUNCTIONAL_CAPABILITY | Document Factory PDF reports (Phase 2+) |
+| `test_export_mayor_pdf` | Export ledger to PDF | FUTURE_FUNCTIONAL_CAPABILITY | Document Factory PDF reports (Phase 2+) |
+| `test_export_estado_resultados_pdf` | Export P&L statement to PDF | FUTURE_FUNCTIONAL_CAPABILITY | Document Factory PDF reports (Phase 2+) |
+
+---
+
+## Summary
+
+- **Total legacy tests:** 16
+- **SUPERSEDED_BY_CANONICAL:** 0
+- **FUTURE_FUNCTIONAL_CAPABILITY:** 14
+- **RETIRED_LEGACY_BEHAVIOR:** 2
+
+---
+
+## Rationale
+
+All 16 legacy tests validate behavior of the `modelos` motor (Libro, Registro, Fiscal, CFDI, Reportes)
+which is **no longer the accounting authority**. The intent of each test remains potentially valuable
+but must be redesigned and reimplemented against the canonical runtime (SQLite/ORM/economic facts)
+in future phases.
+
+Key architectural change:
+- **Before (Phases 0–1D):** Libro was the authoritative ledger; XLSX was the persistent medium.
+- **After (Phase 1E.2+):** SQLite is the sole accounting authority; ORM is the canonical interface.
+
+Document factory, fiscal rules, CFDI generation, and PDF export are deferred to Phase 2A onwards.

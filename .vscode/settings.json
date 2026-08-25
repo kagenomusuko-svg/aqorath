@@ -1,9 +1,0 @@
-{
-  "python.defaultInterpreterPath": ".venv/bin/python",
-  "python.analysis.extraPaths": [
-    "${workspaceFolder}"
-  ],
-  "python.linting.enabled": true,
-  "python.linting.flake8Enabled": true,
-  "python.formatting.provider": "black"
-}
