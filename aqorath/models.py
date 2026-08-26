@@ -19,6 +19,15 @@ class Account(SQLModel, table=True):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class AccountRoleBinding(SQLModel, table=True):
+    """Persistent role -> Account identity binding for the current entity database."""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    role: str = Field(sa_column=Column(String, unique=True, nullable=False))
+    account_id: int = Field(foreign_key="account.id", index=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class AppConfig(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     key: str

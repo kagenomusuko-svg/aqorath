@@ -24,7 +24,7 @@ from aqorath.money import to_decimal_exact
 # Version Control
 # ============================================================
 
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
 """Current schema version. Incremented for each breaking change."""
 
 # ============================================================
@@ -287,8 +287,36 @@ def _migrate_asset_legacy(conn):
     conn.execute("ALTER TABLE asset__aqorath_v1 RENAME TO asset")
 
 
+def _migrate_1_to_2(db_path):
+    """Add persistent role -> Account identity bindings without duplicating account_code."""
+    db_path = Path(db_path)
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS accountrolebinding (
+                id INTEGER PRIMARY KEY,
+                role VARCHAR NOT NULL UNIQUE,
+                account_id INTEGER NOT NULL,
+                created_at DATETIME NOT NULL,
+                FOREIGN KEY(account_id) REFERENCES account(id)
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS ix_accountrolebinding_account_id "
+            "ON accountrolebinding(account_id)"
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 MIGRATIONS = {
     1: _migrate_0_to_1,
+    2: _migrate_1_to_2,
 }
 """Registry of migration callables. Key: target version."""
 
