@@ -1,22 +1,29 @@
 """
 Aqorath Application Boundary
 
-Canonical application layer providing interface-agnostic facade over aqorath.core.
+Canonical application layer providing interface-agnostic facade over aqorath.core
+and aqorath.economic_facts.
 
 This module is the sole entry point for all adapters (web, desktop, CLI, etc).
-It delegates all business logic to the core runtime; it contains no accounting rules,
-no persistence logic, no framework dependencies.
+It delegates all business logic to specialized authorities:
+  - Template-based entries: aqorath.core
+  - Economic fact resolution: aqorath.economic_facts
+It contains no accounting rules, no persistence logic, no framework dependencies.
 
 Public API:
   - list_templates(): enumerate available contable templates
   - preview_template(template_key, amount, ctx=None): preview template without persistence
   - post_template(first, amount=None, ctx=None, user=None): persist via core authority
   - get_trial_balance(as_of=None): query consolidated balances
+  - preview_economic_fact(fact): resolve an EconomicFact to accounting proposal
 
-All methods delegate transparently to aqorath.core and return its results unmodified.
+Template and trial-balance methods delegate to aqorath.core.
+Economic fact preview delegates to aqorath.economic_facts.
+All methods return results unmodified.
 """
 
 from . import core as _core
+from . import economic_facts as _economic_facts
 
 
 def list_templates():
@@ -71,3 +78,20 @@ def get_trial_balance(as_of=None):
         Dict[str, Decimal]: Trial balance with account codes as keys and Decimal amounts as values.
     """
     return _core.trial_balance(as_of=as_of)
+
+
+def preview_economic_fact(fact):
+    """
+    Resolve an economic fact to an accounting proposal.
+
+    Delegates to the economic facts domain resolver. Receives a structured EconomicFact
+    and returns an AccountingProposal in memory without persistence.
+
+    Args:
+        fact (EconomicFact): Structured economic fact (type, amount, payment_method).
+
+    Returns:
+        AccountingProposal: In-memory proposal with lines and explanation, unmodified
+                           from domain resolver.
+    """
+    return _economic_facts.resolve_economic_fact(fact)
