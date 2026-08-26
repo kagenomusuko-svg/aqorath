@@ -3,7 +3,8 @@
 Supported deterministic verticals:
 - cash sale: debit ``cash``, credit ``sales_revenue``;
 - credit sale: debit ``accounts_receivable``, credit ``sales_revenue``;
-- utility expense paid by bank: debit ``utilities_expense``, credit ``bank``.
+- utility expense paid by bank: debit ``utilities_expense``, credit ``bank``;
+- receivable collection by bank: debit ``bank``, credit ``accounts_receivable``.
 
 This module is pure domain logic: no catalog, storage, SQLite, posting, or external
 services. It describes WHAT happened using semantic account roles only.
@@ -26,11 +27,13 @@ class EconomicFact:
         valid_payment_methods = {
             "sale": ("cash", "credit"),
             "utility_expense": ("bank",),
+            "receivable_collection": ("bank",),
         }
 
         if self.type not in valid_payment_methods:
             raise ValueError(
-                "type must be one of: 'sale', 'utility_expense'. "
+                "type must be one of: 'sale', 'utility_expense', "
+                "'receivable_collection'. "
                 f"Got: {self.type}"
             )
 
@@ -148,6 +151,13 @@ def resolve_economic_fact(fact: EconomicFact) -> AccountingProposal:
         explanation = (
             f"Utility expense: {fact.amount} paid from bank. "
             "Utilities expense recognized (debit), bank balance decreased (credit)."
+        )
+    elif fact.type == "receivable_collection" and fact.payment_method == "bank":
+        debit_role = "bank"
+        credit_role = "accounts_receivable"
+        explanation = (
+            f"Receivable collection: {fact.amount} collected into bank. "
+            "Bank balance increased (debit), accounts receivable decreased (credit)."
         )
     else:
         raise ValueError(
