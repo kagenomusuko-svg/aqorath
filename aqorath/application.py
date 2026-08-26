@@ -2,8 +2,8 @@
 Aqorath Application Boundary
 
 Canonical interface-agnostic facade. Adapters call this module; accounting,
-resolution, confirmation, binding and persistence rules remain in their specialized
-authorities.
+resolution, confirmation, binding, reporting and persistence rules remain in their
+specialized authorities.
 
 Public API includes the legacy template/trial-balance facade plus the economic-fact flow:
   - preview_economic_fact(fact)
@@ -13,6 +13,7 @@ Public API includes the legacy template/trial-balance facade plus the economic-f
   - get_account_binding(session, role)
   - confirm_economic_fact(snapshot)
   - post_confirmed_economic_fact(confirmed_proposal)
+  - get_financial_report_snapshot(as_of=None)
 """
 
 from . import core as _core
@@ -22,6 +23,7 @@ from . import account_bindings as _account_bindings
 from . import confirmation as _confirmation
 from . import posting as _posting
 from . import posting_execution as _posting_execution
+from . import reporting_runtime as _reporting_runtime
 
 
 def list_templates():
@@ -42,6 +44,11 @@ def post_template(first, amount=None, ctx=None, user=None):
 def get_trial_balance(as_of=None):
     """Query the consolidated trial balance from the canonical SQLite authority."""
     return _core.trial_balance(as_of=as_of)
+
+
+def get_financial_report_snapshot(as_of=None):
+    """Return the canonical immutable financial reporting snapshot."""
+    return _reporting_runtime.get_financial_report_snapshot(as_of=as_of)
 
 
 def preview_economic_fact(fact):
