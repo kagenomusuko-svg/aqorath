@@ -4,6 +4,7 @@ Supported deterministic verticals:
 - cash sale: debit ``cash``, credit ``sales_revenue``;
 - credit sale: debit ``accounts_receivable``, credit ``sales_revenue``;
 - utility expense paid by bank: debit ``utilities_expense``, credit ``bank``;
+- utility expense incurred on credit: debit ``utilities_expense``, credit ``accounts_payable``;
 - receivable collection by bank: debit ``bank``, credit ``accounts_receivable``;
 - supplier payment by bank: debit ``accounts_payable``, credit ``bank``.
 
@@ -28,6 +29,7 @@ class EconomicFact:
         valid_payment_methods = {
             "sale": ("cash", "credit"),
             "utility_expense": ("bank",),
+            "utility_expense_incurred": ("credit",),
             "receivable_collection": ("bank",),
             "supplier_payment": ("bank",),
         }
@@ -35,7 +37,8 @@ class EconomicFact:
         if self.type not in valid_payment_methods:
             raise ValueError(
                 "type must be one of: 'sale', 'utility_expense', "
-                "'receivable_collection', 'supplier_payment'. "
+                "'utility_expense_incurred', 'receivable_collection', "
+                "'supplier_payment'. "
                 f"Got: {self.type}"
             )
 
@@ -153,6 +156,13 @@ def resolve_economic_fact(fact: EconomicFact) -> AccountingProposal:
         explanation = (
             f"Utility expense: {fact.amount} paid from bank. "
             "Utilities expense recognized (debit), bank balance decreased (credit)."
+        )
+    elif fact.type == "utility_expense_incurred" and fact.payment_method == "credit":
+        debit_role = "utilities_expense"
+        credit_role = "accounts_payable"
+        explanation = (
+            f"Utility expense: {fact.amount} incurred on credit. "
+            "Utilities expense recognized (debit), accounts payable obligation increased (credit)."
         )
     elif fact.type == "receivable_collection" and fact.payment_method == "bank":
         debit_role = "bank"
