@@ -14,6 +14,7 @@ Public API includes the legacy template/trial-balance facade plus the economic-f
   - confirm_economic_fact(snapshot)
   - post_confirmed_economic_fact(confirmed_proposal)
   - get_financial_report_snapshot(as_of=None)
+  - get_financial_report_csv(as_of=None)
 """
 
 from . import core as _core
@@ -24,6 +25,7 @@ from . import confirmation as _confirmation
 from . import posting as _posting
 from . import posting_execution as _posting_execution
 from . import reporting_runtime as _reporting_runtime
+from . import reporting_export as _reporting_export
 
 
 def list_templates():
@@ -49,6 +51,11 @@ def get_trial_balance(as_of=None):
 def get_financial_report_snapshot(as_of=None):
     """Return the canonical immutable financial reporting snapshot."""
     return _reporting_runtime.get_financial_report_snapshot(as_of=as_of)
+
+
+def get_financial_report_csv(as_of=None):
+    """Return canonical financial-report CSV text."""
+    return _reporting_export.get_financial_report_csv(as_of=as_of)
 
 
 def preview_economic_fact(fact):
