@@ -1,8 +1,9 @@
 """Aqorath Economic Fact Application Layer.
 
-Supported sale verticals:
+Supported deterministic verticals:
 - cash sale: debit ``cash``, credit ``sales_revenue``;
-- credit sale: debit ``accounts_receivable``, credit ``sales_revenue``.
+- credit sale: debit ``accounts_receivable``, credit ``sales_revenue``;
+- utility expense paid by bank: debit ``utilities_expense``, credit ``bank``.
 
 This module is pure domain logic: no catalog, storage, SQLite, posting, or external
 services. It describes WHAT happened using semantic account roles only.
@@ -22,9 +23,15 @@ class EconomicFact:
     payment_method: str
 
     def __post_init__(self):
-        if self.type != "sale":
+        valid_payment_methods = {
+            "sale": ("cash", "credit"),
+            "utility_expense": ("bank",),
+        }
+
+        if self.type not in valid_payment_methods:
             raise ValueError(
-                f"type must be 'sale'. Got: {self.type}"
+                "type must be one of: 'sale', 'utility_expense'. "
+                f"Got: {self.type}"
             )
 
         if not isinstance(self.amount, Decimal):
@@ -38,10 +45,12 @@ class EconomicFact:
                 f"amount must be > 0 (positive transaction). Got: {self.amount}"
             )
 
-        if self.payment_method not in ("cash", "credit"):
+        allowed = valid_payment_methods[self.type]
+        if self.payment_method not in allowed:
+            allowed_text = ", ".join(repr(value) for value in allowed)
             raise ValueError(
-                "payment_method must be 'cash' or 'credit'. "
-                f"Got: {self.payment_method}"
+                f"payment_method for type={self.type!r} must be one of: "
+                f"{allowed_text}. Got: {self.payment_method}"
             )
 
     def __init__(self, type: str, amount, payment_method: str):
@@ -92,7 +101,7 @@ class AccountingProposal:
             )
         if len(self.lines) != 2:
             raise ValueError(
-                f"Sale proposals must have exactly 2 entries. Got {len(self.lines)}"
+                f"Supported proposals must have exactly 2 entries. Got {len(self.lines)}"
             )
 
         total_debit = sum(
@@ -118,28 +127,32 @@ class AccountingProposal:
 
 
 def resolve_economic_fact(fact: EconomicFact) -> AccountingProposal:
-    """Deterministically resolve a supported sale fact to semantic accounting roles."""
-    if fact.type != "sale":
-        raise ValueError(
-            f"resolve_economic_fact only supports type='sale'. Got: {fact.type}"
-        )
-
-    if fact.payment_method == "cash":
+    """Deterministically resolve a supported fact to semantic accounting roles."""
+    if fact.type == "sale" and fact.payment_method == "cash":
         debit_role = "cash"
+        credit_role = "sales_revenue"
         explanation = (
             f"Sale transaction: {fact.amount} received in cash. "
             "Cash account increased (debit), sales revenue recognized (credit)."
         )
-    elif fact.payment_method == "credit":
+    elif fact.type == "sale" and fact.payment_method == "credit":
         debit_role = "accounts_receivable"
+        credit_role = "sales_revenue"
         explanation = (
             f"Sale transaction: {fact.amount} sold on credit. "
             "Accounts receivable increased (debit), sales revenue recognized (credit)."
         )
+    elif fact.type == "utility_expense" and fact.payment_method == "bank":
+        debit_role = "utilities_expense"
+        credit_role = "bank"
+        explanation = (
+            f"Utility expense: {fact.amount} paid from bank. "
+            "Utilities expense recognized (debit), bank balance decreased (credit)."
+        )
     else:
         raise ValueError(
-            "resolve_economic_fact only supports payment_method='cash' or 'credit'. "
-            f"Got: {fact.payment_method}"
+            f"Unsupported economic fact combination: type={fact.type!r}, "
+            f"payment_method={fact.payment_method!r}"
         )
 
     debit_line = ProposalLine(
@@ -147,13 +160,13 @@ def resolve_economic_fact(fact: EconomicFact) -> AccountingProposal:
         side="debit",
         amount=fact.amount,
     )
-    sales_credit = ProposalLine(
-        account_role="sales_revenue",
+    credit_line = ProposalLine(
+        account_role=credit_role,
         side="credit",
         amount=fact.amount,
     )
 
     return AccountingProposal(
-        lines=[debit_line, sales_credit],
+        lines=[debit_line, credit_line],
         explanation=explanation,
     )
