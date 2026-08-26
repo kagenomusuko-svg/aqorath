@@ -7,9 +7,16 @@ or write files.
 
 from . import reporting_csv as _reporting_csv
 from . import reporting_runtime as _reporting_runtime
+from . import reporting_xlsx as _reporting_xlsx
 
 
 def get_financial_report_csv(as_of=None):
     """Return canonical financial-report CSV text for the requested cutoff."""
     snapshot = _reporting_runtime.get_financial_report_snapshot(as_of=as_of)
     return _reporting_csv.render_financial_report_csv(snapshot)
+
+
+def get_financial_report_xlsx(as_of=None):
+    """Return canonical financial-report XLSX bytes for the requested cutoff."""
+    snapshot = _reporting_runtime.get_financial_report_snapshot(as_of=as_of)
+    return _reporting_xlsx.render_financial_report_xlsx(snapshot)
