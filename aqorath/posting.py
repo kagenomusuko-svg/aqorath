@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Tuple
 
-from .confirmation import ConfirmedProposal
+from . import confirmation as _confirmation
 
 
 __all__ = [
@@ -41,7 +41,7 @@ class PostingInstruction:
 
 def create_posting_instruction(confirmed_proposal):
     """Create an exact balanced posting instruction from a ConfirmedProposal."""
-    if not isinstance(confirmed_proposal, ConfirmedProposal):
+    if not isinstance(confirmed_proposal, _confirmation.ConfirmedProposal):
         raise TypeError("create_posting_instruction requires ConfirmedProposal")
 
     snapshot = confirmed_proposal.snapshot

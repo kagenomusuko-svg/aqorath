@@ -6,7 +6,7 @@ inside aqorath.core. This module does not recompute or resolve accounting semant
 """
 
 from . import core as _core
-from .posting import PostingInstruction
+from . import posting as _posting
 
 
 __all__ = ["execute_posting_instruction"]
@@ -14,7 +14,7 @@ __all__ = ["execute_posting_instruction"]
 
 def execute_posting_instruction(instruction):
     """Persist exactly one PostingInstruction through the canonical core authority."""
-    if not isinstance(instruction, PostingInstruction):
+    if not isinstance(instruction, _posting.PostingInstruction):
         raise TypeError("execute_posting_instruction requires PostingInstruction")
 
     payload = {

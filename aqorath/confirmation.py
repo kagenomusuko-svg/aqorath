@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Tuple
 
-from .account_resolution import ResolvedAccountingProposal
+from . import account_resolution as _account_resolution
 
 
 __all__ = [
@@ -55,7 +55,10 @@ class ConfirmedProposal:
 
 def create_confirmation_snapshot(resolved_proposal):
     """Copy a resolved proposal into a deeply immutable confirmation snapshot."""
-    if not isinstance(resolved_proposal, ResolvedAccountingProposal):
+    if not isinstance(
+        resolved_proposal,
+        _account_resolution.ResolvedAccountingProposal,
+    ):
         raise TypeError(
             "create_confirmation_snapshot requires ResolvedAccountingProposal"
         )
