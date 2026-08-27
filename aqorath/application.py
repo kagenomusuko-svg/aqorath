@@ -71,6 +71,10 @@ Public API includes the legacy template/trial-balance facade plus the economic-f
   - resolve_fixed_asset_depreciation_accounting(recognition_fact)
   - prepare_fixed_asset_depreciation_confirmation(session, accounting_resolution)
   - confirm_fixed_asset_depreciation(snapshot)
+  - create_fixed_asset_depreciation_posting_instruction(confirmed_depreciation)
+  - execute_fixed_asset_depreciation_posting(instruction)
+  - execute_fixed_asset_depreciation_posting_once(instruction)
+  - load_fixed_asset_depreciation_posting(session, fixed_asset_id, period_number)
 """
 
 from . import core as _core
@@ -624,6 +628,7 @@ def post_confirmed_economic_fact(confirmed_proposal):
 
 
 from . import fixed_asset_depreciation_posting as _fixed_asset_depreciation_posting
+from . import fixed_asset_depreciation_persistence as _fixed_asset_depreciation_persistence
 
 
 def create_fixed_asset_depreciation_posting_instruction(confirmed_depreciation):
@@ -634,3 +639,19 @@ def create_fixed_asset_depreciation_posting_instruction(confirmed_depreciation):
 
 def execute_fixed_asset_depreciation_posting(instruction):
     return _fixed_asset_depreciation_posting.execute_fixed_asset_depreciation_posting(instruction)
+
+
+def execute_fixed_asset_depreciation_posting_once(instruction):
+    """Persist one confirmed depreciation period atomically and at most once."""
+    return _fixed_asset_depreciation_persistence.execute_fixed_asset_depreciation_posting_once(
+        instruction
+    )
+
+
+def load_fixed_asset_depreciation_posting(session, fixed_asset_id, period_number):
+    """Load one persisted depreciation-period identity through its authority."""
+    return _fixed_asset_depreciation_persistence.load_fixed_asset_depreciation_posting(
+        session,
+        fixed_asset_id,
+        period_number,
+    )
