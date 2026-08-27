@@ -63,6 +63,42 @@ class EntityRecord(SQLModel, table=True):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class FixedAssetRecord(SQLModel, table=True):
+    """Persisted canonical fixed-asset registry metadata owned by one Entity."""
+
+    __tablename__ = "fixedasset"
+    __table_args__ = (
+        UniqueConstraint(
+            "entity_id",
+            "code",
+            name="uq_fixed_asset_entity_code",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    entity_id: int = Field(
+        sa_column=Column(
+            Integer,
+            ForeignKey("entity.id"),
+            nullable=False,
+            index=True,
+        )
+    )
+    code: str = Field(sa_column=Column(String, nullable=False))
+    name: str = Field(sa_column=Column(String, nullable=False))
+    acquisition_date: date = Field(index=True)
+    in_service_date: date = Field(index=True)
+    acquisition_cost: str = Field(sa_column=Column(Text, nullable=False))
+    residual_value: str = Field(sa_column=Column(Text, nullable=False))
+    useful_life_months: int = Field(sa_column=Column(Integer, nullable=False))
+    depreciation_method: str = Field(sa_column=Column(String, nullable=False))
+    is_active: bool = Field(
+        default=True,
+        sa_column=Column(Boolean, nullable=False, index=True),
+    )
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class AnalyticalDimensionRecord(SQLModel, table=True):
     """Persisted analytical axis owned by one Entity."""
 

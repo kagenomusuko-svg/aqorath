@@ -61,6 +61,10 @@ Public API includes the legacy template/trial-balance facade plus the economic-f
   - list_analytical_dimension_values(session, dimension_id)
   - assign_analytical_dimension_value(session, journal_line_id, dimension_value_id)
   - list_journal_line_analytics(session, journal_line_id)
+  - create_fixed_asset(session, fixed_asset)
+  - get_fixed_asset(session, entity_id, fixed_asset_id)
+  - list_fixed_assets(session, entity_id, include_inactive=False)
+  - set_fixed_asset_active(session, entity_id, fixed_asset_id, is_active)
 """
 
 from . import core as _core
@@ -94,6 +98,7 @@ from . import third_party_repository as _third_party_repository
 from . import document_reference_repository as _document_reference_repository
 from . import cfdi_metadata_repository as _cfdi_metadata_repository
 from . import analytical_dimension_repository as _analytical_dimension_repository
+from . import fixed_asset_repository as _fixed_asset_repository
 
 
 def create_entity(session, entity):
@@ -248,6 +253,39 @@ def list_journal_line_analytics(session, journal_line_id):
     return _analytical_dimension_repository.list_journal_line_analytics(
         session,
         journal_line_id,
+    )
+
+
+def create_fixed_asset(session, fixed_asset):
+    """Persist one explicit canonical fixed-asset registry record."""
+    return _fixed_asset_repository.create_fixed_asset(session, fixed_asset)
+
+
+def get_fixed_asset(session, entity_id, fixed_asset_id):
+    """Load one Entity-scoped canonical fixed asset."""
+    return _fixed_asset_repository.get_fixed_asset(
+        session,
+        entity_id,
+        fixed_asset_id,
+    )
+
+
+def list_fixed_assets(session, entity_id, include_inactive=False):
+    """List deterministic Entity-scoped canonical fixed assets."""
+    return _fixed_asset_repository.list_fixed_assets(
+        session,
+        entity_id,
+        include_inactive,
+    )
+
+
+def set_fixed_asset_active(session, entity_id, fixed_asset_id, is_active):
+    """Activate or deactivate one fixed asset without deleting its identity."""
+    return _fixed_asset_repository.set_fixed_asset_active(
+        session,
+        entity_id,
+        fixed_asset_id,
+        is_active,
     )
 
 

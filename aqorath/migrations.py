@@ -30,7 +30,6 @@ CURRENT_SCHEMA_VERSION = 4
 # ============================================================
 # Migration Registry
 # ============================================================
-
 def _create_current_schema(db_path):
     """Create complete current schema using models after structural migrations."""
     from aqorath import models as _models  # noqa: F401 - populate metadata
@@ -74,6 +73,7 @@ def _ensure_additive_current_schema(db_path):
             checkfirst=True,
         )
         _models.EntityRecord.__table__.create(engine, checkfirst=True)
+        _models.FixedAssetRecord.__table__.create(engine, checkfirst=True)
         _models.EntityProfileRecord.__table__.create(engine, checkfirst=True)
         _models.FiscalProfileRecord.__table__.create(engine, checkfirst=True)
         _models.ThirdPartyRecord.__table__.create(engine, checkfirst=True)
@@ -436,7 +436,6 @@ MIGRATIONS = {
 # ============================================================
 # Public API
 # ============================================================
-
 def get_schema_version(db_path) -> int:
     """Return PRAGMA user_version, treating missing/unversioned DB as zero."""
     db_path = Path(db_path)
