@@ -29,6 +29,8 @@ Public API includes the legacy template/trial-balance facade plus the economic-f
   - round_confirmed_fiscal_amount(confirmed_treatment, policy)
   - prepare_fiscal_monetary_confirmation(rounded_amount)
   - confirm_fiscal_monetary_amount(snapshot)
+  - declare_fiscal_accounting_treatment(confirmed_monetary_amount, account_role, side)
+  - build_fiscal_accounting_effect(declaration)
 """
 
 from . import core as _core
@@ -46,6 +48,8 @@ from . import fiscal_declaration_runtime as _fiscal_declaration_runtime
 from . import fiscal_confirmation as _fiscal_confirmation
 from . import fiscal_rounding as _fiscal_rounding
 from . import fiscal_monetary_confirmation as _fiscal_monetary_confirmation
+from . import fiscal_accounting_treatment as _fiscal_accounting_treatment
+from . import fiscal_accounting_effect as _fiscal_accounting_effect
 
 
 def list_templates():
@@ -168,6 +172,20 @@ def prepare_fiscal_monetary_confirmation(rounded_amount):
 def confirm_fiscal_monetary_amount(snapshot):
     """Confirm exactly one previously prepared fiscal monetary snapshot."""
     return _fiscal_monetary_confirmation.confirm_fiscal_monetary_snapshot(snapshot)
+
+
+def declare_fiscal_accounting_treatment(confirmed_monetary_amount, account_role, side):
+    """Declare one explicit semantic fiscal accounting role and side."""
+    return _fiscal_accounting_treatment.declare_fiscal_accounting_treatment(
+        confirmed_monetary_amount,
+        account_role,
+        side,
+    )
+
+
+def build_fiscal_accounting_effect(declaration):
+    """Build one non-postable semantic fiscal accounting effect."""
+    return _fiscal_accounting_effect.build_fiscal_accounting_effect(declaration)
 
 
 def preview_economic_fact(fact):
