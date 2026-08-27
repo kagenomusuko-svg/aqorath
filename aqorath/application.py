@@ -685,3 +685,28 @@ def resolve_fixed_asset_acquisition_accounting(acquisition_fact):
     return _fixed_asset_acquisition.resolve_fixed_asset_acquisition_accounting(
         acquisition_fact
     )
+
+
+from . import fixed_asset_acquisition_confirmation as _fixed_asset_acquisition_confirmation
+from . import fixed_asset_acquisition_posting as _fixed_asset_acquisition_posting
+
+
+def prepare_fixed_asset_acquisition_confirmation(session, accounting_resolution):
+    return _fixed_asset_acquisition_confirmation.prepare_fixed_asset_acquisition_confirmation(
+        session,
+        accounting_resolution,
+    )
+
+
+def confirm_fixed_asset_acquisition(snapshot):
+    return _fixed_asset_acquisition_confirmation.confirm_fixed_asset_acquisition(snapshot)
+
+
+def create_fixed_asset_acquisition_posting_instruction(confirmed_acquisition):
+    return _fixed_asset_acquisition_posting.create_fixed_asset_acquisition_posting_instruction(
+        confirmed_acquisition
+    )
+
+
+def execute_fixed_asset_acquisition_posting(instruction):
+    return _fixed_asset_acquisition_posting.execute_fixed_asset_acquisition_posting(instruction)
