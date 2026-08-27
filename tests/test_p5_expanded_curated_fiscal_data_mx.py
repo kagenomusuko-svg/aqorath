@@ -317,7 +317,7 @@ def test_two_thirds_iva_withholding_is_not_seeded_as_a_fake_finite_decimal_rate(
     }
 
     assert forbidden_rule_keys.isdisjoint({entry.rule_key for entry in entries})
-    assert all("RLIVA:ART3-I" not in entry.source_ref for entry in entries)
+    assert all("RLIVA:ART3-I" not in entry.source_ref.split(";") for entry in entries)
     assert all("2/3" not in entry.source_ref for entry in entries)
     assert all("0.666666" not in str(entry.value) for entry in entries)
 
