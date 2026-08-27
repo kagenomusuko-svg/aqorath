@@ -63,6 +63,58 @@ class EntityRecord(SQLModel, table=True):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class AnalyticalDimensionRecord(SQLModel, table=True):
+    """Persisted analytical axis owned by one Entity."""
+
+    __tablename__ = "analyticaldimension"
+    __table_args__ = (
+        UniqueConstraint(
+            "entity_id",
+            "key",
+            name="uq_analytical_dimension_entity_key",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    entity_id: int = Field(
+        sa_column=Column(
+            Integer,
+            ForeignKey("entity.id"),
+            nullable=False,
+            index=True,
+        )
+    )
+    key: str = Field(sa_column=Column(String, nullable=False))
+    name: str = Field(sa_column=Column(String, nullable=False))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class AnalyticalDimensionValueRecord(SQLModel, table=True):
+    """Persisted value belonging to one analytical axis."""
+
+    __tablename__ = "analyticaldimensionvalue"
+    __table_args__ = (
+        UniqueConstraint(
+            "dimension_id",
+            "code",
+            name="uq_analytical_dimension_value_code",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    dimension_id: int = Field(
+        sa_column=Column(
+            Integer,
+            ForeignKey("analyticaldimension.id"),
+            nullable=False,
+            index=True,
+        )
+    )
+    code: str = Field(sa_column=Column(String, nullable=False))
+    name: str = Field(sa_column=Column(String, nullable=False))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class EntityProfileRecord(SQLModel, table=True):
     """One persisted compositional profile for one Entity."""
 
@@ -290,6 +342,46 @@ class JournalLine(SQLModel, table=True):
     debit: str = "0"
     credit: str = "0"
     description: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class JournalLineAnalyticalDimensionRecord(SQLModel, table=True):
+    """One analytical value assignment for one dimension on one ledger line."""
+
+    __tablename__ = "journallineanalyticaldimension"
+    __table_args__ = (
+        UniqueConstraint(
+            "journal_line_id",
+            "dimension_id",
+            name="uq_journal_line_analytical_dimension",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    journal_line_id: int = Field(
+        sa_column=Column(
+            Integer,
+            ForeignKey("journalline.id"),
+            nullable=False,
+            index=True,
+        )
+    )
+    dimension_id: int = Field(
+        sa_column=Column(
+            Integer,
+            ForeignKey("analyticaldimension.id"),
+            nullable=False,
+            index=True,
+        )
+    )
+    dimension_value_id: int = Field(
+        sa_column=Column(
+            Integer,
+            ForeignKey("analyticaldimensionvalue.id"),
+            nullable=False,
+            index=True,
+        )
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 

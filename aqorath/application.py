@@ -54,6 +54,13 @@ Public API includes the legacy template/trial-balance facade plus the economic-f
   - list_document_references(session, entry_id)
   - register_cfdi_import_metadata(session, metadata)
   - get_cfdi_import_metadata(session, document_reference_id)
+  - create_analytical_dimension(session, dimension)
+  - get_analytical_dimension(session, entity_id, dimension_id)
+  - list_analytical_dimensions(session, entity_id)
+  - create_analytical_dimension_value(session, dimension_value)
+  - list_analytical_dimension_values(session, dimension_id)
+  - assign_analytical_dimension_value(session, journal_line_id, dimension_value_id)
+  - list_journal_line_analytics(session, journal_line_id)
 """
 
 from . import core as _core
@@ -86,6 +93,7 @@ from . import entity_repository as _entity_repository
 from . import third_party_repository as _third_party_repository
 from . import document_reference_repository as _document_reference_repository
 from . import cfdi_metadata_repository as _cfdi_metadata_repository
+from . import analytical_dimension_repository as _analytical_dimension_repository
 
 
 def create_entity(session, entity):
@@ -182,6 +190,64 @@ def get_cfdi_import_metadata(session, document_reference_id):
     return _cfdi_metadata_repository.get_cfdi_import_metadata(
         session,
         document_reference_id,
+    )
+
+
+def create_analytical_dimension(session, dimension):
+    """Persist one explicit analytical axis through its authority."""
+    return _analytical_dimension_repository.create_analytical_dimension(
+        session,
+        dimension,
+    )
+
+
+def get_analytical_dimension(session, entity_id, dimension_id):
+    """Load one Entity-scoped analytical axis."""
+    return _analytical_dimension_repository.get_analytical_dimension(
+        session,
+        entity_id,
+        dimension_id,
+    )
+
+
+def list_analytical_dimensions(session, entity_id):
+    """List deterministic Entity-scoped analytical axes."""
+    return _analytical_dimension_repository.list_analytical_dimensions(
+        session,
+        entity_id,
+    )
+
+
+def create_analytical_dimension_value(session, dimension_value):
+    """Persist one explicit value under an analytical axis."""
+    return _analytical_dimension_repository.create_analytical_dimension_value(
+        session,
+        dimension_value,
+    )
+
+
+def list_analytical_dimension_values(session, dimension_id):
+    """List deterministic values for one analytical axis."""
+    return _analytical_dimension_repository.list_analytical_dimension_values(
+        session,
+        dimension_id,
+    )
+
+
+def assign_analytical_dimension_value(session, journal_line_id, dimension_value_id):
+    """Attach one explicit analytical value to one existing ledger line."""
+    return _analytical_dimension_repository.assign_analytical_dimension_value(
+        session,
+        journal_line_id,
+        dimension_value_id,
+    )
+
+
+def list_journal_line_analytics(session, journal_line_id):
+    """List analytical assignments for one existing ledger line."""
+    return _analytical_dimension_repository.list_journal_line_analytics(
+        session,
+        journal_line_id,
     )
 
 

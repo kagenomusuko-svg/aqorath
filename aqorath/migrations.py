@@ -79,6 +79,12 @@ def _ensure_additive_current_schema(db_path):
         _models.ThirdPartyRecord.__table__.create(engine, checkfirst=True)
         _models.DocumentReferenceRecord.__table__.create(engine, checkfirst=True)
         _models.CfdiImportMetadataRecord.__table__.create(engine, checkfirst=True)
+        _models.AnalyticalDimensionRecord.__table__.create(engine, checkfirst=True)
+        _models.AnalyticalDimensionValueRecord.__table__.create(engine, checkfirst=True)
+        _models.JournalLineAnalyticalDimensionRecord.__table__.create(
+            engine,
+            checkfirst=True,
+        )
     finally:
         engine.dispose()
 
