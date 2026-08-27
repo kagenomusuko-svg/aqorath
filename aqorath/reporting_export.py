@@ -5,6 +5,7 @@ It does not resolve storage/catalog authorities itself, recalculate accounting,
 or write files.
 """
 
+from . import financial_statements_pdf as _financial_statements_pdf
 from . import financial_statements_xlsx as _financial_statements_xlsx
 from . import reporting_csv as _reporting_csv
 from . import reporting_runtime as _reporting_runtime
@@ -27,3 +28,9 @@ def get_financial_statements_xlsx(as_of=None):
     """Return formal coherent financial-statements XLSX bytes."""
     bundle = _reporting_runtime.get_financial_statements_bundle(as_of=as_of)
     return _financial_statements_xlsx.render_financial_statements_xlsx(bundle)
+
+
+def get_financial_statements_pdf(as_of=None):
+    """Return formal coherent financial-statements PDF bytes."""
+    bundle = _reporting_runtime.get_financial_statements_bundle(as_of=as_of)
+    return _financial_statements_pdf.render_financial_statements_pdf(bundle)
