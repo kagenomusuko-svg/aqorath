@@ -15,6 +15,7 @@ Public API includes the legacy template/trial-balance facade plus the economic-f
   - post_confirmed_economic_fact(confirmed_proposal)
   - get_financial_report_snapshot(as_of=None)
   - get_income_statement_view(as_of=None)
+  - get_balance_sheet_view(as_of=None)
   - get_financial_report_csv(as_of=None)
   - get_financial_report_xlsx(as_of=None)
 """
@@ -58,6 +59,11 @@ def get_financial_report_snapshot(as_of=None):
 def get_income_statement_view(as_of=None):
     """Return the canonical formal Income Statement view."""
     return _reporting_runtime.get_income_statement_view(as_of=as_of)
+
+
+def get_balance_sheet_view(as_of=None):
+    """Return the canonical formal Balance Sheet view."""
+    return _reporting_runtime.get_balance_sheet_view(as_of=as_of)
 
 
 def get_financial_report_csv(as_of=None):
