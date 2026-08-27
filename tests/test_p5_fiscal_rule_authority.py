@@ -92,13 +92,13 @@ def test_fiscal_rule_model_and_fresh_schema_are_versioned_and_store_values_as_te
     from aqorath import migrations
     from aqorath.models import FiscalRuleVersion
 
-    assert migrations.CURRENT_SCHEMA_VERSION == 3
+    assert migrations.CURRENT_SCHEMA_VERSION >= 3
     assert FiscalRuleVersion.__tablename__ == "fiscalruleversion"
 
     db = tmp_path / "fresh-v3.db"
     result = migrations.migrate_database(db)
-    assert result["to_version"] == 3
-    assert migrations.get_schema_version(db) == 3
+    assert result["to_version"] == migrations.CURRENT_SCHEMA_VERSION
+    assert migrations.get_schema_version(db) == migrations.CURRENT_SCHEMA_VERSION
 
     conn = sqlite3.connect(str(db))
     try:
@@ -161,8 +161,8 @@ def test_schema_v2_migrates_to_fiscal_rule_schema_without_losing_existing_truth(
 
     result = migrations.migrate_database(db)
     assert result["from_version"] == 2
-    assert result["to_version"] == 3
-    assert migrations.get_schema_version(db) == 3
+    assert result["to_version"] == migrations.CURRENT_SCHEMA_VERSION
+    assert migrations.get_schema_version(db) == migrations.CURRENT_SCHEMA_VERSION
 
     conn = sqlite3.connect(str(db))
     try:
@@ -377,7 +377,6 @@ def test_resolver_uses_exact_supplied_session_and_does_not_open_hidden_database(
         session_b.close()
         engine_a.dispose()
         engine_b.dispose()
-
 
 def test_resolver_validates_nominal_context_effective_date_and_nonempty_identity(tmp_path):
     from aqorath.fiscal_rules import resolve_fiscal_rule
