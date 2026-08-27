@@ -69,6 +69,8 @@ Public API includes the legacy template/trial-balance facade plus the economic-f
   - allocate_fixed_asset_monthly_depreciation(calculation, policy)
   - declare_fixed_asset_depreciation_recognition(allocation, period_number, recognition_date, recognition_source_ref)
   - resolve_fixed_asset_depreciation_accounting(recognition_fact)
+  - prepare_fixed_asset_depreciation_confirmation(session, accounting_resolution)
+  - confirm_fixed_asset_depreciation(snapshot)
 """
 
 from . import core as _core
@@ -107,6 +109,7 @@ from . import fixed_asset_depreciation as _fixed_asset_depreciation
 from . import fixed_asset_depreciation_allocation as _fixed_asset_depreciation_allocation
 from . import fixed_asset_depreciation_recognition as _fixed_asset_depreciation_recognition
 from . import fixed_asset_depreciation_accounting as _fixed_asset_depreciation_accounting
+from . import fixed_asset_depreciation_confirmation as _fixed_asset_depreciation_confirmation
 
 
 def create_entity(session, entity):
@@ -332,6 +335,19 @@ def resolve_fixed_asset_depreciation_accounting(recognition_fact):
     return _fixed_asset_depreciation_accounting.resolve_fixed_asset_depreciation_accounting(
         recognition_fact
     )
+
+
+def prepare_fixed_asset_depreciation_confirmation(session, accounting_resolution):
+    """Delegate configured depreciation confirmation preparation."""
+    return _fixed_asset_depreciation_confirmation.prepare_fixed_asset_depreciation_confirmation(
+        session,
+        accounting_resolution,
+    )
+
+
+def confirm_fixed_asset_depreciation(snapshot):
+    """Delegate explicit depreciation confirmation."""
+    return _fixed_asset_depreciation_confirmation.confirm_fixed_asset_depreciation(snapshot)
 
 
 def list_templates():
