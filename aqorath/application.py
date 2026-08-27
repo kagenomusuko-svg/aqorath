@@ -49,6 +49,9 @@ Public API includes the legacy template/trial-balance facade plus the economic-f
   - get_third_party(session, entity_id, third_party_id)
   - list_third_parties(session, entity_id, include_inactive=False)
   - set_third_party_active(session, entity_id, third_party_id, is_active)
+  - create_document_reference(session, document_reference)
+  - get_document_reference(session, document_reference_id)
+  - list_document_references(session, entry_id)
 """
 
 from . import core as _core
@@ -79,6 +82,7 @@ from . import fiscalized_posting_persistence as _fiscalized_posting_persistence
 from . import fiscal_posting_audit_read as _fiscal_posting_audit_read
 from . import entity_repository as _entity_repository
 from . import third_party_repository as _third_party_repository
+from . import document_reference_repository as _document_reference_repository
 
 
 def create_entity(session, entity):
@@ -135,6 +139,30 @@ def set_third_party_active(session, entity_id, third_party_id, is_active):
         entity_id,
         third_party_id,
         is_active,
+    )
+
+
+def create_document_reference(session, document_reference):
+    """Persist structured source evidence for one existing journal entry."""
+    return _document_reference_repository.create_document_reference(
+        session,
+        document_reference,
+    )
+
+
+def get_document_reference(session, document_reference_id):
+    """Load one structured source-document reference by identity."""
+    return _document_reference_repository.get_document_reference(
+        session,
+        document_reference_id,
+    )
+
+
+def list_document_references(session, entry_id):
+    """List deterministic structured source evidence for one journal entry."""
+    return _document_reference_repository.list_document_references(
+        session,
+        entry_id,
     )
 
 

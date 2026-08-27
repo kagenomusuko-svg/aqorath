@@ -77,6 +77,7 @@ def _ensure_additive_current_schema(db_path):
         _models.EntityProfileRecord.__table__.create(engine, checkfirst=True)
         _models.FiscalProfileRecord.__table__.create(engine, checkfirst=True)
         _models.ThirdPartyRecord.__table__.create(engine, checkfirst=True)
+        _models.DocumentReferenceRecord.__table__.create(engine, checkfirst=True)
     finally:
         engine.dispose()
 

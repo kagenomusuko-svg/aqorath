@@ -191,6 +191,61 @@ class JournalEntry(SQLModel, table=True):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class DocumentReferenceRecord(SQLModel, table=True):
+    """Structured source-document metadata linked to one JournalEntry."""
+
+    __tablename__ = "documentreference"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    entry_id: int = Field(
+        sa_column=Column(
+            Integer,
+            ForeignKey("journalentry.id"),
+            nullable=False,
+            index=True,
+        )
+    )
+    third_party_id: Optional[int] = Field(
+        default=None,
+        sa_column=Column(
+            Integer,
+            ForeignKey("thirdparty.id"),
+            nullable=True,
+            index=True,
+        ),
+    )
+    document_type: str = Field(
+        sa_column=Column(String, nullable=False, index=True)
+    )
+    document_number: str = Field(sa_column=Column(String, nullable=False))
+    issuer_name: Optional[str] = Field(
+        default=None,
+        sa_column=Column(String, nullable=True),
+    )
+    date: str = Field(sa_column=Column(String, nullable=False, index=True))
+    file_hash: Optional[str] = Field(
+        default=None,
+        sa_column=Column(String, nullable=True),
+    )
+    file_path: Optional[str] = Field(
+        default=None,
+        sa_column=Column(Text, nullable=True),
+    )
+    external_url: Optional[str] = Field(
+        default=None,
+        sa_column=Column(Text, nullable=True),
+    )
+    is_validated: bool = Field(
+        default=False,
+        sa_column=Column(Boolean, nullable=False, index=True),
+    )
+    validation_notes: Optional[str] = Field(
+        default=None,
+        sa_column=Column(Text, nullable=True),
+    )
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class JournalLine(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     entry_id: Optional[int] = Field(default=None)
