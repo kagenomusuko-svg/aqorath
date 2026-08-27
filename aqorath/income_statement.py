@@ -1,16 +1,18 @@
-"""Pure formal Income Statement view derived from a financial report snapshot.
+"""Pure formal Income Statement projection from a financial report snapshot.
 
-This module is presentation-structuring only. It selects the income-statement
-portion of an already-authoritative ``FinancialReportSnapshot`` and preserves the
-snapshot's supplied totals and result verbatim. It does not recalculate accounting,
-query storage, load catalog data, or render files.
+Formal Income Statement totals are ledger-based net semantics. The historical
+snapshot ``totals`` and ``result`` fields summarize normal balances and therefore
+are not authoritative for contra-income or contra-expense presentation. This
+module delegates net totals exactly once to ``financial_statement_semantics`` and
+only structures the supplied profit-and-loss lines for presentation.
 """
 
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Optional, Tuple
 
-from .reporting import FinancialReportLine, FinancialReportSnapshot
+from . import financial_statement_semantics as _semantics
+from .reporting import FinancialReportLine
 
 
 @dataclass(frozen=True)
@@ -29,48 +31,25 @@ class IncomeStatementView:
     result: Decimal
 
 
-def _required_total(snapshot: FinancialReportSnapshot, account_type: str) -> Decimal:
-    matches = tuple(
-        total for total in snapshot.totals
-        if total.account_type == account_type
-    )
-    if len(matches) != 1:
-        raise ValueError(
-            f"Income statement requires exactly one {account_type!r} total, "
-            f"found {len(matches)}"
-        )
-
-    amount = matches[0].amount
-    if not isinstance(amount, Decimal):
-        raise TypeError(
-            f"Income statement total for {account_type!r} must be Decimal"
-        )
-    return amount
-
-
-def _section(snapshot: FinancialReportSnapshot, account_type: str) -> IncomeStatementSection:
-    lines = tuple(
-        line for line in snapshot.lines
-        if line.account_type == account_type
-    )
+def _section(snapshot, account_type: str, total: Decimal) -> IncomeStatementSection:
     return IncomeStatementSection(
         account_type=account_type,
-        lines=lines,
-        total=_required_total(snapshot, account_type),
+        lines=tuple(
+            line for line in snapshot.lines
+            if line.account_type == account_type
+        ),
+        total=total,
     )
 
 
 def build_income_statement_view(snapshot):
-    """Project one immutable financial snapshot into a formal income statement view."""
-    if not isinstance(snapshot, FinancialReportSnapshot):
-        raise TypeError("snapshot must be a FinancialReportSnapshot")
-    if not isinstance(snapshot.result, Decimal):
-        raise TypeError("snapshot.result must be Decimal")
+    """Project one snapshot into a formal ledger-net Income Statement view."""
+    totals = _semantics.compute_financial_statement_totals(snapshot)
 
     return IncomeStatementView(
-        as_of=snapshot.as_of,
-        income=_section(snapshot, "Ingreso"),
-        costs=_section(snapshot, "Costo"),
-        expenses=_section(snapshot, "Gasto"),
-        result=snapshot.result,
+        as_of=totals.as_of,
+        income=_section(snapshot, "Ingreso", totals.income),
+        costs=_section(snapshot, "Costo", totals.costs),
+        expenses=_section(snapshot, "Gasto", totals.expenses),
+        result=totals.result,
     )
