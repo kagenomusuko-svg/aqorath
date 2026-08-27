@@ -24,7 +24,7 @@ from aqorath.money import to_decimal_exact
 # Version Control
 # ============================================================
 
-CURRENT_SCHEMA_VERSION = 3
+CURRENT_SCHEMA_VERSION = 4
 """Current schema version. Incremented for each breaking change."""
 
 # ============================================================
@@ -366,10 +366,70 @@ def _migrate_2_to_3(db_path):
         conn.close()
 
 
+def _migrate_3_to_4(db_path):
+    """Add one-to-one fiscal posting audit metadata linked to JournalEntry."""
+    db_path = Path(db_path)
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS fiscalpostingauditrecord (
+                id INTEGER PRIMARY KEY,
+                entry_id INTEGER NOT NULL UNIQUE,
+                fact_type VARCHAR NOT NULL,
+                fact_amount TEXT NOT NULL,
+                payment_method VARCHAR NOT NULL,
+                effective_date DATE NOT NULL,
+                jurisdiction VARCHAR NOT NULL,
+                regime VARCHAR NOT NULL,
+                entity_type VARCHAR NOT NULL,
+                rule_key VARCHAR NOT NULL,
+                base TEXT NOT NULL,
+                rate TEXT NOT NULL,
+                unit VARCHAR NOT NULL,
+                rule_effective_from DATE NOT NULL,
+                rule_effective_to DATE,
+                rule_source_ref VARCHAR NOT NULL,
+                exact_fiscal_amount TEXT NOT NULL,
+                rounding_policy_key VARCHAR NOT NULL,
+                rounding_quantizer TEXT NOT NULL,
+                rounding_mode VARCHAR NOT NULL,
+                rounding_source_ref VARCHAR NOT NULL,
+                rounded_fiscal_amount TEXT NOT NULL,
+                amount_basis VARCHAR NOT NULL,
+                adjustment_role VARCHAR NOT NULL,
+                fiscal_role VARCHAR NOT NULL,
+                fiscal_side VARCHAR NOT NULL,
+                zero_fiscal_line_policy VARCHAR NOT NULL,
+                omitted_zero_account_role VARCHAR,
+                omitted_zero_account_id INTEGER,
+                omitted_zero_account_code VARCHAR,
+                omitted_zero_account_name VARCHAR,
+                omitted_zero_side VARCHAR,
+                omitted_zero_amount TEXT,
+                created_at DATETIME NOT NULL,
+                FOREIGN KEY(entry_id) REFERENCES journalentry(id)
+            )
+            """
+        )
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_fiscalpostingauditrecord_entry_id "
+            "ON fiscalpostingauditrecord(entry_id)"
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
     3: _migrate_2_to_3,
+    4: _migrate_3_to_4,
 }
 """Registry of migration callables. Key: target version."""
 

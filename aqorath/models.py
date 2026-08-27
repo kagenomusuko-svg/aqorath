@@ -2,7 +2,7 @@ from datetime import date, datetime, timezone
 from typing import Optional
 
 from sqlmodel import SQLModel, Field
-from sqlalchemy import Column, String, Boolean, UniqueConstraint
+from sqlalchemy import Column, String, Boolean, UniqueConstraint, Integer, ForeignKey
 
 
 class Account(SQLModel, table=True):
@@ -88,6 +88,58 @@ class JournalLine(SQLModel, table=True):
     debit: str = "0"
     credit: str = "0"
     description: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class FiscalPostingAuditRecord(SQLModel, table=True):
+    """Persisted fiscal provenance metadata linked one-to-one to a JournalEntry.
+
+    This table is audit metadata only. Positive debit/credit lines remain exclusively
+    in JournalLine; the confirmed explanation remains in JournalEntry.concept.
+    Decimal-valued provenance is stored as exact text.
+    """
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    entry_id: int = Field(
+        sa_column=Column(
+            Integer,
+            ForeignKey("journalentry.id"),
+            unique=True,
+            nullable=False,
+            index=True,
+        )
+    )
+    fact_type: str
+    fact_amount: str
+    payment_method: str
+    effective_date: date
+    jurisdiction: str
+    regime: str
+    entity_type: str
+    rule_key: str
+    base: str
+    rate: str
+    unit: str
+    rule_effective_from: date
+    rule_effective_to: Optional[date] = None
+    rule_source_ref: str
+    exact_fiscal_amount: str
+    rounding_policy_key: str
+    rounding_quantizer: str
+    rounding_mode: str
+    rounding_source_ref: str
+    rounded_fiscal_amount: str
+    amount_basis: str
+    adjustment_role: str
+    fiscal_role: str
+    fiscal_side: str
+    zero_fiscal_line_policy: str
+    omitted_zero_account_role: Optional[str] = None
+    omitted_zero_account_id: Optional[int] = None
+    omitted_zero_account_code: Optional[str] = None
+    omitted_zero_account_name: Optional[str] = None
+    omitted_zero_side: Optional[str] = None
+    omitted_zero_amount: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
