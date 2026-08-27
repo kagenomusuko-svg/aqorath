@@ -39,6 +39,7 @@ Public API includes the legacy template/trial-balance facade plus the economic-f
   - confirm_fiscalized_snapshot(snapshot)
   - create_fiscalized_posting_instruction(confirmed_proposal, zero_fiscal_line_policy)
   - execute_fiscalized_posting_instruction(instruction)
+  - execute_fiscalized_posting_with_audit(instruction)
 """
 
 from . import core as _core
@@ -65,6 +66,7 @@ from . import fiscalized_account_resolution as _fiscalized_account_resolution
 from . import fiscalized_confirmation as _fiscalized_confirmation
 from . import fiscalized_posting as _fiscalized_posting
 from . import fiscalized_posting_execution as _fiscalized_posting_execution
+from . import fiscalized_posting_persistence as _fiscalized_posting_persistence
 
 
 def list_templates():
@@ -271,6 +273,13 @@ def create_fiscalized_posting_instruction(
 def execute_fiscalized_posting_instruction(instruction):
     """Execute exactly one fiscalized posting instruction through its authority."""
     return _fiscalized_posting_execution.execute_fiscalized_posting_instruction(
+        instruction
+    )
+
+
+def execute_fiscalized_posting_with_audit(instruction):
+    """Persist one fiscalized posting instruction and its fiscal audit atomically."""
+    return _fiscalized_posting_persistence.execute_fiscalized_posting_with_audit(
         instruction
     )
 
