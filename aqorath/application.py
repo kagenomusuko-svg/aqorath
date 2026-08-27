@@ -31,6 +31,14 @@ Public API includes the legacy template/trial-balance facade plus the economic-f
   - confirm_fiscal_monetary_amount(snapshot)
   - declare_fiscal_accounting_treatment(confirmed_monetary_amount, account_role, side)
   - build_fiscal_accounting_effect(declaration)
+  - resolve_economic_fact_with_provenance(fact)
+  - declare_fiscal_economic_composition(accounting_resolution, fiscal_effect, amount_basis, adjustment_role)
+  - compose_fiscal_economic_accounting(declaration)
+  - resolve_fiscalized_proposal_accounts(session, fiscalized_proposal, account_bindings)
+  - prepare_fiscalized_confirmation(resolved_proposal)
+  - confirm_fiscalized_snapshot(snapshot)
+  - create_fiscalized_posting_instruction(confirmed_proposal, zero_fiscal_line_policy)
+  - execute_fiscalized_posting_instruction(instruction)
 """
 
 from . import core as _core
@@ -50,6 +58,13 @@ from . import fiscal_rounding as _fiscal_rounding
 from . import fiscal_monetary_confirmation as _fiscal_monetary_confirmation
 from . import fiscal_accounting_treatment as _fiscal_accounting_treatment
 from . import fiscal_accounting_effect as _fiscal_accounting_effect
+from . import economic_fact_accounting_provenance as _economic_fact_accounting_provenance
+from . import fiscal_economic_composition as _fiscal_economic_composition
+from . import fiscalized_accounting_proposal as _fiscalized_accounting_proposal
+from . import fiscalized_account_resolution as _fiscalized_account_resolution
+from . import fiscalized_confirmation as _fiscalized_confirmation
+from . import fiscalized_posting as _fiscalized_posting
+from . import fiscalized_posting_execution as _fiscalized_posting_execution
 
 
 def list_templates():
@@ -186,6 +201,78 @@ def declare_fiscal_accounting_treatment(confirmed_monetary_amount, account_role,
 def build_fiscal_accounting_effect(declaration):
     """Build one non-postable semantic fiscal accounting effect."""
     return _fiscal_accounting_effect.build_fiscal_accounting_effect(declaration)
+
+
+def resolve_economic_fact_with_provenance(fact):
+    """Resolve one economic fact once while preserving exact accounting provenance."""
+    return _economic_fact_accounting_provenance.resolve_economic_fact_with_provenance(
+        fact
+    )
+
+
+def declare_fiscal_economic_composition(
+    accounting_resolution,
+    fiscal_effect,
+    amount_basis,
+    adjustment_role,
+):
+    """Declare explicit compatible economic/fiscal composition inputs."""
+    return _fiscal_economic_composition.declare_fiscal_economic_composition(
+        accounting_resolution,
+        fiscal_effect,
+        amount_basis,
+        adjustment_role,
+    )
+
+
+def compose_fiscal_economic_accounting(declaration):
+    """Materialize one explicit fiscal/economic declaration as a balanced proposal."""
+    return _fiscalized_accounting_proposal.compose_fiscal_economic_accounting(
+        declaration
+    )
+
+
+def resolve_fiscalized_proposal_accounts(
+    session,
+    fiscalized_proposal,
+    account_bindings,
+):
+    """Resolve one fiscalized semantic proposal through explicit account bindings."""
+    return _fiscalized_account_resolution.resolve_fiscalized_proposal_accounts(
+        session,
+        fiscalized_proposal,
+        account_bindings,
+    )
+
+
+def prepare_fiscalized_confirmation(resolved_proposal):
+    """Freeze one resolved fiscalized proposal for informed confirmation."""
+    return _fiscalized_confirmation.create_fiscalized_confirmation_snapshot(
+        resolved_proposal
+    )
+
+
+def confirm_fiscalized_snapshot(snapshot):
+    """Confirm exactly one previously prepared fiscalized snapshot."""
+    return _fiscalized_confirmation.confirm_fiscalized_snapshot(snapshot)
+
+
+def create_fiscalized_posting_instruction(
+    confirmed_proposal,
+    zero_fiscal_line_policy,
+):
+    """Build one immutable posting instruction from confirmed fiscalized truth."""
+    return _fiscalized_posting.create_fiscalized_posting_instruction(
+        confirmed_proposal,
+        zero_fiscal_line_policy,
+    )
+
+
+def execute_fiscalized_posting_instruction(instruction):
+    """Execute exactly one fiscalized posting instruction through its authority."""
+    return _fiscalized_posting_execution.execute_fiscalized_posting_instruction(
+        instruction
+    )
 
 
 def preview_economic_fact(fact):
