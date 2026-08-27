@@ -22,6 +22,8 @@ Public API includes the legacy template/trial-balance facade plus the economic-f
   - get_financial_statements_xlsx(as_of=None)
   - get_financial_statements_pdf(as_of=None)
   - calculate_fiscal_rate_for_date(session, rule_key, effective_date, context, base)
+  - declare_fiscal_rate_applicability(fact, effective_date, context, rule_key, base)
+  - calculate_declared_fiscal_rate(session, declaration)
 """
 
 from . import core as _core
@@ -34,6 +36,8 @@ from . import posting_execution as _posting_execution
 from . import reporting_runtime as _reporting_runtime
 from . import reporting_export as _reporting_export
 from . import fiscal_runtime as _fiscal_runtime
+from . import fiscal_applicability as _fiscal_applicability
+from . import fiscal_declaration_runtime as _fiscal_declaration_runtime
 
 
 def list_templates():
@@ -104,6 +108,25 @@ def calculate_fiscal_rate_for_date(session, rule_key, effective_date, context, b
         effective_date,
         context,
         base,
+    )
+
+
+def declare_fiscal_rate_applicability(fact, effective_date, context, rule_key, base):
+    """Declare one explicit rate-based fiscal treatment without calculating it."""
+    return _fiscal_applicability.declare_fiscal_rate_applicability(
+        fact,
+        effective_date,
+        context,
+        rule_key,
+        base,
+    )
+
+
+def calculate_declared_fiscal_rate(session, declaration):
+    """Calculate exactly one previously explicit fiscal-rate declaration."""
+    return _fiscal_declaration_runtime.calculate_declared_fiscal_rate(
+        session,
+        declaration,
     )
 
 
