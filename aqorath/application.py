@@ -655,3 +655,16 @@ def load_fixed_asset_depreciation_posting(session, fixed_asset_id, period_number
         fixed_asset_id,
         period_number,
     )
+
+
+from . import fixed_asset_book_state as _fixed_asset_book_state
+
+
+def get_fixed_asset_book_state(session, entity_id, fixed_asset_id, as_of=None):
+    """Load one canonical recognized fixed-asset book-state projection."""
+    return _fixed_asset_book_state.load_fixed_asset_book_state(
+        session,
+        entity_id,
+        fixed_asset_id,
+        as_of,
+    )
