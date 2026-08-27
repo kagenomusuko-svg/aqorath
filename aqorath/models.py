@@ -246,6 +246,35 @@ class DocumentReferenceRecord(SQLModel, table=True):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class CfdiImportMetadataRecord(SQLModel, table=True):
+    """Stamped CFDI provenance linked one-to-one to a DocumentReference."""
+
+    __tablename__ = "cfdiimportmetadata"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    document_reference_id: int = Field(
+        sa_column=Column(
+            Integer,
+            ForeignKey("documentreference.id"),
+            unique=True,
+            nullable=False,
+            index=True,
+        )
+    )
+    cfdi_version: str = Field(sa_column=Column(String, nullable=False))
+    uuid: str = Field(
+        sa_column=Column(String, unique=True, nullable=False, index=True)
+    )
+    issuer_rfc: str = Field(sa_column=Column(String, nullable=False))
+    receiver_rfc: str = Field(sa_column=Column(String, nullable=False))
+    issued_at: str = Field(sa_column=Column(String, nullable=False))
+    stamped_at: str = Field(sa_column=Column(String, nullable=False))
+    sello_sat: str = Field(sa_column=Column(Text, nullable=False))
+    sat_certificate_number: str = Field(sa_column=Column(String, nullable=False))
+    imported_at: str = Field(sa_column=Column(String, nullable=False))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class JournalLine(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     entry_id: Optional[int] = Field(default=None)

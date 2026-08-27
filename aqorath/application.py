@@ -52,6 +52,8 @@ Public API includes the legacy template/trial-balance facade plus the economic-f
   - create_document_reference(session, document_reference)
   - get_document_reference(session, document_reference_id)
   - list_document_references(session, entry_id)
+  - register_cfdi_import_metadata(session, metadata)
+  - get_cfdi_import_metadata(session, document_reference_id)
 """
 
 from . import core as _core
@@ -83,6 +85,7 @@ from . import fiscal_posting_audit_read as _fiscal_posting_audit_read
 from . import entity_repository as _entity_repository
 from . import third_party_repository as _third_party_repository
 from . import document_reference_repository as _document_reference_repository
+from . import cfdi_metadata_repository as _cfdi_metadata_repository
 
 
 def create_entity(session, entity):
@@ -163,6 +166,22 @@ def list_document_references(session, entry_id):
     return _document_reference_repository.list_document_references(
         session,
         entry_id,
+    )
+
+
+def register_cfdi_import_metadata(session, metadata):
+    """Persist explicit imported CFDI provenance for one document reference."""
+    return _cfdi_metadata_repository.register_cfdi_import_metadata(
+        session,
+        metadata,
+    )
+
+
+def get_cfdi_import_metadata(session, document_reference_id):
+    """Load imported CFDI provenance for one document reference."""
+    return _cfdi_metadata_repository.get_cfdi_import_metadata(
+        session,
+        document_reference_id,
     )
 
 
