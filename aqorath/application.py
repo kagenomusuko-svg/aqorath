@@ -41,6 +41,10 @@ Public API includes the legacy template/trial-balance facade plus the economic-f
   - execute_fiscalized_posting_instruction(instruction)
   - execute_fiscalized_posting_with_audit(instruction)
   - load_fiscal_posting_audit_snapshot(session, entry_id)
+  - create_entity(session, entity)
+  - get_active_entity(session)
+  - register_fiscal_profile(session, profile)
+  - get_fiscal_profile_for_date(session, entity_id, effective_date)
 """
 
 from . import core as _core
@@ -69,6 +73,31 @@ from . import fiscalized_posting as _fiscalized_posting
 from . import fiscalized_posting_execution as _fiscalized_posting_execution
 from . import fiscalized_posting_persistence as _fiscalized_posting_persistence
 from . import fiscal_posting_audit_read as _fiscal_posting_audit_read
+from . import entity_repository as _entity_repository
+
+
+def create_entity(session, entity):
+    """Persist one explicit accounting Entity aggregate."""
+    return _entity_repository.create_entity(session, entity)
+
+
+def get_active_entity(session):
+    """Return the one active accounting Entity, or None before setup."""
+    return _entity_repository.load_active_entity(session)
+
+
+def register_fiscal_profile(session, profile):
+    """Persist one explicit effective-dated fiscal profile interval."""
+    return _entity_repository.register_fiscal_profile(session, profile)
+
+
+def get_fiscal_profile_for_date(session, entity_id, effective_date):
+    """Resolve one Entity fiscal profile for an explicit effective date."""
+    return _entity_repository.resolve_fiscal_profile(
+        session,
+        entity_id,
+        effective_date,
+    )
 
 
 def list_templates():

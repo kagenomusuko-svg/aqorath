@@ -2,7 +2,17 @@ from datetime import date, datetime, timezone
 from typing import Optional
 
 from sqlmodel import SQLModel, Field
-from sqlalchemy import Column, String, Boolean, UniqueConstraint, Integer, ForeignKey
+from sqlalchemy import (
+    Boolean,
+    Column,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 
 
 class Account(SQLModel, table=True):
@@ -25,6 +35,82 @@ class AccountRoleBinding(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     role: str = Field(sa_column=Column(String, unique=True, nullable=False))
     account_id: int = Field(foreign_key="account.id", index=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class EntityRecord(SQLModel, table=True):
+    """Persisted legal/economic identity for the local accounting entity."""
+
+    __tablename__ = "entity"
+    __table_args__ = (
+        Index(
+            "uq_entity_single_active",
+            "is_active",
+            unique=True,
+            sqlite_where=text("is_active = 1"),
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(sa_column=Column(String, nullable=False))
+    rfc: Optional[str] = Field(default=None, sa_column=Column(String, nullable=True))
+    legal_personality: str = Field(sa_column=Column(String, nullable=False))
+    legal_form: str = Field(sa_column=Column(String, nullable=False))
+    is_active: bool = Field(
+        default=True,
+        sa_column=Column(Boolean, nullable=False),
+    )
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class EntityProfileRecord(SQLModel, table=True):
+    """One persisted compositional profile for one Entity."""
+
+    __tablename__ = "entityprofile"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    entity_id: int = Field(
+        sa_column=Column(
+            Integer,
+            ForeignKey("entity.id"),
+            unique=True,
+            nullable=False,
+            index=True,
+        )
+    )
+    economic_purpose: str = Field(sa_column=Column(String, nullable=False))
+    is_donor_authorized: bool = Field(sa_column=Column(Boolean, nullable=False))
+    special_capabilities_json: str = Field(sa_column=Column(Text, nullable=False))
+    modules_enabled_json: str = Field(sa_column=Column(Text, nullable=False))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class FiscalProfileRecord(SQLModel, table=True):
+    """Persisted effective-dated fiscal profile history for one Entity."""
+
+    __tablename__ = "fiscalprofile"
+    __table_args__ = (
+        UniqueConstraint(
+            "entity_id",
+            "effective_from",
+            name="uq_fiscal_profile_entity_start",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    entity_id: int = Field(
+        sa_column=Column(
+            Integer,
+            ForeignKey("entity.id"),
+            nullable=False,
+            index=True,
+        )
+    )
+    jurisdiction: str = Field(sa_column=Column(String, nullable=False))
+    fiscal_regime_code: str = Field(sa_column=Column(String, nullable=False))
+    tax_characteristics_json: str = Field(sa_column=Column(Text, nullable=False))
+    effective_from: date = Field(index=True)
+    effective_to: Optional[date] = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
