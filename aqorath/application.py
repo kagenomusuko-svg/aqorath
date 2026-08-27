@@ -2,7 +2,7 @@
 Aqorath Application Boundary
 
 Canonical interface-agnostic facade. Adapters call this module; accounting,
-resolution, confirmation, binding, reporting and persistence rules remain in their
+resolution, confirmation, binding, reporting, fiscal and persistence rules remain in their
 specialized authorities.
 
 Public API includes the legacy template/trial-balance facade plus the economic-fact flow:
@@ -21,6 +21,7 @@ Public API includes the legacy template/trial-balance facade plus the economic-f
   - get_financial_report_xlsx(as_of=None)
   - get_financial_statements_xlsx(as_of=None)
   - get_financial_statements_pdf(as_of=None)
+  - calculate_fiscal_rate_for_date(session, rule_key, effective_date, context, base)
 """
 
 from . import core as _core
@@ -32,6 +33,7 @@ from . import posting as _posting
 from . import posting_execution as _posting_execution
 from . import reporting_runtime as _reporting_runtime
 from . import reporting_export as _reporting_export
+from . import fiscal_runtime as _fiscal_runtime
 
 
 def list_templates():
@@ -92,6 +94,17 @@ def get_financial_statements_xlsx(as_of=None):
 def get_financial_statements_pdf(as_of=None):
     """Return canonical formal financial-statements PDF bytes."""
     return _reporting_export.get_financial_statements_pdf(as_of=as_of)
+
+
+def calculate_fiscal_rate_for_date(session, rule_key, effective_date, context, base):
+    """Delegate explicit dated fiscal-rate calculation to the fiscal runtime."""
+    return _fiscal_runtime.calculate_fiscal_rate_for_date(
+        session,
+        rule_key,
+        effective_date,
+        context,
+        base,
+    )
 
 
 def preview_economic_fact(fact):
