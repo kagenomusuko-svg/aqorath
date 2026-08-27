@@ -280,7 +280,7 @@ def test_declaration_is_pure_and_never_reresolves_recalculates_resolves_accounts
 
     monkeypatch.setattr(economic_facts, "resolve_economic_fact", bomb)
     monkeypatch.setattr(account_resolution, "resolve_proposal_accounts", bomb)
-    monkeypatch.setattr(fiscal_calculation, "calculate_rate_amount", bomb)
+    monkeypatch.setattr(fiscal_calculation, "calculate_fiscal_rate_amount", bomb)
     monkeypatch.setattr(posting, "create_posting_instruction", bomb)
     monkeypatch.setattr(storage, "get_session", bomb)
 
