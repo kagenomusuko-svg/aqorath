@@ -65,6 +65,7 @@ Public API includes the legacy template/trial-balance facade plus the economic-f
   - get_fixed_asset(session, entity_id, fixed_asset_id)
   - list_fixed_assets(session, entity_id, include_inactive=False)
   - set_fixed_asset_active(session, entity_id, fixed_asset_id, is_active)
+  - calculate_fixed_asset_monthly_depreciation(fixed_asset)
 """
 
 from . import core as _core
@@ -99,6 +100,7 @@ from . import document_reference_repository as _document_reference_repository
 from . import cfdi_metadata_repository as _cfdi_metadata_repository
 from . import analytical_dimension_repository as _analytical_dimension_repository
 from . import fixed_asset_repository as _fixed_asset_repository
+from . import fixed_asset_depreciation as _fixed_asset_depreciation
 
 
 def create_entity(session, entity):
@@ -286,6 +288,13 @@ def set_fixed_asset_active(session, entity_id, fixed_asset_id, is_active):
         entity_id,
         fixed_asset_id,
         is_active,
+    )
+
+
+def calculate_fixed_asset_monthly_depreciation(fixed_asset):
+    """Delegate exact monthly depreciation calculation."""
+    return _fixed_asset_depreciation.calculate_monthly_straight_line_depreciation(
+        fixed_asset
     )
 
 
