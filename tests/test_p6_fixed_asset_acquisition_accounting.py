@@ -203,7 +203,7 @@ def test_positive_acquisition_is_exact_balanced_two_line_accounting_proposal():
     from aqorath.fixed_asset_acquisition import resolve_fixed_asset_acquisition_accounting
 
     resolution = resolve_fixed_asset_acquisition_accounting(
-        _fact(asset_overrides={}, acquisition_cost=Decimal("10.123400"))
+        _fact(acquisition_cost=Decimal("10.123400"), residual_value=Decimal("0.0100"))
     )
     assert isinstance(resolution.proposal, AccountingProposal)
     assert isinstance(resolution.proposal.lines, tuple)
