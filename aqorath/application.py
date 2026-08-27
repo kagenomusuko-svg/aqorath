@@ -24,6 +24,8 @@ Public API includes the legacy template/trial-balance facade plus the economic-f
   - calculate_fiscal_rate_for_date(session, rule_key, effective_date, context, base)
   - declare_fiscal_rate_applicability(fact, effective_date, context, rule_key, base)
   - calculate_declared_fiscal_rate(session, declaration)
+  - prepare_fiscal_confirmation(declared_calculation)
+  - confirm_fiscal_treatment(snapshot)
 """
 
 from . import core as _core
@@ -38,6 +40,7 @@ from . import reporting_export as _reporting_export
 from . import fiscal_runtime as _fiscal_runtime
 from . import fiscal_applicability as _fiscal_applicability
 from . import fiscal_declaration_runtime as _fiscal_declaration_runtime
+from . import fiscal_confirmation as _fiscal_confirmation
 
 
 def list_templates():
@@ -128,6 +131,18 @@ def calculate_declared_fiscal_rate(session, declaration):
         session,
         declaration,
     )
+
+
+def prepare_fiscal_confirmation(declared_calculation):
+    """Prepare the exact immutable fiscal truth for informed confirmation."""
+    return _fiscal_confirmation.create_fiscal_confirmation_snapshot(
+        declared_calculation,
+    )
+
+
+def confirm_fiscal_treatment(snapshot):
+    """Confirm exactly one previously prepared fiscal confirmation snapshot."""
+    return _fiscal_confirmation.confirm_fiscal_snapshot(snapshot)
 
 
 def preview_economic_fact(fact):
