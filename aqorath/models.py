@@ -1,8 +1,8 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Optional
 
 from sqlmodel import SQLModel, Field
-from sqlalchemy import Column, String, Boolean
+from sqlalchemy import Column, String, Boolean, UniqueConstraint
 
 
 class Account(SQLModel, table=True):
@@ -25,6 +25,33 @@ class AccountRoleBinding(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     role: str = Field(sa_column=Column(String, unique=True, nullable=False))
     account_id: int = Field(foreign_key="account.id", index=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class FiscalRuleVersion(SQLModel, table=True):
+    """One exact, effective-dated fiscal rule record for one explicit context."""
+
+    __table_args__ = (
+        UniqueConstraint(
+            "rule_key",
+            "jurisdiction",
+            "regime",
+            "entity_type",
+            "effective_from",
+            name="uq_fiscal_rule_scope_start",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    rule_key: str = Field(index=True)
+    jurisdiction: str = Field(index=True)
+    regime: str = Field(index=True)
+    entity_type: str = Field(index=True)
+    effective_from: date = Field(index=True)
+    effective_to: Optional[date] = Field(default=None, index=True)
+    value: str
+    unit: str
+    source_ref: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
