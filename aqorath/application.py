@@ -19,6 +19,7 @@ Public API includes the legacy template/trial-balance facade plus the economic-f
   - get_financial_statements_bundle(as_of=None)
   - get_financial_report_csv(as_of=None)
   - get_financial_report_xlsx(as_of=None)
+  - get_financial_statements_xlsx(as_of=None)
 """
 
 from . import core as _core
@@ -78,8 +79,13 @@ def get_financial_report_csv(as_of=None):
 
 
 def get_financial_report_xlsx(as_of=None):
-    """Return canonical financial-report XLSX bytes."""
+    """Return canonical raw financial-report XLSX bytes."""
     return _reporting_export.get_financial_report_xlsx(as_of=as_of)
+
+
+def get_financial_statements_xlsx(as_of=None):
+    """Return canonical formal financial-statements XLSX bytes."""
+    return _reporting_export.get_financial_statements_xlsx(as_of=as_of)
 
 
 def preview_economic_fact(fact):
