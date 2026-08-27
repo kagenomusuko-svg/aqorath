@@ -68,6 +68,7 @@ Public API includes the legacy template/trial-balance facade plus the economic-f
   - calculate_fixed_asset_monthly_depreciation(fixed_asset)
   - allocate_fixed_asset_monthly_depreciation(calculation, policy)
   - declare_fixed_asset_depreciation_recognition(allocation, period_number, recognition_date, recognition_source_ref)
+  - resolve_fixed_asset_depreciation_accounting(recognition_fact)
 """
 
 from . import core as _core
@@ -105,6 +106,7 @@ from . import fixed_asset_repository as _fixed_asset_repository
 from . import fixed_asset_depreciation as _fixed_asset_depreciation
 from . import fixed_asset_depreciation_allocation as _fixed_asset_depreciation_allocation
 from . import fixed_asset_depreciation_recognition as _fixed_asset_depreciation_recognition
+from . import fixed_asset_depreciation_accounting as _fixed_asset_depreciation_accounting
 
 
 def create_entity(session, entity):
@@ -322,6 +324,13 @@ def declare_fixed_asset_depreciation_recognition(
         period_number,
         recognition_date,
         recognition_source_ref,
+    )
+
+
+def resolve_fixed_asset_depreciation_accounting(recognition_fact):
+    """Delegate semantic depreciation accounting resolution."""
+    return _fixed_asset_depreciation_accounting.resolve_fixed_asset_depreciation_accounting(
+        recognition_fact
     )
 
 
