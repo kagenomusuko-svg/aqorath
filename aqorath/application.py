@@ -668,3 +668,20 @@ def get_fixed_asset_book_state(session, entity_id, fixed_asset_id, as_of=None):
         fixed_asset_id,
         as_of,
     )
+
+
+from . import fixed_asset_acquisition as _fixed_asset_acquisition
+
+
+def create_fixed_asset_acquisition_fact(fixed_asset, asset_class, settlement_method):
+    return _fixed_asset_acquisition.create_fixed_asset_acquisition_fact(
+        fixed_asset,
+        asset_class,
+        settlement_method,
+    )
+
+
+def resolve_fixed_asset_acquisition_accounting(acquisition_fact):
+    return _fixed_asset_acquisition.resolve_fixed_asset_acquisition_accounting(
+        acquisition_fact
+    )
