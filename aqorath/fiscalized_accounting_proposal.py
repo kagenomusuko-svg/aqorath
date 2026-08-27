@@ -1,8 +1,9 @@
 """Pure composition of one explicit fiscal/economic declaration.
 
 Creates a new immutable semantic accounting proposal from the exact economic
-proposal and confirmed fiscal effect already bound by Phase 5V. No concrete
-accounts are resolved and no confirmation, persistence, or posting occurs here.
+proposal and all confirmed fiscal effects already bound by the composition
+declaration. No concrete accounts are resolved and no confirmation, persistence,
+or posting occurs here.
 """
 
 from dataclasses import dataclass
@@ -33,15 +34,67 @@ class FiscalizedProposalLine:
             raise ValueError("amount must not be negative")
 
 
+def _fiscal_delta(declaration):
+    debit = sum(
+        (
+            effect.line.amount
+            for effect in declaration.fiscal_effects
+            if effect.line.side == "debit"
+        ),
+        Decimal("0"),
+    )
+    credit = sum(
+        (
+            effect.line.amount
+            for effect in declaration.fiscal_effects
+            if effect.line.side == "credit"
+        ),
+        Decimal("0"),
+    )
+    return credit - debit
+
+
+def _adjusted_amount(source, declaration):
+    if source.account_role != declaration.adjustment_role:
+        return source.amount
+
+    delta = _fiscal_delta(declaration)
+    if source.side == "debit":
+        result = source.amount + delta
+    else:
+        result = source.amount - delta
+
+    if result < Decimal("0"):
+        raise ValueError("fiscal composition cannot make an accounting line negative")
+    if declaration.amount_basis == "gross_including_fiscal" and result <= Decimal("0"):
+        raise ValueError(
+            "gross fiscal composition must leave adjusted line amount > 0"
+        )
+    return result
+
+
 def _explanation_for(declaration):
-    fiscal_line = declaration.fiscal_effect.line
+    effects = declaration.fiscal_effects
+    if len(effects) == 1:
+        fiscal_line = effects[0].line
+        return (
+            "Fiscalized accounting composition: "
+            f"amount_basis={declaration.amount_basis}; "
+            f"adjustment_role={declaration.adjustment_role}; "
+            f"fiscal_role={fiscal_line.account_role}; "
+            f"fiscal_side={fiscal_line.side}; "
+            f"fiscal_amount={fiscal_line.amount}."
+        )
+
+    rendered = ", ".join(
+        f"{effect.line.account_role}|{effect.line.side}|{effect.line.amount}"
+        for effect in effects
+    )
     return (
         "Fiscalized accounting composition: "
         f"amount_basis={declaration.amount_basis}; "
         f"adjustment_role={declaration.adjustment_role}; "
-        f"fiscal_role={fiscal_line.account_role}; "
-        f"fiscal_side={fiscal_line.side}; "
-        f"fiscal_amount={fiscal_line.amount}."
+        f"fiscal_effects=[{rendered}]."
     )
 
 
@@ -65,37 +118,35 @@ class FiscalizedAccountingProposal:
             raise TypeError("all lines must be FiscalizedProposalLine")
 
         source_lines = tuple(self.declaration.accounting_resolution.proposal.lines)
-        if len(self.lines) != len(source_lines) + 1:
-            raise ValueError("fiscalized proposal must preserve source lines and append one fiscal line")
+        effects = self.declaration.fiscal_effects
+        if len(self.lines) != len(source_lines) + len(effects):
+            raise ValueError(
+                "fiscalized proposal must preserve source lines and append every fiscal line"
+            )
 
-        fiscal_line = self.declaration.fiscal_effect.line
         for index, source in enumerate(source_lines):
             result = self.lines[index]
-            expected_amount = source.amount
-            if source.account_role == self.declaration.adjustment_role:
-                if self.declaration.amount_basis == "net_before_fiscal":
-                    expected_amount = source.amount + fiscal_line.amount
-                else:
-                    expected_amount = source.amount - fiscal_line.amount
-                    if expected_amount <= Decimal("0"):
-                        raise ValueError(
-                            "gross fiscal composition must leave adjusted line amount > 0"
-                        )
-
+            expected_amount = _adjusted_amount(source, self.declaration)
             if result.account_role != source.account_role:
                 raise ValueError("source account_role order must be preserved")
             if result.side != source.side:
                 raise ValueError("source line side must be preserved")
             if result.amount.as_tuple() != expected_amount.as_tuple():
-                raise ValueError("source line amount does not match declared fiscal composition")
+                raise ValueError(
+                    "source line amount does not match declared fiscal composition"
+                )
 
-        appended = self.lines[-1]
-        if appended.account_role != fiscal_line.account_role:
-            raise ValueError("appended fiscal account_role must match fiscal effect")
-        if appended.side != fiscal_line.side:
-            raise ValueError("appended fiscal side must match fiscal effect")
-        if appended.amount.as_tuple() != fiscal_line.amount.as_tuple():
-            raise ValueError("appended fiscal amount must match fiscal effect exactly")
+        appended = self.lines[len(source_lines):]
+        for result, effect in zip(appended, effects):
+            fiscal_line = effect.line
+            if result.account_role != fiscal_line.account_role:
+                raise ValueError("appended fiscal account_role must match fiscal effect")
+            if result.side != fiscal_line.side:
+                raise ValueError("appended fiscal side must match fiscal effect")
+            if result.amount.as_tuple() != fiscal_line.amount.as_tuple():
+                raise ValueError(
+                    "appended fiscal amount must match fiscal effect exactly"
+                )
 
         total_debit = sum(
             (line.amount for line in self.lines if line.side == "debit"),
@@ -113,45 +164,38 @@ class FiscalizedAccountingProposal:
 
         expected_explanation = _explanation_for(self.declaration)
         if self.explanation != expected_explanation:
-            raise ValueError("explanation must describe the exact declared composition")
+            raise ValueError(
+                "explanation must describe the exact declared composition"
+            )
 
 
 def compose_fiscal_economic_accounting(declaration):
-    """Materialize one explicit Phase 5V declaration as a balanced semantic proposal."""
+    """Materialize one explicit declaration as a balanced semantic proposal."""
     if not isinstance(declaration, _composition.FiscalEconomicCompositionDeclaration):
         raise TypeError(
             "compose_fiscal_economic_accounting requires "
             "FiscalEconomicCompositionDeclaration"
         )
 
-    fiscal_line = declaration.fiscal_effect.line
     composed_lines = []
     for source in declaration.accounting_resolution.proposal.lines:
-        amount = source.amount
-        if source.account_role == declaration.adjustment_role:
-            if declaration.amount_basis == "net_before_fiscal":
-                amount = source.amount + fiscal_line.amount
-            else:
-                amount = source.amount - fiscal_line.amount
-                if amount <= Decimal("0"):
-                    raise ValueError(
-                        "gross fiscal composition must leave adjusted line amount > 0"
-                    )
         composed_lines.append(
             FiscalizedProposalLine(
                 account_role=source.account_role,
                 side=source.side,
-                amount=amount,
+                amount=_adjusted_amount(source, declaration),
             )
         )
 
-    composed_lines.append(
-        FiscalizedProposalLine(
-            account_role=fiscal_line.account_role,
-            side=fiscal_line.side,
-            amount=fiscal_line.amount,
+    for effect in declaration.fiscal_effects:
+        fiscal_line = effect.line
+        composed_lines.append(
+            FiscalizedProposalLine(
+                account_role=fiscal_line.account_role,
+                side=fiscal_line.side,
+                amount=fiscal_line.amount,
+            )
         )
-    )
 
     return FiscalizedAccountingProposal(
         declaration=declaration,

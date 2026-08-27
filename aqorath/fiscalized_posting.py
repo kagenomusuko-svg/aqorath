@@ -1,12 +1,12 @@
-"""Fiscalized posting-instruction boundary — Phase 5Z.2.
+"""Fiscalized posting-instruction boundary — Phase 5Z.2 / 5AK.2.
 
-Transforms one explicitly confirmed fiscalized accounting snapshot into an immutable
-posting instruction without re-resolving, recalculating, reconfirming, opening a
-session, or persisting.
+Transforms one explicitly confirmed fiscalized accounting snapshot into an
+immutable posting instruction without re-resolving, recalculating, reconfirming,
+opening a session, or persisting.
 
-A confirmed zero fiscal line requires an explicit caller policy. If omission is
-chosen, only the already-confirmed final fiscal zero may be omitted, and an
-immutable value copy remains attached to the instruction for auditability.
+Confirmed zero fiscal lines require an explicit caller policy. The historical
+single omitted-line audit contract is preserved: omission is allowed only when
+exactly one confirmed fiscal effect is zero.
 """
 
 from dataclasses import dataclass
@@ -134,6 +134,41 @@ def _confirmation_lines_equal(left, right):
     )
 
 
+def _split_confirmed_lines(snapshot):
+    fiscal_count = len(snapshot.provenance.fiscal_effects)
+    if fiscal_count <= 0 or len(snapshot.lines) < fiscal_count:
+        raise ValueError("confirmed fiscal provenance does not match line cardinality")
+    return snapshot.lines[:-fiscal_count], snapshot.lines[-fiscal_count:]
+
+
+def _expected_sources(snapshot, zero_policy):
+    non_fiscal_lines, fiscal_lines = _split_confirmed_lines(snapshot)
+    if any(line.amount == Decimal("0") for line in non_fiscal_lines):
+        raise ValueError("non-fiscal zero lines cannot be omitted or posted")
+
+    zero_fiscal_lines = tuple(
+        line for line in fiscal_lines if line.amount == Decimal("0")
+    )
+    if zero_policy == "reject_zero_fiscal_line" and zero_fiscal_lines:
+        raise ValueError("zero fiscal line rejected by explicit policy")
+    if (
+        zero_policy == "omit_confirmed_zero_fiscal_line"
+        and len(zero_fiscal_lines) > 1
+    ):
+        raise ValueError(
+            "multiple zero fiscal lines cannot be represented by the singular "
+            "omitted-line audit contract"
+        )
+
+    omitted = zero_fiscal_lines[0] if zero_fiscal_lines else None
+    if omitted is None:
+        return (*non_fiscal_lines, *fiscal_lines), None
+    return (
+        *non_fiscal_lines,
+        *(line for line in fiscal_lines if line is not omitted),
+    ), omitted
+
+
 @dataclass(frozen=True)
 class FiscalizedPostingInstruction:
     """Immutable instruction derived exactly from one confirmed fiscalized snapshot."""
@@ -163,44 +198,30 @@ class FiscalizedPostingInstruction:
         if self.description != snapshot.explanation:
             raise ValueError("description must equal confirmed snapshot explanation")
 
-        source_lines = snapshot.lines
-        final_fiscal_line = source_lines[-1]
-        non_fiscal_zero_lines = tuple(
-            line for line in source_lines[:-1] if line.amount == Decimal("0")
+        expected_sources, expected_omitted = _expected_sources(
+            snapshot,
+            self.zero_fiscal_line_policy,
         )
-        if non_fiscal_zero_lines:
-            raise ValueError("non-fiscal zero lines cannot be omitted or posted")
-
-        fiscal_is_zero = final_fiscal_line.amount == Decimal("0")
-        if (
-            fiscal_is_zero
-            and self.zero_fiscal_line_policy == "reject_zero_fiscal_line"
-        ):
-            raise ValueError("zero fiscal line rejected by explicit policy")
-
-        if (
-            fiscal_is_zero
-            and self.zero_fiscal_line_policy == "omit_confirmed_zero_fiscal_line"
-        ):
-            expected_sources = source_lines[:-1]
-            if self.omitted_zero_fiscal_line is None:
-                raise ValueError("omitted confirmed zero fiscal line audit copy required")
-            if not _confirmation_lines_equal(
-                self.omitted_zero_fiscal_line,
-                final_fiscal_line,
-            ):
-                raise ValueError(
-                    "omitted zero fiscal line must equal confirmed final fiscal line"
-                )
-        else:
-            expected_sources = source_lines
+        if expected_omitted is None:
             if self.omitted_zero_fiscal_line is not None:
                 raise ValueError(
                     "omitted zero fiscal line metadata is invalid when nothing is omitted"
                 )
+        else:
+            if self.omitted_zero_fiscal_line is None:
+                raise ValueError("omitted confirmed zero fiscal line audit copy required")
+            if not _confirmation_lines_equal(
+                self.omitted_zero_fiscal_line,
+                expected_omitted,
+            ):
+                raise ValueError(
+                    "omitted zero fiscal line must equal confirmed zero fiscal line"
+                )
 
         if len(self.lines) != len(expected_sources):
-            raise ValueError("posting lines do not match confirmed snapshot cardinality")
+            raise ValueError(
+                "posting lines do not match confirmed snapshot cardinality"
+            )
 
         for posting_line, source_line in zip(self.lines, expected_sources):
             if not _posting_line_matches_source(posting_line, source_line):
@@ -233,33 +254,24 @@ def create_fiscalized_posting_instruction(
     if zero_fiscal_line_policy not in _ALLOWED_ZERO_POLICIES:
         raise ValueError("invalid zero fiscal line policy")
 
-    snapshot = confirmed_proposal.snapshot
-    final_fiscal_line = snapshot.lines[-1]
-
-    for line in snapshot.lines[:-1]:
-        if line.amount == Decimal("0"):
-            raise ValueError("non-fiscal zero line cannot be posted or omitted")
-
-    fiscal_is_zero = final_fiscal_line.amount == Decimal("0")
-    if fiscal_is_zero and zero_fiscal_line_policy == "reject_zero_fiscal_line":
-        raise ValueError("zero fiscal line rejected by explicit policy")
-
-    if fiscal_is_zero:
-        source_lines = snapshot.lines[:-1]
-        omitted_zero_fiscal_line = _copy_confirmation_line(final_fiscal_line)
-    else:
-        source_lines = snapshot.lines
-        omitted_zero_fiscal_line = None
-
+    source_lines, omitted_source = _expected_sources(
+        confirmed_proposal.snapshot,
+        zero_fiscal_line_policy,
+    )
     lines = tuple(
         _posting_line_from_confirmation(line)
         for line in source_lines
+    )
+    omitted_zero_fiscal_line = (
+        None
+        if omitted_source is None
+        else _copy_confirmation_line(omitted_source)
     )
 
     return FiscalizedPostingInstruction(
         confirmed_proposal=confirmed_proposal,
         lines=lines,
-        description=snapshot.explanation,
+        description=confirmed_proposal.snapshot.explanation,
         zero_fiscal_line_policy=zero_fiscal_line_policy,
         omitted_zero_fiscal_line=omitted_zero_fiscal_line,
     )

@@ -143,6 +143,41 @@ class FiscalPostingAuditRecord(SQLModel, table=True):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class FiscalPostingAuditEffectRecord(SQLModel, table=True):
+    """Ordered persisted provenance for fiscal effects after the primary v4 effect."""
+
+    __table_args__ = (
+        UniqueConstraint(
+            "audit_record_id",
+            "position",
+            name="uq_fiscal_posting_audit_effect_position",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    audit_record_id: int = Field(
+        foreign_key="fiscalpostingauditrecord.id",
+        index=True,
+    )
+    position: int = Field(index=True)
+    rule_key: str
+    base: str
+    rate: str
+    unit: str
+    rule_effective_from: date
+    rule_effective_to: Optional[date] = None
+    rule_source_ref: str
+    exact_fiscal_amount: str
+    rounding_policy_key: str
+    rounding_quantizer: str
+    rounding_mode: str
+    rounding_source_ref: str
+    rounded_fiscal_amount: str
+    fiscal_role: str
+    fiscal_side: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class Asset(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str

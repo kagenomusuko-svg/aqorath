@@ -1,4 +1,4 @@
-"""Read-only persisted fiscal posting audit boundary — Phase 5AH.2.
+"""Read-only persisted fiscal posting audit boundary — Phase 5AH.2 / 5AK.2.
 
 Reconstructs the immutable fiscal audit snapshot associated with one JournalEntry
 from the supplied ORM session. Persisted metadata is treated as evidence: it is
@@ -28,7 +28,37 @@ def _decimal_exact(text, field_name):
     return value
 
 
-def _build_provenance(record):
+def _build_effect_provenance(record):
+    return _confirmation.FiscalizedConfirmationEffectProvenance(
+        rule_key=record.rule_key,
+        base=_decimal_exact(record.base, "base"),
+        rate=_decimal_exact(record.rate, "rate"),
+        unit=record.unit,
+        rule_effective_from=record.rule_effective_from,
+        rule_effective_to=record.rule_effective_to,
+        rule_source_ref=record.rule_source_ref,
+        exact_fiscal_amount=_decimal_exact(
+            record.exact_fiscal_amount,
+            "exact_fiscal_amount",
+        ),
+        rounding_policy_key=record.rounding_policy_key,
+        rounding_quantizer=_decimal_exact(
+            record.rounding_quantizer,
+            "rounding_quantizer",
+        ),
+        rounding_mode=record.rounding_mode,
+        rounding_source_ref=record.rounding_source_ref,
+        rounded_fiscal_amount=_decimal_exact(
+            record.rounded_fiscal_amount,
+            "rounded_fiscal_amount",
+        ),
+        fiscal_role=record.fiscal_role,
+        fiscal_side=record.fiscal_side,
+    )
+
+
+def _build_provenance(record, additional_records=()):
+    additional = tuple(_build_effect_provenance(item) for item in additional_records)
     return _confirmation.FiscalizedConfirmationProvenance(
         fact_type=record.fact_type,
         fact_amount=_decimal_exact(record.fact_amount, "fact_amount"),
@@ -63,6 +93,7 @@ def _build_provenance(record):
         adjustment_role=record.adjustment_role,
         fiscal_role=record.fiscal_role,
         fiscal_side=record.fiscal_side,
+        additional_fiscal_effects=additional,
     )
 
 
@@ -90,6 +121,26 @@ def _build_omitted_zero_line(record):
     )
 
 
+def _load_additional_effects(session, audit_record):
+    if audit_record.id is None:
+        raise ValueError("persisted fiscal audit record has no identity")
+    records = session.exec(
+        select(_models.FiscalPostingAuditEffectRecord)
+        .where(
+            _models.FiscalPostingAuditEffectRecord.audit_record_id
+            == audit_record.id
+        )
+        .order_by(_models.FiscalPostingAuditEffectRecord.position)
+    ).all()
+    expected_positions = list(range(1, len(records) + 1))
+    actual_positions = [record.position for record in records]
+    if actual_positions != expected_positions:
+        raise ValueError(
+            "persisted additional fiscal effects must have contiguous ordered positions"
+        )
+    return tuple(records)
+
+
 def load_fiscal_posting_audit_snapshot(session, entry_id):
     """Load one validated immutable fiscal audit snapshot from the supplied session."""
     if not isinstance(entry_id, int) or isinstance(entry_id, bool):
@@ -114,9 +165,10 @@ def load_fiscal_posting_audit_snapshot(session, entry_id):
         raise ValueError(f"multiple fiscal audit records found for JournalEntry {entry_id}")
 
     record = records[0]
+    additional_records = _load_additional_effects(session, record)
     return _audit.FiscalPostingAuditSnapshot(
         description=entry.concept,
-        provenance=_build_provenance(record),
+        provenance=_build_provenance(record, additional_records),
         zero_fiscal_line_policy=record.zero_fiscal_line_policy,
         omitted_zero_fiscal_line=_build_omitted_zero_line(record),
     )

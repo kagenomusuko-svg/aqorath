@@ -1,8 +1,9 @@
-"""Immutable fiscal posting audit metadata — Phase 5AD.2.
+"""Immutable fiscal posting audit metadata — Phase 5AD.2 / 5AK.2.
 
 Builds a value-only audit snapshot from one already validated
-FiscalizedPostingInstruction. This module is intentionally non-executable: it owns
-no accounting lines, account resolution, persistence, session, or posting logic.
+FiscalizedPostingInstruction. This module is intentionally non-executable: it
+owns no accounting lines, account resolution, persistence, session, or posting
+logic.
 """
 
 from dataclasses import dataclass
@@ -53,6 +54,26 @@ def _same_decimal(left, right):
     )
 
 
+def _copy_effect(source):
+    return _confirmation.FiscalizedConfirmationEffectProvenance(
+        rule_key=source.rule_key,
+        base=source.base,
+        rate=source.rate,
+        unit=source.unit,
+        rule_effective_from=source.rule_effective_from,
+        rule_effective_to=source.rule_effective_to,
+        rule_source_ref=source.rule_source_ref,
+        exact_fiscal_amount=source.exact_fiscal_amount,
+        rounding_policy_key=source.rounding_policy_key,
+        rounding_quantizer=source.rounding_quantizer,
+        rounding_mode=source.rounding_mode,
+        rounding_source_ref=source.rounding_source_ref,
+        rounded_fiscal_amount=source.rounded_fiscal_amount,
+        fiscal_role=source.fiscal_role,
+        fiscal_side=source.fiscal_side,
+    )
+
+
 def _copy_provenance(source):
     return _confirmation.FiscalizedConfirmationProvenance(
         fact_type=source.fact_type,
@@ -79,6 +100,10 @@ def _copy_provenance(source):
         adjustment_role=source.adjustment_role,
         fiscal_role=source.fiscal_role,
         fiscal_side=source.fiscal_side,
+        additional_fiscal_effects=tuple(
+            _copy_effect(effect)
+            for effect in source.additional_fiscal_effects
+        ),
     )
 
 
@@ -124,25 +149,35 @@ class FiscalPostingAuditSnapshot:
                 "omitted_zero_fiscal_line must be FiscalPostingAuditOmittedLine or None"
             )
 
-        fiscal_is_zero = self.provenance.rounded_fiscal_amount == Decimal("0")
-
-        if fiscal_is_zero:
+        zero_effects = tuple(
+            effect
+            for effect in self.provenance.fiscal_effects
+            if effect.rounded_fiscal_amount == Decimal("0")
+        )
+        if zero_effects:
             if self.zero_fiscal_line_policy == "reject_zero_fiscal_line":
                 raise ValueError(
-                    "zero fiscal amount cannot have reject policy in an audit of a posting instruction"
+                    "zero fiscal amount cannot have reject policy in an audit "
+                    "of a posting instruction"
+                )
+            if len(zero_effects) != 1:
+                raise ValueError(
+                    "singular omitted-line audit metadata cannot represent "
+                    "multiple zero fiscal effects"
                 )
             if self.omitted_zero_fiscal_line is None:
                 raise ValueError(
                     "omitted zero fiscal line metadata is required for zero fiscal amount"
                 )
+            effect = zero_effects[0]
             omitted = self.omitted_zero_fiscal_line
-            if omitted.account_role != self.provenance.fiscal_role:
+            if omitted.account_role != effect.fiscal_role:
                 raise ValueError("omitted fiscal role must match provenance")
-            if omitted.side != self.provenance.fiscal_side:
+            if omitted.side != effect.fiscal_side:
                 raise ValueError("omitted fiscal side must match provenance")
             if not _same_decimal(
                 omitted.amount,
-                self.provenance.rounded_fiscal_amount,
+                effect.rounded_fiscal_amount,
             ):
                 raise ValueError("omitted fiscal amount must match provenance")
         elif self.omitted_zero_fiscal_line is not None:
