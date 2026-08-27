@@ -34,6 +34,7 @@ Codigo	Nombre_OSC	Nombre_Comercial	Tipo_cuenta	Subtipo	Naturaleza	Descripción/u
 5103	Arrendamientos	Arrendamientos	Gasto	Operación	Deudora	Rentas de inmuebles o equipo
 5104	Mantenimiento y reparaciones	Mantenimiento y reparaciones	Gasto	Operación	Deudora	Conservación y reparación de activos
 5105	Transporte y mensajería	Fletes y transporte	Gasto	Operación	Deudora	Movilidad y envío de materiales
+5106	Depreciación y amortización	Depreciación y amortización	Gasto	Operación	Deudora	Reconocimiento periódico del consumo económico de activos fijos e intangibles
 5201	Sueldos	Sueldos	Gasto	Personal	Deudora	Pagos de nómina al personal operativo
 5202	Honorarios asimilados	Honorarios profesionales	Gasto	Personal	Deudora	Pagos a colaboradores externos
 5203	Cuotas IMSS e impuestos laborales	Cuotas IMSS e impuestos laborales	Gasto	Personal	Deudora	Obligaciones patronales
