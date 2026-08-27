@@ -21,6 +21,7 @@ def _initialize_canonical_db(tmp_path, monkeypatch):
     from aqorath.account_bindings import set_account_binding
     from aqorath.models import Account, EntityRecord, FixedAssetRecord
 
+    tmp_path.mkdir(parents=True, exist_ok=True)
     db_path = tmp_path / "aqorath-6n.db"
     monkeypatch.setenv("AQORATH_DB", str(db_path))
     storage.init_db(str(db_path), create_tables=True)
