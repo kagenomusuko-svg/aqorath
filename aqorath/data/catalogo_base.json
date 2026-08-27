@@ -1,5 +1,5 @@
 {
-  "version": "2025-11-01T03:11:26Z",
+  "version": "2026-08-27T20:03:37Z",
   "notes": "Generado desde assets/catalogo.xlsx",
   "accounts": {
     "1101": {
@@ -281,6 +281,14 @@
       "subtipo": "Operación",
       "naturaleza": "Deudora",
       "descripcion": "Movilidad y envío de materiales"
+    },
+    "5106": {
+      "name_osc": "Depreciación y amortización",
+      "name_comercial": "Depreciación y amortización",
+      "tipo": "Gasto",
+      "subtipo": "Operación",
+      "naturaleza": "Deudora",
+      "descripcion": "Reconocimiento periódico del consumo económico de activos fijos e intangibles"
     },
     "5201": {
       "name_osc": "Sueldos",
