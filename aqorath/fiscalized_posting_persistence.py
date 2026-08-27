@@ -118,6 +118,9 @@ def execute_fiscalized_posting_with_audit(instruction):
 
     audit_snapshot = _audit.create_fiscal_posting_audit_snapshot(instruction)
     entry_payload = _build_entry_payload(instruction)
+    additional_effects = (
+        instruction.confirmed_proposal.snapshot.provenance.additional_fiscal_effects
+    )
 
     session = None
     try:
@@ -133,7 +136,7 @@ def execute_fiscalized_posting_with_audit(instruction):
             audit_record = _build_audit_record(audit_snapshot, journal_entry.id)
             session.add(audit_record)
 
-            if audit_snapshot.provenance.additional_fiscal_effects:
+            if additional_effects:
                 session.flush()
                 if audit_record.id is None:
                     raise RuntimeError("fiscal audit staging returned no audit record identity")
