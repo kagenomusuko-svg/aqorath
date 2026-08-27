@@ -621,3 +621,16 @@ def post_confirmed_economic_fact(confirmed_proposal):
     """Build and execute posting only from a previously confirmed proposal."""
     instruction = _posting.create_posting_instruction(confirmed_proposal)
     return _posting_execution.execute_posting_instruction(instruction)
+
+
+from . import fixed_asset_depreciation_posting as _fixed_asset_depreciation_posting
+
+
+def create_fixed_asset_depreciation_posting_instruction(confirmed_depreciation):
+    return _fixed_asset_depreciation_posting.create_fixed_asset_depreciation_posting_instruction(
+        confirmed_depreciation
+    )
+
+
+def execute_fixed_asset_depreciation_posting(instruction):
+    return _fixed_asset_depreciation_posting.execute_fixed_asset_depreciation_posting(instruction)
