@@ -27,6 +27,8 @@ Public API includes the legacy template/trial-balance facade plus the economic-f
   - prepare_fiscal_confirmation(declared_calculation)
   - confirm_fiscal_treatment(snapshot)
   - round_confirmed_fiscal_amount(confirmed_treatment, policy)
+  - prepare_fiscal_monetary_confirmation(rounded_amount)
+  - confirm_fiscal_monetary_amount(snapshot)
 """
 
 from . import core as _core
@@ -43,6 +45,7 @@ from . import fiscal_applicability as _fiscal_applicability
 from . import fiscal_declaration_runtime as _fiscal_declaration_runtime
 from . import fiscal_confirmation as _fiscal_confirmation
 from . import fiscal_rounding as _fiscal_rounding
+from . import fiscal_monetary_confirmation as _fiscal_monetary_confirmation
 
 
 def list_templates():
@@ -153,6 +156,18 @@ def round_confirmed_fiscal_amount(confirmed_treatment, policy):
         confirmed_treatment,
         policy,
     )
+
+
+def prepare_fiscal_monetary_confirmation(rounded_amount):
+    """Prepare the exact rounded fiscal amount for explicit monetary confirmation."""
+    return _fiscal_monetary_confirmation.create_fiscal_monetary_confirmation_snapshot(
+        rounded_amount,
+    )
+
+
+def confirm_fiscal_monetary_amount(snapshot):
+    """Confirm exactly one previously prepared fiscal monetary snapshot."""
+    return _fiscal_monetary_confirmation.confirm_fiscal_monetary_snapshot(snapshot)
 
 
 def preview_economic_fact(fact):
