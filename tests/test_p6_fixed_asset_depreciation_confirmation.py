@@ -263,8 +263,8 @@ def test_real_configured_preparation_uses_persisted_bindings_and_supplied_sessio
     accounting_resolution = _accounting_resolution()
 
     with Session(engine) as session:
-        expense = Account(code="DEP-EXP", name="Depreciation expense", nature="DEBIT")
-        accumulated = Account(code="ACC-DEP", name="Accumulated depreciation", nature="CREDIT")
+        expense = Account(code="5106", name="Depreciación y amortización", nature="Deudora")
+        accumulated = Account(code="1205", name="Depreciación acumulada", nature="Acreedora")
         session.add(expense)
         session.add(accumulated)
         session.commit()
@@ -274,7 +274,7 @@ def test_real_configured_preparation_uses_persisted_bindings_and_supplied_sessio
         session.add(AccountRoleBinding(role="accumulated_depreciation", account_id=accumulated.id))
         session.commit()
 
-        account_map = {"DEP-EXP": expense, "ACC-DEP": accumulated}
+        account_map = {"5106": expense, "1205": accumulated}
         monkeypatch.setattr(
             aqorath.catalog,
             "resolve_account_by_code",
@@ -288,10 +288,10 @@ def test_real_configured_preparation_uses_persisted_bindings_and_supplied_sessio
 
     lines = prepared.confirmation_snapshot.lines
     assert lines[0].account_id == expense.id
-    assert lines[0].account_code == "DEP-EXP"
+    assert lines[0].account_code == "5106"
     assert lines[0].side == "debit"
     assert lines[1].account_id == accumulated.id
-    assert lines[1].account_code == "ACC-DEP"
+    assert lines[1].account_code == "1205"
     assert lines[1].side == "credit"
     assert lines[0].amount.as_tuple() == Decimal("33.33").as_tuple()
     assert lines[1].amount.as_tuple() == Decimal("33.33").as_tuple()
