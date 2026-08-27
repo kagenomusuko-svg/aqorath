@@ -45,6 +45,10 @@ Public API includes the legacy template/trial-balance facade plus the economic-f
   - get_active_entity(session)
   - register_fiscal_profile(session, profile)
   - get_fiscal_profile_for_date(session, entity_id, effective_date)
+  - create_third_party(session, third_party)
+  - get_third_party(session, entity_id, third_party_id)
+  - list_third_parties(session, entity_id, include_inactive=False)
+  - set_third_party_active(session, entity_id, third_party_id, is_active)
 """
 
 from . import core as _core
@@ -74,6 +78,7 @@ from . import fiscalized_posting_execution as _fiscalized_posting_execution
 from . import fiscalized_posting_persistence as _fiscalized_posting_persistence
 from . import fiscal_posting_audit_read as _fiscal_posting_audit_read
 from . import entity_repository as _entity_repository
+from . import third_party_repository as _third_party_repository
 
 
 def create_entity(session, entity):
@@ -97,6 +102,39 @@ def get_fiscal_profile_for_date(session, entity_id, effective_date):
         session,
         entity_id,
         effective_date,
+    )
+
+
+def create_third_party(session, third_party):
+    """Persist one explicit counterparty through the ThirdParty authority."""
+    return _third_party_repository.create_third_party(session, third_party)
+
+
+def get_third_party(session, entity_id, third_party_id):
+    """Load one Entity-scoped ThirdParty."""
+    return _third_party_repository.get_third_party(
+        session,
+        entity_id,
+        third_party_id,
+    )
+
+
+def list_third_parties(session, entity_id, include_inactive=False):
+    """List deterministic Entity-scoped counterparties."""
+    return _third_party_repository.list_third_parties(
+        session,
+        entity_id,
+        include_inactive,
+    )
+
+
+def set_third_party_active(session, entity_id, third_party_id, is_active):
+    """Activate or deactivate one ThirdParty without deleting its identity."""
+    return _third_party_repository.set_third_party_active(
+        session,
+        entity_id,
+        third_party_id,
+        is_active,
     )
 
 

@@ -114,6 +114,38 @@ class FiscalProfileRecord(SQLModel, table=True):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class ThirdPartyRecord(SQLModel, table=True):
+    """Persisted counterparty identity owned by one accounting Entity."""
+
+    __tablename__ = "thirdparty"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    entity_id: int = Field(
+        sa_column=Column(
+            Integer,
+            ForeignKey("entity.id"),
+            nullable=False,
+            index=True,
+        )
+    )
+    name: str = Field(sa_column=Column(String, nullable=False))
+    rfc: Optional[str] = Field(default=None, sa_column=Column(String, nullable=True))
+    email: Optional[str] = Field(default=None, sa_column=Column(String, nullable=True))
+    phone: Optional[str] = Field(default=None, sa_column=Column(String, nullable=True))
+    party_type: str = Field(sa_column=Column(String, nullable=False, index=True))
+    address: Optional[str] = Field(default=None, sa_column=Column(String, nullable=True))
+    contact_person: Optional[str] = Field(
+        default=None,
+        sa_column=Column(String, nullable=True),
+    )
+    notes: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    is_active: bool = Field(
+        default=True,
+        sa_column=Column(Boolean, nullable=False, index=True),
+    )
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class FiscalRuleVersion(SQLModel, table=True):
     """One exact, effective-dated fiscal rule record for one explicit context."""
 
