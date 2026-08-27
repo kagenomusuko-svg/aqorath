@@ -369,7 +369,7 @@ def _balances_from_sqlite(db_path: Optional[Path], as_of: Optional[str] = None) 
                 raise ValueError(f"Invalid as_of value: {as_of!r}") from e
 
         # P0-2: Aggregate in Python with Decimal arithmetic instead of SQLite SUM
-        # Read individual lines and sum in Python to preserve exact Decimal values
+        # Read individual lines and sum in Python with Decimal
         
         # Si ambas columnas existen
         if has_account_code and has_account_id:
@@ -599,124 +599,136 @@ def trial_balance(as_of: Optional[str] = None) -> Dict[str, Decimal]:
 
 
 # -------------------------
-# Persistence: low-level and wrapper
+# Persistence: shared staging + wrappers
 # -------------------------
-def _persist_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Persist an entry dict via ORM only.
-    ORM (SQLModel) is the sole persistence authority.
-    No raw SQLite fallback.
+def _stage_entry_in_session(session, entry):
+    """Stage one validated JournalEntry + JournalLines without committing.
 
-    entry = {
-      "description": str,
-      "date": datetime | str | None,
-      "doc_ref": str | None,
-      "period_id": int | None,
-      "posted_by": str | None,
-      "state": str,
-      "lines": [{"account_code":..., "account_id":..., "debit":..., "credit":...}, ...]
-    }
-
-    Returns {"ok": True, "entry_id": id} or {"ok": False, "error": msg}.
+    The supplied ORM session is the only persistence context. This primitive owns
+    account validation and construction of canonical accounting rows, but it never
+    opens a session, commits, or rolls back. Callers may therefore compose other
+    metadata into the same transaction before the single commit.
     """
+    if JournalEntry is None or JournalLine is None or Account is None:
+        return None, "ORM infrastructure (Account/JournalEntry/JournalLine) not available"
+    if not isinstance(entry, dict):
+        return None, "entry must be a dict"
+
     desc = entry.get("description", "") or ""
     lines = entry.get("lines", []) or []
+    resolved_accounts: Dict[int, Account] = {}
 
-    # P1-1: ORM as sole persistence authority
-    if JournalEntry is None or JournalLine is None or get_session is None:
-        return {"ok": False, "error": "ORM infrastructure (JournalEntry/JournalLine/get_session) not available"}
+    for ln_idx, ln in enumerate(lines):
+        account_id = ln.get("account_id")
+        account_code = ln.get("account_code")
 
-    try:
-        with get_session() as s:
-            # Resolve and validate accounts within same session
-            resolved_accounts: Dict[int, Account] = {}  # line_idx -> Account
+        if not account_id and not account_code:
+            return None, f"Línea {ln_idx}: ni account_id ni account_code proporcionados"
 
-            for ln_idx, ln in enumerate(lines):
-                account_id = ln.get("account_id")
-                account_code = ln.get("account_code")
-
-                # Both missing: invalid
-                if not account_id and not account_code:
-                    return {"ok": False, "error": f"Línea {ln_idx}: ni account_id ni account_code proporcionados"}
-
-                # Resolve account_id (if provided)
+        account = None
+        if account_id:
+            try:
+                account = session.get(Account, int(account_id))
+            except Exception:
                 account = None
-                if account_id:
-                    try:
-                        account = s.get(Account, int(account_id))
-                    except Exception:
-                        account = None
-                    if not account:
-                        return {"ok": False, "error": f"Línea {ln_idx}: account_id {account_id} no existe"}
+            if not account:
+                return None, f"Línea {ln_idx}: account_id {account_id} no existe"
 
-                # Resolve account_code (if provided)
-                if account_code:
-                    from sqlmodel import select
-                    try:
-                        sel = select(Account).where(Account.code == str(account_code))
-                        acc_by_code = s.exec(sel).one_or_none()
-                    except Exception:
-                        acc_by_code = None
-                    if not acc_by_code:
-                        return {"ok": False, "error": f"Línea {ln_idx}: account_code '{account_code}' no existe"}
+        if account_code:
+            from sqlmodel import select
+            try:
+                sel = select(Account).where(Account.code == str(account_code))
+                acc_by_code = session.exec(sel).one_or_none()
+            except Exception:
+                acc_by_code = None
+            if not acc_by_code:
+                return None, f"Línea {ln_idx}: account_code '{account_code}' no existe"
 
-                    # If both provided: verify same account
-                    if account and acc_by_code.id != account.id:
-                        return {"ok": False, "error": f"Línea {ln_idx}: account_id {account_id} y account_code '{account_code}' refieren cuentas distintas"}
-
-                    account = acc_by_code
-
-                if not account:
-                    return {"ok": False, "error": f"Línea {ln_idx}: no se pudo resolver cuenta"}
-
-                resolved_accounts[ln_idx] = account
-
-            # Build JournalEntry with correct fields
-            resolved_date = entry.get("date")
-            if resolved_date is None:
-                resolved_date = datetime.datetime.now(datetime.timezone.utc)
-            elif isinstance(resolved_date, str):
-                try:
-                    # Parse ISO format strictly
-                    resolved_date = datetime.datetime.fromisoformat(resolved_date.replace("Z", "+00:00"))
-                except Exception:
-                    return {"ok": False, "error": f"Invalid date format: {resolved_date}"}
-            elif isinstance(resolved_date, datetime.date) and not isinstance(resolved_date, datetime.datetime):
-                # Convert date to datetime
-                resolved_date = datetime.datetime.combine(resolved_date, datetime.time.min, tzinfo=datetime.timezone.utc)
-
-            # P1-1: ONE TRANSACTION for JournalEntry + JournalLines
-            je = JournalEntry(
-                date=resolved_date,
-                concept=desc,
-                doc_ref=entry.get("doc_ref"),
-                period_id=entry.get("period_id"),
-                posted_by=entry.get("posted_by"),
-                state=entry.get("state", "draft"),
-            )
-            s.add(je)
-            s.flush()  # Get je.id without commit
-
-            # Add all JournalLines
-            for ln_idx, ln in enumerate(lines):
-                account = resolved_accounts[ln_idx]
-                # P0-2: Use to_decimal_exact for safe monetary conversion
-                jl = JournalLine(
-                    entry_id=je.id,
-                    account_id=account.id,
-                    account_code=account.code,
-                    debit=str(to_decimal_exact(ln.get("debit") or 0)),
-                    credit=str(to_decimal_exact(ln.get("credit") or 0)),
-                    description=ln.get("description"),
+            if account and acc_by_code.id != account.id:
+                return None, (
+                    f"Línea {ln_idx}: account_id {account_id} y "
+                    f"account_code '{account_code}' refieren cuentas distintas"
                 )
-                s.add(jl)
+            account = acc_by_code
 
-            # SINGLE COMMIT for entire transaction
-            s.commit()
+        if not account:
+            return None, f"Línea {ln_idx}: no se pudo resolver cuenta"
+        resolved_accounts[ln_idx] = account
+
+    resolved_date = entry.get("date")
+    if resolved_date is None:
+        resolved_date = datetime.datetime.now(datetime.timezone.utc)
+    elif isinstance(resolved_date, str):
+        try:
+            resolved_date = datetime.datetime.fromisoformat(
+                resolved_date.replace("Z", "+00:00")
+            )
+        except Exception:
+            return None, f"Invalid date format: {resolved_date}"
+    elif isinstance(resolved_date, datetime.date) and not isinstance(
+        resolved_date, datetime.datetime
+    ):
+        resolved_date = datetime.datetime.combine(
+            resolved_date,
+            datetime.time.min,
+            tzinfo=datetime.timezone.utc,
+        )
+
+    je = JournalEntry(
+        date=resolved_date,
+        concept=desc,
+        doc_ref=entry.get("doc_ref"),
+        period_id=entry.get("period_id"),
+        posted_by=entry.get("posted_by"),
+        state=entry.get("state", "draft"),
+    )
+    session.add(je)
+    session.flush()
+
+    for ln_idx, ln in enumerate(lines):
+        account = resolved_accounts[ln_idx]
+        jl = JournalLine(
+            entry_id=je.id,
+            account_id=account.id,
+            account_code=account.code,
+            debit=str(to_decimal_exact(ln.get("debit") or 0)),
+            credit=str(to_decimal_exact(ln.get("credit") or 0)),
+            description=ln.get("description"),
+        )
+        session.add(jl)
+
+    return je, None
+
+
+def _persist_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
+    """Persist an entry dict through the canonical ORM staging primitive."""
+    if JournalEntry is None or JournalLine is None or get_session is None:
+        return {
+            "ok": False,
+            "error": "ORM infrastructure (JournalEntry/JournalLine/get_session) not available",
+        }
+
+    session = None
+    try:
+        with get_session() as session:
+            je, error = _stage_entry_in_session(session, entry)
+            if error is not None:
+                session.rollback()
+                return {"ok": False, "error": error}
+            if je is None or je.id is None:
+                session.rollback()
+                return {"ok": False, "error": "ORM staging returned no JournalEntry identity"}
+
+            session.commit()
             return {"ok": True, "entry_id": je.id}
 
     except Exception as e:
-        LOG.debug("ORM persistence failed: %s", exc_info=True)
+        if session is not None:
+            try:
+                session.rollback()
+            except Exception:
+                pass
+        LOG.debug("ORM persistence failed: %s", e, exc_info=True)
         return {"ok": False, "error": f"Error persisting entry: {str(e)}"}
 
 
