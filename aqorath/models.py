@@ -279,6 +279,40 @@ class JournalEntry(SQLModel, table=True):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class FixedAssetDepreciationPostingRecord(SQLModel, table=True):
+    """One-use persisted identity for one fixed-asset depreciation period."""
+
+    __tablename__ = "fixedassetdepreciationpostingrecord"
+    __table_args__ = (
+        UniqueConstraint(
+            "fixed_asset_id",
+            "period_number",
+            name="uq_fixed_asset_depreciation_period",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    fixed_asset_id: int = Field(
+        sa_column=Column(
+            Integer,
+            ForeignKey("fixedasset.id"),
+            nullable=False,
+            index=True,
+        )
+    )
+    period_number: int = Field(sa_column=Column(Integer, nullable=False))
+    entry_id: int = Field(
+        sa_column=Column(
+            Integer,
+            ForeignKey("journalentry.id"),
+            nullable=False,
+            index=True,
+        )
+    )
+    recognition_source_ref: str = Field(sa_column=Column(String, nullable=False))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class DocumentReferenceRecord(SQLModel, table=True):
     """Structured source-document metadata linked to one JournalEntry."""
 
