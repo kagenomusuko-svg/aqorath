@@ -57,6 +57,7 @@ def _resolved_proposal(accounting_resolution):
             amount=line.amount,
             account_id=index + 100,
             account_code=f"TEST-{index + 1}",
+            account_name=f"Test account {index + 1}",
         )
         for index, line in enumerate(proposal.lines)
     )
