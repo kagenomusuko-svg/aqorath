@@ -69,7 +69,7 @@ def _fresh_db(tmp_path, filename="entity-foundation.db"):
 
     db_path = tmp_path / filename
     result = migrate_database(str(db_path))
-    assert result["to_version"] == 5
+    assert result["to_version"] == 4
     engine = create_engine(f"sqlite:///{db_path}")
     return db_path, engine
 
@@ -235,13 +235,15 @@ def test_entity_repository_public_contracts_have_exact_signatures():
     assert str(inspect.signature(repository.resolve_fiscal_profile)) == "(session, entity_id, effective_date)"
 
 
-def test_schema_v5_creates_canonical_entity_profile_tables_foreign_keys_and_single_active_constraint(tmp_path):
+def test_frozen_v4_additively_creates_canonical_entity_profile_tables_foreign_keys_and_single_active_constraint(tmp_path):
     from aqorath.migrations import CURRENT_SCHEMA_VERSION, MIGRATIONS
 
-    assert CURRENT_SCHEMA_VERSION == 5
-    assert 5 in MIGRATIONS
+    # Phase 5AE/5AK froze v4. Phase 6A is additive and must not reinterpret it.
+    assert CURRENT_SCHEMA_VERSION == 4
+    assert 4 in MIGRATIONS
+    assert 5 not in MIGRATIONS
 
-    db_path, engine = _fresh_db(tmp_path, "fresh-v5.db")
+    db_path, engine = _fresh_db(tmp_path, "fresh-v4-entity-additive.db")
     engine.dispose()
 
     conn = sqlite3.connect(str(db_path))
@@ -306,10 +308,10 @@ def test_schema_v5_creates_canonical_entity_profile_tables_foreign_keys_and_sing
         conn.close()
 
 
-def test_schema_v4_migrates_to_v5_without_rewriting_existing_truth(tmp_path):
+def test_current_v4_additive_ensure_adds_entity_schema_without_rewriting_existing_truth(tmp_path):
     from aqorath.migrations import get_schema_version, migrate_database
 
-    db_path = tmp_path / "legacy-v4.db"
+    db_path = tmp_path / "existing-v4.db"
     conn = sqlite3.connect(str(db_path))
     try:
         conn.execute("CREATE TABLE fiscalpostingauditrecord (id INTEGER PRIMARY KEY)")
@@ -322,9 +324,9 @@ def test_schema_v4_migrates_to_v5_without_rewriting_existing_truth(tmp_path):
 
     result = migrate_database(str(db_path))
     assert result["from_version"] == 4
-    assert result["to_version"] == 5
-    assert result["migrated"] is True
-    assert get_schema_version(str(db_path)) == 5
+    assert result["to_version"] == 4
+    assert result["migrated"] is False
+    assert get_schema_version(str(db_path)) == 4
 
     conn = sqlite3.connect(str(db_path))
     try:
