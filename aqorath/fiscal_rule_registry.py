@@ -105,26 +105,7 @@ def _resolved(record):
     )
 
 
-def get_fiscal_rule_history(session, rule_key, context):
-    """Return immutable ordered history for one exact fiscal rule scope."""
-    _require_nonempty_string(rule_key, "rule_key")
-    _validate_context(context)
-
-    records = _load_records(session, rule_key, context)
-    _validate_existing_history(records)
-    return tuple(_resolved(record) for record in records)
-
-
-def register_fiscal_rule_version(session, registration):
-    """Append one governed fiscal-rule version transactionally.
-
-    The operation is monotonic within one exact rule/context scope. If the
-    current latest version is open-ended, it is closed on the calendar day
-    immediately before the new version starts. Existing value/provenance/start
-    fields are never rewritten. Missing legal rule data is never invented.
-    """
-    _validate_registration(registration)
-
+def _stage_validated_fiscal_rule_version(session, registration):
     records = _load_records(session, registration.rule_key, registration.context)
     _validate_existing_history(records)
 
@@ -156,11 +137,29 @@ def register_fiscal_rule_version(session, registration):
         source_ref=registration.source_ref,
     )
 
+    if latest is not None and latest.effective_to is None:
+        latest.effective_to = registration.effective_from - timedelta(days=1)
+        session.add(latest)
+    session.add(new_record)
+    return new_record
+
+
+def get_fiscal_rule_history(session, rule_key, context):
+    """Return immutable ordered history for one exact fiscal rule scope."""
+    _require_nonempty_string(rule_key, "rule_key")
+    _validate_context(context)
+
+    records = _load_records(session, rule_key, context)
+    _validate_existing_history(records)
+    return tuple(_resolved(record) for record in records)
+
+
+def register_fiscal_rule_version(session, registration):
+    """Append one governed fiscal-rule version transactionally."""
+    _validate_registration(registration)
+
     try:
-        if latest is not None and latest.effective_to is None:
-            latest.effective_to = registration.effective_from - timedelta(days=1)
-            session.add(latest)
-        session.add(new_record)
+        new_record = _stage_validated_fiscal_rule_version(session, registration)
         session.commit()
     except Exception:
         session.rollback()
@@ -169,8 +168,41 @@ def register_fiscal_rule_version(session, registration):
     return _resolved(new_record)
 
 
+def register_fiscal_rule_versions(session, registrations):
+    """Append a non-empty tuple of rule versions in one atomic transaction.
+
+    Registrations are applied in authored order. All basic values are validated
+    before staging begins. Database-history conflicts discovered while staging,
+    flush failures, and commit failures roll back every staged row and every
+    provisional closing of a prior open-ended version.
+    """
+    if not isinstance(registrations, tuple):
+        raise TypeError("registrations must be a tuple")
+    if not registrations:
+        raise ValueError("registrations must not be empty")
+
+    for registration in registrations:
+        _validate_registration(registration)
+
+    staged = []
+    try:
+        for registration in registrations:
+            record = _stage_validated_fiscal_rule_version(session, registration)
+            staged.append(record)
+            # Make each staged version visible to the next history query while
+            # keeping the whole batch inside the same uncommitted transaction.
+            session.flush()
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    return tuple(_resolved(record) for record in staged)
+
+
 __all__ = [
     "FiscalRuleRegistration",
     "register_fiscal_rule_version",
+    "register_fiscal_rule_versions",
     "get_fiscal_rule_history",
 ]
