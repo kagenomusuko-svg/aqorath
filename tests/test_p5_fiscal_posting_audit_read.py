@@ -304,7 +304,7 @@ def test_read_never_recalculates_rerounds_resolves_accounts_or_posts(tmp_path, m
         def forbidden(*args, **kwargs):
             raise AssertionError("persisted audit read cannot recalculate, resolve, or post")
 
-        monkeypatch.setattr(calculation, "calculate_fiscal_rate", forbidden)
+        monkeypatch.setattr(calculation, "calculate_fiscal_rate_amount", forbidden)
         monkeypatch.setattr(rounding, "round_confirmed_fiscal_amount", forbidden)
         monkeypatch.setattr(resolution, "resolve_fiscalized_accounts", forbidden)
         monkeypatch.setattr(core, "post_entry", forbidden)
