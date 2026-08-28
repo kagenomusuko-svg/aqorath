@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import List
 
+from .account_balance import ledger_signed_balance
+
 
 @dataclass(frozen=True)
 class EconomicFact:
@@ -120,7 +122,7 @@ class AccountingProposal:
             (line.amount for line in self.lines if line.side == "credit"),
             Decimal("0"),
         )
-        if total_debit != total_credit:
+        if ledger_signed_balance(total_debit, total_credit) != Decimal("0"):
             raise ValueError(
                 "Proposal must be balanced. "
                 f"total_debit={total_debit}, total_credit={total_credit}"
