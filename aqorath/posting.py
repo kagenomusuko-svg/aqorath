@@ -10,6 +10,7 @@ from decimal import Decimal
 from typing import Tuple
 
 from . import confirmation as _confirmation
+from .account_balance import ledger_signed_balance
 
 
 __all__ = [
@@ -89,7 +90,7 @@ def create_posting_instruction(confirmed_proposal):
     total_debit = sum((line.debit for line in lines), Decimal("0"))
     total_credit = sum((line.credit for line in lines), Decimal("0"))
 
-    if total_debit != total_credit:
+    if ledger_signed_balance(total_debit, total_credit) != Decimal("0"):
         raise ValueError(
             f"posting instruction is unbalanced: debit={total_debit} credit={total_credit}"
         )
