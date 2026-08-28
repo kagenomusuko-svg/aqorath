@@ -756,3 +756,11 @@ from . import explanation as _explanation
 def build_economic_fact_explanation(accounting_resolution):
     """Project existing accounting provenance into structured explanation data."""
     return _explanation.build_economic_fact_explanation(accounting_resolution)
+
+
+from . import explanation_presentation as _explanation_presentation
+
+
+def plan_explanation_presentation(explanation, user_state):
+    """Delegate adaptive explanation-presentation planning to its pure authority."""
+    return _explanation_presentation.plan_explanation_presentation(explanation, user_state)
