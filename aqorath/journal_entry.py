@@ -69,7 +69,7 @@ class JournalEntry:
             raise ValueError("posted or reversed entry must be balanced")
 
     def is_balanced(self):
-        """Return whether exact debit and credit totals are equal."""
-        total_debit = sum((line.debit for line in self.lines), Decimal("0"))
-        total_credit = sum((line.credit for line in self.lines), Decimal("0"))
-        return total_debit == total_credit
+        """Return whether the authoritative exact signed balance is zero."""
+        from .account_balance import journal_entry_signed_balance
+
+        return journal_entry_signed_balance(self) == Decimal("0")
