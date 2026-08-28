@@ -3,6 +3,7 @@
 from decimal import Decimal
 
 from .account import Account
+from .journal_line import JournalLine
 
 
 _ALLOWED_NATURES = frozenset({"debit", "credit"})
@@ -49,3 +50,19 @@ def normal_balance_for_account(account, debit_total, credit_total):
 
     signed_balance = ledger_signed_balance(debit_total, credit_total)
     return normal_balance_amount(signed_balance, account.nature)
+
+
+def journal_line_totals(lines):
+    """Sum exact debit and credit monetary truth from explicit lines."""
+    if type(lines) is not tuple:
+        raise TypeError("lines must be tuple")
+
+    debit_total = Decimal("0")
+    credit_total = Decimal("0")
+    for line in lines:
+        if not isinstance(line, JournalLine):
+            raise TypeError("lines items must be JournalLine")
+        debit_total += line.debit
+        credit_total += line.credit
+
+    return debit_total, credit_total
