@@ -782,3 +782,18 @@ def record_explanation_presentation(session, presentation_plan):
         session,
         updated,
     )
+
+
+from . import topic_learning as _topic_learning
+
+
+def record_user_topic_learning(session, topic, learned_at):
+    """Persist one explicit topic-learning acknowledgement."""
+    state = _user_knowledge_state_repository.get_user_knowledge_state(session)
+    if state is None:
+        raise LookupError("user knowledge state has not been initialized")
+    updated = _topic_learning.record_learned_topic(state, topic, learned_at)
+    return _user_knowledge_state_repository.update_user_knowledge_state(
+        session,
+        updated,
+    )
