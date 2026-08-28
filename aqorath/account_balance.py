@@ -3,6 +3,7 @@
 from decimal import Decimal
 
 from .account import Account
+from .journal_entry import JournalEntry
 from .journal_line import JournalLine
 
 
@@ -66,3 +67,11 @@ def journal_line_totals(lines):
         credit_total += line.credit
 
     return debit_total, credit_total
+
+
+def journal_entry_totals(entry):
+    """Project exact debit and credit totals from one explicit JournalEntry."""
+    if not isinstance(entry, JournalEntry):
+        raise TypeError("entry must be JournalEntry")
+
+    return journal_line_totals(entry.lines)
