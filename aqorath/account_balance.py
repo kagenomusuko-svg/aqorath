@@ -2,6 +2,8 @@
 
 from decimal import Decimal
 
+from .account import Account
+
 
 _ALLOWED_NATURES = frozenset({"debit", "credit"})
 
@@ -38,3 +40,12 @@ def normal_balance_amount(ledger_signed_balance, nature):
     if nature == "debit":
         return ledger_signed_balance
     return -ledger_signed_balance
+
+
+def normal_balance_for_account(account, debit_total, credit_total):
+    """Return the exact normal balance for one explicit Account."""
+    if not isinstance(account, Account):
+        raise TypeError("account must be Account")
+
+    signed_balance = ledger_signed_balance(debit_total, credit_total)
+    return normal_balance_amount(signed_balance, account.nature)
