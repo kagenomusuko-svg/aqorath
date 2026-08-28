@@ -805,3 +805,14 @@ from . import explanation_request as _explanation_request
 def plan_requested_explanation(explanation, user_state):
     """Delegate one-shot requested explanation planning to its pure authority."""
     return _explanation_request.plan_requested_explanation(explanation, user_state)
+
+
+from . import explanation_view as _explanation_view
+
+
+def build_explanation_presentation_view(explanation, presentation_plan):
+    """Delegate structured explanation view selection."""
+    return _explanation_view.build_explanation_presentation_view(
+        explanation,
+        presentation_plan,
+    )
