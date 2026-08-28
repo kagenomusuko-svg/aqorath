@@ -100,3 +100,9 @@ def journal_line_signed_balance(line):
         raise TypeError("line must be JournalLine")
 
     return ledger_signed_balance(line.debit, line.credit)
+
+
+def journal_lines_signed_balance(lines):
+    """Return exact debit-minus-credit signed balance for explicit lines."""
+    debit_total, credit_total = journal_line_totals(lines)
+    return ledger_signed_balance(debit_total, credit_total)
