@@ -86,6 +86,7 @@ def _ensure_additive_current_schema(db_path):
         _models.EntityProfileRecord.__table__.create(engine, checkfirst=True)
         _models.FiscalProfileRecord.__table__.create(engine, checkfirst=True)
         _models.ThirdPartyRecord.__table__.create(engine, checkfirst=True)
+        _models.DonationRecord.__table__.create(engine, checkfirst=True)
         _models.DocumentReferenceRecord.__table__.create(engine, checkfirst=True)
         _models.CfdiImportMetadataRecord.__table__.create(engine, checkfirst=True)
         _models.AnalyticalDimensionRecord.__table__.create(engine, checkfirst=True)

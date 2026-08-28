@@ -636,3 +636,36 @@ class ProgramRecord(SQLModel, table=True):
         sa_column=Column(Text, nullable=True),
     )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class DonationRecord(SQLModel, table=True):
+    """Persisted first-class OSC donation resource event owned by one Entity."""
+
+    __tablename__ = "donation"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    entity_id: int = Field(
+        sa_column=Column(
+            Integer,
+            ForeignKey("entity.id"),
+            nullable=False,
+            index=True,
+        )
+    )
+    date: str = Field(sa_column=Column(Text, nullable=False, index=True))
+    amount: str = Field(sa_column=Column(Text, nullable=False))
+    donor_third_party_id: Optional[int] = Field(
+        default=None,
+        sa_column=Column(
+            Integer,
+            ForeignKey("thirdparty.id"),
+            nullable=True,
+            index=True,
+        ),
+    )
+    purpose: Optional[str] = Field(
+        default=None,
+        sa_column=Column(Text, nullable=True),
+    )
+    is_restricted: bool = Field(sa_column=Column(Boolean, nullable=False))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

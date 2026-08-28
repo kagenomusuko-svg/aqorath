@@ -853,3 +853,21 @@ def get_program(session, entity_id, program_id):
 def list_programs(session, entity_id):
     """List deterministic Entity-scoped Programs through their authority."""
     return _program_repository.list_programs(session, entity_id)
+
+
+from . import donation_repository as _donation_repository
+
+
+def create_donation(session, donation):
+    """Persist one explicit OSC Donation through its authority."""
+    return _donation_repository.create_donation(session, donation)
+
+
+def get_donation(session, entity_id, donation_id):
+    """Load one Entity-scoped Donation through its authority."""
+    return _donation_repository.get_donation(session, entity_id, donation_id)
+
+
+def list_donations(session, entity_id):
+    """List deterministic Entity-scoped Donations through their authority."""
+    return _donation_repository.list_donations(session, entity_id)
