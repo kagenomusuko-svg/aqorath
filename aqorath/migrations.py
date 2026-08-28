@@ -73,6 +73,7 @@ def _ensure_additive_current_schema(db_path):
             checkfirst=True,
         )
         _models.EntityRecord.__table__.create(engine, checkfirst=True)
+        _models.ProgramRecord.__table__.create(engine, checkfirst=True)
         _models.FixedAssetRecord.__table__.create(engine, checkfirst=True)
         _models.FixedAssetDepreciationPostingRecord.__table__.create(
             engine,

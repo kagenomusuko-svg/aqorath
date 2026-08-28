@@ -610,3 +610,29 @@ class UserKnowledgeStateRecord(SQLModel, table=True):
     )
     learned_topics_json: str = Field(sa_column=Column(Text, nullable=False))
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ProgramRecord(SQLModel, table=True):
+    """Persisted first-class OSC management program owned by one Entity."""
+
+    __tablename__ = "program"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    entity_id: int = Field(
+        sa_column=Column(
+            Integer,
+            ForeignKey("entity.id"),
+            nullable=False,
+            index=True,
+        )
+    )
+    name: str = Field(sa_column=Column(String, nullable=False))
+    description: Optional[str] = Field(
+        default=None,
+        sa_column=Column(Text, nullable=True),
+    )
+    budget: Optional[str] = Field(
+        default=None,
+        sa_column=Column(Text, nullable=True),
+    )
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

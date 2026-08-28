@@ -835,3 +835,21 @@ def prepare_requested_explanation_presentation(accounting_resolution, user_state
         accounting_resolution,
         user_state,
     )
+
+
+from . import program_repository as _program_repository
+
+
+def create_program(session, program):
+    """Persist one explicit OSC Program through its authority."""
+    return _program_repository.create_program(session, program)
+
+
+def get_program(session, entity_id, program_id):
+    """Load one Entity-scoped Program through its authority."""
+    return _program_repository.get_program(session, entity_id, program_id)
+
+
+def list_programs(session, entity_id):
+    """List deterministic Entity-scoped Programs through their authority."""
+    return _program_repository.list_programs(session, entity_id)
