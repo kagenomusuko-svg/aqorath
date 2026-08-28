@@ -816,3 +816,22 @@ def build_explanation_presentation_view(explanation, presentation_plan):
         explanation,
         presentation_plan,
     )
+
+
+from . import explanation_delivery as _explanation_delivery
+
+
+def prepare_explanation_presentation(accounting_resolution, user_state):
+    """Delegate standard explanation delivery."""
+    return _explanation_delivery.prepare_explanation_presentation(
+        accounting_resolution,
+        user_state,
+    )
+
+
+def prepare_requested_explanation_presentation(accounting_resolution, user_state):
+    """Delegate requested explanation delivery."""
+    return _explanation_delivery.prepare_requested_explanation_presentation(
+        accounting_resolution,
+        user_state,
+    )
