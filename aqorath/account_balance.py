@@ -106,3 +106,8 @@ def journal_lines_signed_balance(lines):
     """Return exact debit-minus-credit signed balance for explicit lines."""
     debit_total, credit_total = journal_line_totals(lines)
     return ledger_signed_balance(debit_total, credit_total)
+
+
+def journal_lines_are_balanced(lines):
+    """Return whether explicit lines have exact zero signed balance."""
+    return journal_lines_signed_balance(lines) == Decimal("0")
