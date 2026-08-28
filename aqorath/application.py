@@ -764,3 +764,21 @@ from . import explanation_presentation as _explanation_presentation
 def plan_explanation_presentation(explanation, user_state):
     """Delegate adaptive explanation-presentation planning to its pure authority."""
     return _explanation_presentation.plan_explanation_presentation(explanation, user_state)
+
+
+from . import explanation_progression as _explanation_progression
+
+
+def record_explanation_presentation(session, presentation_plan):
+    """Record concepts from one completed presentation."""
+    state = _user_knowledge_state_repository.get_user_knowledge_state(session)
+    if state is None:
+        raise LookupError("user knowledge state has not been initialized")
+    updated = _explanation_progression.record_presented_concepts(
+        state,
+        presentation_plan,
+    )
+    return _user_knowledge_state_repository.update_user_knowledge_state(
+        session,
+        updated,
+    )
