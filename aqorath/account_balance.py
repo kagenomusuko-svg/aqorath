@@ -84,3 +84,11 @@ def journal_entry_signed_balance(entry):
 
     debit_total, credit_total = journal_entry_totals(entry)
     return ledger_signed_balance(debit_total, credit_total)
+
+
+def journal_line_normal_balance(line):
+    """Return one JournalLine's exact normal-balance effect."""
+    if not isinstance(line, JournalLine):
+        raise TypeError("line must be JournalLine")
+
+    return normal_balance_for_account(line.account, line.debit, line.credit)
