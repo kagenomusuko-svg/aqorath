@@ -669,3 +669,23 @@ class DonationRecord(SQLModel, table=True):
     )
     is_restricted: bool = Field(sa_column=Column(Boolean, nullable=False))
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class AuditEventRecord(SQLModel, table=True):
+    """Persisted append-only general traceability metadata owned by one Entity."""
+
+    __tablename__ = "auditevent"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    entity_id: int = Field(
+        sa_column=Column(
+            Integer,
+            ForeignKey("entity.id"),
+            nullable=False,
+            index=True,
+        )
+    )
+    event_type: str = Field(sa_column=Column(String, nullable=False, index=True))
+    timestamp: str = Field(sa_column=Column(Text, nullable=False, index=True))
+    details_json: str = Field(sa_column=Column(Text, nullable=False))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

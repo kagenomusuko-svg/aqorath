@@ -871,3 +871,18 @@ def get_donation(session, entity_id, donation_id):
 def list_donations(session, entity_id):
     """List deterministic Entity-scoped Donations through their authority."""
     return _donation_repository.list_donations(session, entity_id)
+
+
+from . import audit_event_repository as _audit_event_repository
+
+
+def create_audit_event(session, event):
+    return _audit_event_repository.create_audit_event(session, event)
+
+
+def get_audit_event(session, entity_id, event_id):
+    return _audit_event_repository.get_audit_event(session, entity_id, event_id)
+
+
+def list_audit_events(session, entity_id):
+    return _audit_event_repository.list_audit_events(session, entity_id)
