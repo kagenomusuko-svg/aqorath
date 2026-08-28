@@ -92,3 +92,11 @@ def journal_line_normal_balance(line):
         raise TypeError("line must be JournalLine")
 
     return normal_balance_for_account(line.account, line.debit, line.credit)
+
+
+def journal_line_signed_balance(line):
+    """Return one JournalLine's exact debit-minus-credit signed effect."""
+    if not isinstance(line, JournalLine):
+        raise TypeError("line must be JournalLine")
+
+    return ledger_signed_balance(line.debit, line.credit)
