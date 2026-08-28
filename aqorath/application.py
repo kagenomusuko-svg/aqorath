@@ -748,3 +748,11 @@ def get_user_knowledge_state(session):
 def update_user_knowledge_state(session, state):
     """Update the one local owner's explicit pedagogical and presentation state."""
     return _user_knowledge_state_repository.update_user_knowledge_state(session, state)
+
+
+from . import explanation as _explanation
+
+
+def build_economic_fact_explanation(accounting_resolution):
+    """Project existing accounting provenance into structured explanation data."""
+    return _explanation.build_economic_fact_explanation(accounting_resolution)
