@@ -12,6 +12,7 @@ from decimal import Decimal
 from typing import Optional, Tuple
 
 from . import fiscalized_account_resolution as _resolution
+from .account_balance import ledger_signed_balance
 
 
 @dataclass(frozen=True)
@@ -254,7 +255,7 @@ class FiscalizedConfirmationSnapshot:
             (line.amount for line in self.lines if line.side == "credit"),
             Decimal("0"),
         )
-        if total_debit != total_credit:
+        if ledger_signed_balance(total_debit, total_credit) != Decimal("0"):
             raise ValueError(
                 "fiscalized confirmation snapshot must be balanced: "
                 f"debit={total_debit} credit={total_credit}"
