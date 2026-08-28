@@ -75,6 +75,8 @@ Public API includes the legacy template/trial-balance facade plus the economic-f
   - execute_fixed_asset_depreciation_posting(instruction)
   - execute_fixed_asset_depreciation_posting_once(instruction)
   - load_fixed_asset_depreciation_posting(session, fixed_asset_id, period_number)
+  - execute_fixed_asset_acquisition_posting_once(instruction)
+  - load_fixed_asset_acquisition_posting(session, fixed_asset_id)
 """
 
 from . import core as _core
@@ -710,3 +712,21 @@ def create_fixed_asset_acquisition_posting_instruction(confirmed_acquisition):
 
 def execute_fixed_asset_acquisition_posting(instruction):
     return _fixed_asset_acquisition_posting.execute_fixed_asset_acquisition_posting(instruction)
+
+
+from . import fixed_asset_acquisition_persistence as _fixed_asset_acquisition_persistence
+
+
+def execute_fixed_asset_acquisition_posting_once(instruction):
+    """Persist one confirmed fixed-asset acquisition atomically and at most once."""
+    return _fixed_asset_acquisition_persistence.execute_fixed_asset_acquisition_posting_once(
+        instruction
+    )
+
+
+def load_fixed_asset_acquisition_posting(session, fixed_asset_id):
+    """Load one persisted fixed-asset acquisition identity through its authority."""
+    return _fixed_asset_acquisition_persistence.load_fixed_asset_acquisition_posting(
+        session,
+        fixed_asset_id,
+    )
