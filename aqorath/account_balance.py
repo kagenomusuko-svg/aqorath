@@ -75,3 +75,12 @@ def journal_entry_totals(entry):
         raise TypeError("entry must be JournalEntry")
 
     return journal_line_totals(entry.lines)
+
+
+def journal_entry_signed_balance(entry):
+    """Return the exact debit-minus-credit signed balance of one JournalEntry."""
+    if not isinstance(entry, JournalEntry):
+        raise TypeError("entry must be JournalEntry")
+
+    debit_total, credit_total = journal_entry_totals(entry)
+    return ledger_signed_balance(debit_total, credit_total)
