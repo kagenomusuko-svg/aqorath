@@ -797,3 +797,11 @@ def record_user_topic_learning(session, topic, learned_at):
         session,
         updated,
     )
+
+
+from . import explanation_request as _explanation_request
+
+
+def plan_requested_explanation(explanation, user_state):
+    """Delegate one-shot requested explanation planning to its pure authority."""
+    return _explanation_request.plan_requested_explanation(explanation, user_state)
