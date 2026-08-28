@@ -14,6 +14,7 @@ from decimal import Decimal
 from typing import Optional, Tuple
 
 from . import fiscalized_confirmation as _confirmation
+from .account_balance import ledger_signed_balance
 
 
 _ALLOWED_ZERO_POLICIES = (
@@ -231,7 +232,7 @@ class FiscalizedPostingInstruction:
 
         total_debit = sum((line.debit for line in self.lines), Decimal("0"))
         total_credit = sum((line.credit for line in self.lines), Decimal("0"))
-        if total_debit != total_credit:
+        if ledger_signed_balance(total_debit, total_credit) != Decimal("0"):
             raise ValueError(
                 "fiscalized posting instruction must remain balanced: "
                 f"debit={total_debit} credit={total_credit}"
