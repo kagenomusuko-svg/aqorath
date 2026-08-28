@@ -137,7 +137,7 @@ def _migrate_0_to_1(db_path):
 def _migrate_account_legacy(conn):
     """Add governed-extension columns to a legacy Account table."""
     cursor = conn.execute("PRAGMA table_info(account)")
-    columns = {row[1]: row[2] for row in cursor.fetchall()}
+    columns = {row[1] for row in cursor.fetchall()}
 
     if "origin" not in columns:
         conn.execute(
