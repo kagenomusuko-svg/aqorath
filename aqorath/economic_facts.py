@@ -49,6 +49,8 @@ class EconomicFact:
                 f"amount must be Decimal (exact monetary authority). "
                 f"Got: {type(self.amount).__name__}."
             )
+        if not self.amount.is_finite():
+            raise ValueError("amount must be finite")
 
         if self.amount <= 0:
             raise ValueError(
@@ -93,6 +95,8 @@ class ProposalLine:
             raise TypeError(
                 f"amount must be Decimal. Got: {type(self.amount).__name__}"
             )
+        if not self.amount.is_finite():
+            raise ValueError("amount must be finite")
         if self.amount <= 0:
             raise ValueError(f"amount must be > 0. Got: {self.amount}")
 
