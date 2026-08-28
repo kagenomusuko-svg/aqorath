@@ -51,12 +51,12 @@ class PersistedFixedAssetAcquisitionPosting:
             raise TypeError("posting_date must be an exact date")
         if (
             type(self.asset_class) is not str
-            or self.asset_class not in _fixed_asset_acquisition._ASSET_DEBIT_ROLE
+            or self.asset_class not in _fixed_asset_acquisition._ASSET_CLASS_DEBIT_ROLES
         ):
             raise ValueError("asset_class is not a supported acquisition classification")
         if (
             type(self.settlement_method) is not str
-            or self.settlement_method not in _fixed_asset_acquisition._SETTLEMENT_CREDIT_ROLE
+            or self.settlement_method not in _fixed_asset_acquisition._SETTLEMENT_CREDIT_ROLES
         ):
             raise ValueError("settlement_method is not a supported acquisition settlement")
 
