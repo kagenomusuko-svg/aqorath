@@ -548,3 +548,40 @@ class Asset(SQLModel, table=True):
     # P0-2: Changed from float to str to preserve exact Decimal representation.
     value: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class FixedAssetAcquisitionPostingRecord(SQLModel, table=True):
+    """One-use persisted identity and semantic provenance for one asset acquisition."""
+
+    __tablename__ = "fixedassetacquisitionpostingrecord"
+    __table_args__ = (
+        UniqueConstraint(
+            "fixed_asset_id",
+            name="uq_fixed_asset_acquisition_asset",
+        ),
+        UniqueConstraint(
+            "entry_id",
+            name="uq_fixed_asset_acquisition_entry",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    fixed_asset_id: int = Field(
+        sa_column=Column(
+            Integer,
+            ForeignKey("fixedasset.id"),
+            nullable=False,
+            index=True,
+        )
+    )
+    entry_id: int = Field(
+        sa_column=Column(
+            Integer,
+            ForeignKey("journalentry.id"),
+            nullable=False,
+            index=True,
+        )
+    )
+    asset_class: str = Field(sa_column=Column(String, nullable=False))
+    settlement_method: str = Field(sa_column=Column(String, nullable=False))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
