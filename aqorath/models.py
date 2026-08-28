@@ -585,3 +585,28 @@ class FixedAssetAcquisitionPostingRecord(SQLModel, table=True):
     asset_class: str = Field(sa_column=Column(String, nullable=False))
     settlement_method: str = Field(sa_column=Column(String, nullable=False))
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+from sqlalchemy import CheckConstraint
+
+
+class UserKnowledgeStateRecord(SQLModel, table=True):
+    """Persisted singleton local pedagogical and presentation preference state."""
+
+    __tablename__ = "userknowledgestate"
+    __table_args__ = (
+        CheckConstraint("id = 1", name="ck_user_knowledge_state_singleton"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    explanation_level: str = Field(sa_column=Column(String, nullable=False))
+    concepts_seen_json: str = Field(sa_column=Column(Text, nullable=False))
+    ui_language: str = Field(sa_column=Column(String, nullable=False))
+    decimal_separator: str = Field(sa_column=Column(String, nullable=False))
+    currency_symbol: str = Field(sa_column=Column(String, nullable=False))
+    preferred_report_format: str = Field(sa_column=Column(String, nullable=False))
+    always_show_professional_view: bool = Field(
+        sa_column=Column(Boolean, nullable=False)
+    )
+    learned_topics_json: str = Field(sa_column=Column(Text, nullable=False))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

@@ -730,3 +730,21 @@ def load_fixed_asset_acquisition_posting(session, fixed_asset_id):
         session,
         fixed_asset_id,
     )
+
+
+from . import user_knowledge_state_repository as _user_knowledge_state_repository
+
+
+def create_user_knowledge_state(session, state):
+    """Persist the one local owner's explicit pedagogical and presentation state."""
+    return _user_knowledge_state_repository.create_user_knowledge_state(session, state)
+
+
+def get_user_knowledge_state(session):
+    """Load the local owner's explicit pedagogical and presentation state."""
+    return _user_knowledge_state_repository.get_user_knowledge_state(session)
+
+
+def update_user_knowledge_state(session, state):
+    """Update the one local owner's explicit pedagogical and presentation state."""
+    return _user_knowledge_state_repository.update_user_knowledge_state(session, state)
