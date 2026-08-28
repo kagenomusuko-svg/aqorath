@@ -93,6 +93,7 @@ def _ensure_additive_current_schema(db_path):
             engine,
             checkfirst=True,
         )
+        _models.UserKnowledgeStateRecord.__table__.create(engine, checkfirst=True)
     finally:
         engine.dispose()
 
