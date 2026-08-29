@@ -215,7 +215,6 @@ def test_does_not_reenter_event_account_or_fiscal_resolution():
         preparation.create_fiscalized_economic_event_posting_instruction
     ).lower()
     for forbidden in (
-        "economic_event",
         "resolve_fiscalized_economic_event_accounts",
         "compose_fiscal_economic_accounting_from_event",
         "resolve_fiscalized_proposal_accounts",
