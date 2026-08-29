@@ -10,7 +10,7 @@ from decimal import Decimal
 from typing import Tuple
 
 from . import confirmation as _confirmation
-from .account_balance import ledger_signed_balance
+from .account_balance import _exact_decimal_sum, ledger_signed_balance
 
 
 __all__ = [
@@ -87,8 +87,8 @@ def create_posting_instruction(confirmed_proposal):
         raise ValueError("posting instruction requires at least one line")
 
     lines = tuple(posting_lines)
-    total_debit = sum((line.debit for line in lines), Decimal("0"))
-    total_credit = sum((line.credit for line in lines), Decimal("0"))
+    total_debit = _exact_decimal_sum([line.debit for line in lines])
+    total_credit = _exact_decimal_sum([line.credit for line in lines])
 
     if ledger_signed_balance(total_debit, total_credit) != Decimal("0"):
         raise ValueError(

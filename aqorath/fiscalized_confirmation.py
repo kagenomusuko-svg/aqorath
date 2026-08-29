@@ -12,7 +12,7 @@ from decimal import Decimal
 from typing import Optional, Tuple
 
 from . import fiscalized_account_resolution as _resolution
-from .account_balance import ledger_signed_balance
+from .account_balance import _exact_decimal_sum, ledger_signed_balance
 
 
 @dataclass(frozen=True)
@@ -247,13 +247,11 @@ class FiscalizedConfirmationSnapshot:
         if not isinstance(self.provenance, FiscalizedConfirmationProvenance):
             raise TypeError("provenance must be FiscalizedConfirmationProvenance")
 
-        total_debit = sum(
-            (line.amount for line in self.lines if line.side == "debit"),
-            Decimal("0"),
+        total_debit = _exact_decimal_sum(
+            [line.amount for line in self.lines if line.side == "debit"]
         )
-        total_credit = sum(
-            (line.amount for line in self.lines if line.side == "credit"),
-            Decimal("0"),
+        total_credit = _exact_decimal_sum(
+            [line.amount for line in self.lines if line.side == "credit"]
         )
         if ledger_signed_balance(total_debit, total_credit) != Decimal("0"):
             raise ValueError(

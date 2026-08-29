@@ -11,7 +11,7 @@ from decimal import Decimal
 from typing import Tuple
 
 from . import fiscal_economic_composition as _composition
-from .account_balance import ledger_signed_balance
+from .account_balance import _exact_decimal_sum, ledger_signed_balance
 
 
 @dataclass(frozen=True)
@@ -36,23 +36,13 @@ class FiscalizedProposalLine:
 
 
 def _fiscal_delta(declaration):
-    debit = sum(
-        (
-            effect.line.amount
-            for effect in declaration.fiscal_effects
-            if effect.line.side == "debit"
-        ),
-        Decimal("0"),
-    )
-    credit = sum(
-        (
-            effect.line.amount
-            for effect in declaration.fiscal_effects
-            if effect.line.side == "credit"
-        ),
-        Decimal("0"),
-    )
-    return credit - debit
+    signed_amounts = []
+    for effect in declaration.fiscal_effects:
+        if effect.line.side == "credit":
+            signed_amounts.append(effect.line.amount)
+        else:
+            signed_amounts.append(effect.line.amount.copy_negate())
+    return _exact_decimal_sum(signed_amounts)
 
 
 def _adjusted_amount(source, declaration):
@@ -61,9 +51,9 @@ def _adjusted_amount(source, declaration):
 
     delta = _fiscal_delta(declaration)
     if source.side == "debit":
-        result = source.amount + delta
+        result = _exact_decimal_sum([source.amount, delta])
     else:
-        result = source.amount - delta
+        result = _exact_decimal_sum([source.amount, delta.copy_negate()])
 
     if result < Decimal("0"):
         raise ValueError("fiscal composition cannot make an accounting line negative")
@@ -149,13 +139,11 @@ class FiscalizedAccountingProposal:
                     "appended fiscal amount must match fiscal effect exactly"
                 )
 
-        total_debit = sum(
-            (line.amount for line in self.lines if line.side == "debit"),
-            Decimal("0"),
+        total_debit = _exact_decimal_sum(
+            [line.amount for line in self.lines if line.side == "debit"]
         )
-        total_credit = sum(
-            (line.amount for line in self.lines if line.side == "credit"),
-            Decimal("0"),
+        total_credit = _exact_decimal_sum(
+            [line.amount for line in self.lines if line.side == "credit"]
         )
         if ledger_signed_balance(total_debit, total_credit) != Decimal("0"):
             raise ValueError(
