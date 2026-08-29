@@ -8,7 +8,7 @@ Supported deterministic verticals:
 - receivable collection by bank: debit ``bank``, credit ``accounts_receivable``;
 - supplier payment by bank: debit ``accounts_payable``, credit ``bank``.
 
-This module is pure domain logic: no catalog, storage, SQLite, posting, or external
+This module is pure domain logic: no catalog, storage, SQLite, journal execution, or external
 services. It describes WHAT happened using semantic account roles only.
 """
 
