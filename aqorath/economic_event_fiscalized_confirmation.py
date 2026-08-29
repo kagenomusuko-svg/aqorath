@@ -1,4 +1,4 @@
-"""Prepare informed fiscalized confirmation content from one EconomicEvent."""
+"""Prepare and explicitly confirm fiscalized EconomicEvent confirmation truth."""
 
 from . import economic_event_fiscalized_account_resolution as _event_resolution
 from . import fiscalized_confirmation as _confirmation
@@ -22,3 +22,8 @@ def prepare_fiscalized_economic_event_confirmation(
         account_bindings,
     )
     return _confirmation.create_fiscalized_confirmation_snapshot(resolved_proposal)
+
+
+def confirm_fiscalized_economic_event(snapshot):
+    """Confirm exactly one previously prepared fiscalized EconomicEvent snapshot."""
+    return _confirmation.confirm_fiscalized_snapshot(snapshot)
