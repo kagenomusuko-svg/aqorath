@@ -28,6 +28,13 @@ def _require_text(value, field_name):
         )
 
 
+def _authoritative_signed_value(entry):
+    """Resolve the signed-value authority lazily to preserve the dependency boundary."""
+    from .account_balance import journal_entry_signed_balance
+
+    return journal_entry_signed_balance(entry)
+
+
 @dataclass(frozen=True)
 class JournalEntry:
     """Describe one immutable accounting entry and its exact lifecycle state."""
@@ -69,7 +76,5 @@ class JournalEntry:
             raise ValueError("posted or reversed entry must be balanced")
 
     def is_balanced(self):
-        """Return whether the authoritative exact signed balance is zero."""
-        from .account_balance import journal_entry_signed_balance
-
-        return journal_entry_signed_balance(self) == Decimal("0")
+        """Return whether the authoritative exact signed value is zero."""
+        return _authoritative_signed_value(self) == Decimal("0")
