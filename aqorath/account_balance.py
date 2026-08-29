@@ -17,6 +17,37 @@ def _require_decimal(value, field_name):
         raise ValueError(f"{field_name} must be finite")
 
 
+def _exact_decimal_sum(values):
+    """Sum finite Decimals exactly without depending on ambient context precision."""
+    if not values:
+        return Decimal("0")
+
+    parts_list = [value.as_tuple() for value in values]
+    common_exponent = min(parts.exponent for parts in parts_list)
+    total_coefficient = 0
+
+    for parts in parts_list:
+        coefficient = 0
+        for digit in parts.digits:
+            coefficient = coefficient * 10 + digit
+        if parts.sign:
+            coefficient = -coefficient
+        total_coefficient += coefficient * (10 ** (parts.exponent - common_exponent))
+
+    sign = int(total_coefficient < 0)
+    magnitude = abs(total_coefficient)
+    if magnitude == 0:
+        digits = (0,)
+    else:
+        reversed_digits = []
+        while magnitude:
+            magnitude, digit = divmod(magnitude, 10)
+            reversed_digits.append(digit)
+        digits = tuple(reversed(reversed_digits))
+
+    return Decimal((sign, digits, common_exponent))
+
+
 def ledger_signed_balance(debit_total, credit_total):
     """Return the exact algebraic balance: debit total minus credit total."""
     _require_decimal(debit_total, "debit_total")
@@ -69,15 +100,15 @@ def journal_line_totals(lines):
     if type(lines) is not tuple:
         raise TypeError("lines must be tuple")
 
-    debit_total = Decimal("0")
-    credit_total = Decimal("0")
+    debit_values = []
+    credit_values = []
     for line in lines:
         if not isinstance(line, JournalLine):
             raise TypeError("lines items must be JournalLine")
-        debit_total += line.debit
-        credit_total += line.credit
+        debit_values.append(line.debit)
+        credit_values.append(line.credit)
 
-    return debit_total, credit_total
+    return _exact_decimal_sum(debit_values), _exact_decimal_sum(credit_values)
 
 
 def journal_entry_totals(entry):
