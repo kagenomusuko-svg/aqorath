@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import List
 
-from .account_balance import ledger_signed_balance
+from .account_balance import _exact_decimal_sum, ledger_signed_balance
 
 
 @dataclass(frozen=True)
@@ -118,13 +118,11 @@ class AccountingProposal:
                 f"Supported proposals must have exactly 2 entries. Got {len(self.lines)}"
             )
 
-        total_debit = sum(
-            (line.amount for line in self.lines if line.side == "debit"),
-            Decimal("0"),
+        total_debit = _exact_decimal_sum(
+            [line.amount for line in self.lines if line.side == "debit"]
         )
-        total_credit = sum(
-            (line.amount for line in self.lines if line.side == "credit"),
-            Decimal("0"),
+        total_credit = _exact_decimal_sum(
+            [line.amount for line in self.lines if line.side == "credit"]
         )
         if ledger_signed_balance(total_debit, total_credit) != Decimal("0"):
             raise ValueError(
