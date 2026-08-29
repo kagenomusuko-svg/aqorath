@@ -207,21 +207,25 @@ def test_balance_authority_is_called_exactly_once(monkeypatch):
     assert len(calls) == 1
 
 
-def test_authoritative_zero_accepts_raw_total_difference_after_structure_checks(monkeypatch):
+def test_unbalanced_confirmation_is_rejected_before_posting_authority(monkeypatch):
     import aqorath.fiscalized_posting as posting
 
+    calls = []
     monkeypatch.setattr(
         posting,
         "ledger_signed_balance",
-        lambda debit_total, credit_total: Decimal("0"),
+        lambda debit_total, credit_total: calls.append(
+            (debit_total, credit_total)
+        ) or Decimal("0"),
     )
 
-    instruction = _create(_confirmed(cash_amount="117.00"))
+    # Phase 6BK.2 made the confirmation snapshot itself an exact balance boundary.
+    # Therefore an unbalanced confirmed input can no longer be fabricated here to
+    # exercise a raw-total override at the later posting boundary.
+    with pytest.raises(ValueError, match="confirmation snapshot must be balanced"):
+        _confirmed(cash_amount="117.00")
 
-    assert instruction.lines[0].debit == Decimal("117.00")
-    assert sum((line.credit for line in instruction.lines), Decimal("0")) == Decimal(
-        "116.00"
-    )
+    assert calls == []
 
 
 def test_authoritative_positive_signed_balance_rejects_matching_raw_totals(monkeypatch):
