@@ -1,6 +1,6 @@
 """Pure exact balance-sign semantics for accounting amounts."""
 
-from decimal import Decimal
+from decimal import Decimal, localcontext
 
 from .account import Account
 from .journal_entry import JournalEntry
@@ -27,7 +27,16 @@ def ledger_signed_balance(debit_total, credit_total):
     if credit_total < Decimal("0"):
         raise ValueError("credit_total must be nonnegative")
 
-    return debit_total - credit_total
+    debit_parts = debit_total.as_tuple()
+    credit_parts = credit_total.as_tuple()
+    common_exponent = min(debit_parts.exponent, credit_parts.exponent)
+    required_precision = max(
+        len(debit_parts.digits) + debit_parts.exponent - common_exponent,
+        len(credit_parts.digits) + credit_parts.exponent - common_exponent,
+    ) + 1
+    with localcontext() as context:
+        context.prec = required_precision
+        return debit_total - credit_total
 
 
 def normal_balance_amount(ledger_signed_balance, nature):
@@ -41,7 +50,9 @@ def normal_balance_amount(ledger_signed_balance, nature):
 
     if nature == "debit":
         return ledger_signed_balance
-    return -ledger_signed_balance
+    if ledger_signed_balance.is_zero():
+        return ledger_signed_balance.copy_abs()
+    return ledger_signed_balance.copy_negate()
 
 
 def normal_balance_for_account(account, debit_total, credit_total):
