@@ -24,7 +24,7 @@ from aqorath.money import to_decimal_exact
 # Version Control
 # ============================================================
 
-CURRENT_SCHEMA_VERSION = 5
+CURRENT_SCHEMA_VERSION = 6
 """Schema 5 adds explicit calendar metadata; v4 ledger truth remains intact."""
 
 # ============================================================
@@ -448,6 +448,13 @@ def _validate_calendar_schema(db_path):
             if found != columns:
                 raise RuntimeError(f'Invalid schema 5 calendar table: {table}')
 
+def _validate_reversal_schema(db_path):
+    with sqlite3.connect(str(db_path)) as conn:
+        found = {r[1] for r in conn.execute('PRAGMA table_info(journalentryreversal)')}
+    required = {'id', 'original_entry_id', 'reversal_entry_id', 'reason', 'created_at'}
+    if found != required:
+        raise RuntimeError('Invalid schema 6 reversal table')
+
 
 def _migrate_4_to_5(db_path):
     """Add explicit calendar metadata; preserve all historical dates/states/IDs."""
@@ -462,12 +469,23 @@ def _migrate_4_to_5(db_path):
         engine.dispose()
 
 
+def _migrate_5_to_6(db_path):
+    from aqorath.models import JournalEntryReversalRecord
+    from sqlalchemy import create_engine
+    engine = create_engine(f"sqlite:///{db_path}")
+    try:
+        JournalEntryReversalRecord.__table__.create(engine, checkfirst=True)
+    finally:
+        engine.dispose()
+
+
 MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
     3: _migrate_2_to_3,
     4: _migrate_3_to_4,
     5: _migrate_4_to_5,
+    6: _migrate_5_to_6,
 }
 """Registry of migration callables. Key: target version."""
 
@@ -610,6 +628,7 @@ def migrate_database(db_path) -> dict:
         if db_path.exists() and not validate_sqlite_integrity(str(db_path)):
             raise RuntimeError(f"Database {db_path} is corrupt")
         _validate_calendar_schema(db_path)
+        _validate_reversal_schema(db_path)
         _ensure_additive_current_schema(str(db_path))
         return {
             "from_version": current_version,
@@ -640,6 +659,7 @@ def migrate_database(db_path) -> dict:
 
     _ensure_additive_current_schema(str(db_path))
     _validate_calendar_schema(db_path)
+    _validate_reversal_schema(db_path)
     return {
         "from_version": current_version,
         "to_version": CURRENT_SCHEMA_VERSION,

@@ -73,7 +73,7 @@ def _fresh_db(tmp_path, filename="program.db"):
 
     db_path = tmp_path / filename
     result = migrate_database(str(db_path))
-    assert result["to_version"] == 5
+    assert result["to_version"] == 6
     return db_path, create_engine(f"sqlite:///{db_path}")
 
 
@@ -221,7 +221,7 @@ def test_frozen_v4_additively_creates_exact_program_schema_with_entity_fk_and_te
     from aqorath.migrations import CURRENT_SCHEMA_VERSION
     from aqorath.models import ProgramRecord
 
-    assert CURRENT_SCHEMA_VERSION == 5
+    assert CURRENT_SCHEMA_VERSION == 6
     assert ProgramRecord.__tablename__ == "program"
 
     db_path, engine = _fresh_db(tmp_path, "schema.db")
@@ -271,12 +271,12 @@ def test_current_v4_additive_ensure_adds_program_without_rewriting_existing_trut
     result = migrate_database(str(db_path))
     assert result == {
         "from_version": 4,
-        "to_version": 5,
+        "to_version": 6,
         "migrated": True,
         "backup_path": result["backup_path"],
     }
     assert __import__("pathlib").Path(result["backup_path"]).is_file()
-    assert get_schema_version(str(db_path)) == 5
+    assert get_schema_version(str(db_path)) == 6
 
     conn = sqlite3.connect(str(db_path))
     try:
