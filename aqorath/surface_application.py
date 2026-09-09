@@ -207,6 +207,22 @@ def _fiscal_dict(snapshot):
     }
 
 
+def list_professional_operations(limit=50):
+    """List recent persisted policy identities without creating a shadow index."""
+    with _storage.get_session() as session:
+        rows = _operation_read.list_professional_accounting_operations(session, limit)
+    return [
+        {
+            "entry_id": row.entry_id,
+            "posting_date": row.posting_date.isoformat(),
+            "concept": row.concept,
+            "state": row.state,
+            "period_id": row.period_id,
+        }
+        for row in rows
+    ]
+
+
 def load_professional_operation(entry_id):
     """Load one persisted professional projection through the read authorities."""
     with _storage.get_session() as session:
@@ -296,6 +312,7 @@ __all__ = [
     "common_preview",
     "professional_preview",
     "confirm_and_post",
+    "list_professional_operations",
     "load_professional_operation",
     "get_professional_trial_balance",
     "get_surface_entity",
