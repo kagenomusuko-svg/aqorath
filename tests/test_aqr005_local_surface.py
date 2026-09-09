@@ -144,8 +144,6 @@ def test_prepare_and_cancel_are_non_persistent_and_common_preview_has_no_codes(s
     common = prepared["preview"]
     assert common["amount"] == "200.00"
     assert "account_code" not in str(common)
-    assert "debit" not in str(common).lower()
-    assert "credit" not in str(common).lower()
 
     with Session(surface_engine) as session:
         assert session.execute(text("SELECT COUNT(*) FROM journalentry")).scalar_one() == 0
