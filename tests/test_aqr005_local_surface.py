@@ -84,6 +84,7 @@ def test_web_surface_has_only_local_product_routes_and_no_generated_api_docs():
         "/api/operations/{token}/professional-preview",
         "/api/operations/{token}/confirm",
         "/api/operations/{token}",
+        "/api/professional/operations",
         "/api/operations/{entry_id}/professional",
         "/api/trial-balance",
     } <= paths
@@ -183,8 +184,11 @@ def test_confirm_posts_once_and_professional_view_reads_same_ledger_period_and_a
 
     assert result["state"] == "posted"
     assert controller.pending_count == 0
-    view = controller.professional_operation(result["entry_id"])
+    recent = controller.recent_professional_operations()
+    assert [row["entry_id"] for row in recent] == [result["entry_id"]]
+    assert recent[0]["state"] == "posted"
 
+    view = controller.professional_operation(result["entry_id"])
     assert view["entry_id"] == result["entry_id"]
     assert view["state"] == "posted"
     assert view["posting_date"] == expected["posting_date"]
@@ -201,6 +205,22 @@ def test_confirm_posts_once_and_professional_view_reads_same_ledger_period_and_a
     assert view["documents"] == []
     assert view["fiscal_audit"] is None
     assert view["reversal"] is None
+
+
+def test_recent_professional_index_is_ledger_backed_and_newest_first(surface_engine):
+    from aqorath.presentation_controller import LocalPresentationController
+
+    controller = LocalPresentationController()
+    first = controller.prepare("sale_cash", "10.00", date.today().isoformat())
+    first_result = controller.confirm(first["token"])
+    second = controller.prepare("sale_cash", "20.00", date.today().isoformat())
+    second_result = controller.confirm(second["token"])
+
+    rows = controller.recent_professional_operations(limit=10)
+    assert [row["entry_id"] for row in rows] == [second_result["entry_id"], first_result["entry_id"]]
+    with Session(surface_engine) as session:
+        persisted = session.execute(text("SELECT id FROM journalentry ORDER BY id DESC")).scalars().all()
+    assert [row["entry_id"] for row in rows] == list(persisted)
 
 
 def test_closed_period_failure_is_inherited_from_aqr002_not_reimplemented_in_ui(surface_engine):
@@ -238,6 +258,10 @@ def test_http_functions_are_thin_delegates_without_framework_test_client(monkeyp
             calls.append(("confirm", token))
             return {"entry_id": 9, "audit_event_id": 4, "state": "posted"}
 
+        def recent_professional_operations(self, limit):
+            calls.append(("recent", limit))
+            return [{"entry_id": 9}]
+
     fake = FakeController()
     monkeypatch.setattr(web_surface, "controller", fake)
 
@@ -245,7 +269,9 @@ def test_http_functions_are_thin_delegates_without_framework_test_client(monkeyp
         {"operation_key": "sale_cash", "amount": "10.50", "posting_date": "2026-09-09"}
     )["token"] == "x"
     assert web_surface.confirm_operation("x")["entry_id"] == 9
+    assert web_surface.recent_professional_operations(25) == [{"entry_id": 9}]
     assert calls == [
         ("prepare", "sale_cash", "10.50", "2026-09-09"),
         ("confirm", "x"),
+        ("recent", 25),
     ]
