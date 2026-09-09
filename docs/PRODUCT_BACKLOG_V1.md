@@ -50,6 +50,12 @@ No volver a tratar como tareas nuevas, salvo defecto probado:
 
 **Estado:** `NEXT`
 
+### Entrega preparada para revisión
+
+Contrato único: [PRODUCT_ACCEPTANCE_V1.md](PRODUCT_ACCEPTANCE_V1.md), preparado en la rama `aqr-001-product-acceptance-matrix`. Incluye operaciones, límites, evidencia técnica y guiones de aceptación profesional/humana. No modifica runtime.
+
+Se conserva `NEXT`: falta incorporación autorizada a `main` para cerrar conforme a `INSTRUCCIONES.md` §10. No iniciar AQR-002 ni reconstruir esta matriz; revisar la entrega y su evidencia.
+
 ### Resultado de producto
 
 Definir de forma verificable qué significa “Aqorath V1 funciona” para cada nicho soportado, evitando que el proyecto siga creciendo por acumulación de módulos sin una frontera de terminación.
