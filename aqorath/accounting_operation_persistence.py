@@ -1,10 +1,14 @@
 """Atomic persistence adapter for the AQR-004 ordinary accounting use case.
 
-This is deliberately an adapter, not a posting engine.  It converts the existing
+This is deliberately an adapter, not a posting engine. It converts the existing
 ``PostingInstruction`` with the existing posting payload adapter, stages the entry
 through ``core._stage_entry_in_session`` and appends one general ``AuditEvent`` in
-the same transaction.  Period, ledger and persistence invariants therefore remain
+the same transaction. Period, ledger and persistence invariants therefore remain
 owned by their existing authorities.
+
+AQR-006 reuses ``stage_posting_with_audit`` so additional operational metadata can
+be staged before the same single commit; the original public executor remains the
+transaction-owning wrapper for ordinary operations.
 """
 
 from datetime import datetime, timezone
@@ -95,8 +99,8 @@ def _audit_details(confirmed_decision, entry_id):
     }
 
 
-def execute_posting_with_audit(instruction, confirmed_decision):
-    """Persist one confirmed ordinary decision as posted + AuditEvent atomically."""
+def stage_posting_with_audit(session, instruction, confirmed_decision):
+    """Stage posted ledger truth + general audit without committing the caller session."""
     _validate_instruction(instruction, confirmed_decision)
     payload = _posting_execution.build_posting_payload(instruction)
     payload.update(
@@ -104,38 +108,48 @@ def execute_posting_with_audit(instruction, confirmed_decision):
         state="posted",
     )
 
+    journal_entry, error = _core._stage_entry_in_session(session, payload)
+    if error is not None:
+        raise AccountingOperationPersistenceError(error)
+    if journal_entry is None or journal_entry.id is None:
+        raise AccountingOperationPersistenceError(
+            "accounting staging returned no JournalEntry identity"
+        )
+
+    entity = _entity_repository.load_active_entity(session)
+    if entity is None or entity.id is None:
+        raise AccountingOperationPersistenceError(
+            "active Entity is required for accounting audit evidence"
+        )
+
+    audit_event = _audit_repository.stage_audit_event(
+        session,
+        AuditEvent(
+            id=None,
+            entity_id=entity.id,
+            event_type="entry_posted",
+            timestamp=datetime.now(timezone.utc),
+            details=_audit_details(confirmed_decision, journal_entry.id),
+        ),
+    )
+    return _decision.AccountingOperationResult(
+        entry_id=journal_entry.id,
+        audit_event_id=audit_event.id,
+    )
+
+
+def execute_posting_with_audit(instruction, confirmed_decision):
+    """Persist one confirmed ordinary decision as posted + AuditEvent atomically."""
     session = None
     try:
         with _storage.get_session() as session:
-            journal_entry, error = _core._stage_entry_in_session(session, payload)
-            if error is not None:
-                raise AccountingOperationPersistenceError(error)
-            if journal_entry is None or journal_entry.id is None:
-                raise AccountingOperationPersistenceError(
-                    "accounting staging returned no JournalEntry identity"
-                )
-
-            entity = _entity_repository.load_active_entity(session)
-            if entity is None or entity.id is None:
-                raise AccountingOperationPersistenceError(
-                    "active Entity is required for accounting audit evidence"
-                )
-
-            audit_event = _audit_repository.stage_audit_event(
+            result = stage_posting_with_audit(
                 session,
-                AuditEvent(
-                    id=None,
-                    entity_id=entity.id,
-                    event_type="entry_posted",
-                    timestamp=datetime.now(timezone.utc),
-                    details=_audit_details(confirmed_decision, journal_entry.id),
-                ),
+                instruction,
+                confirmed_decision,
             )
             session.commit()
-            return _decision.AccountingOperationResult(
-                entry_id=journal_entry.id,
-                audit_event_id=audit_event.id,
-            )
+            return result
     except Exception:
         if session is not None:
             try:
@@ -147,5 +161,6 @@ def execute_posting_with_audit(instruction, confirmed_decision):
 
 __all__ = [
     "AccountingOperationPersistenceError",
+    "stage_posting_with_audit",
     "execute_posting_with_audit",
 ]
