@@ -5,7 +5,7 @@ from decimal import Decimal
 from inspect import Parameter, signature
 
 import pytest
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 
 def _assert_signature(fn, names):
@@ -14,6 +14,46 @@ def _assert_signature(fn, names):
     for parameter in sig.parameters.values():
         assert parameter.kind is Parameter.POSITIONAL_OR_KEYWORD
         assert parameter.default is Parameter.empty
+
+
+def _attach_balanced_lines(session, entry_id):
+    """Give audit-read fixtures a valid persisted ledger state.
+
+    Phase 5AH tests exercise audit reconstruction, not permission to persist an empty
+    JournalEntry. Keep their accounting fixture valid under the canonical R4 boundary.
+    """
+    from aqorath.models import Account, JournalLine
+
+    accounts = {}
+    for code, name, nature in (
+        ("1102", "Caja chica", "DEBIT"),
+        ("4201", "Venta de productos elaborados", "CREDIT"),
+    ):
+        account = session.exec(select(Account).where(Account.code == code)).one_or_none()
+        if account is None:
+            account = Account(code=code, name=name, nature=nature)
+            session.add(account)
+            session.flush()
+        accounts[code] = account
+
+    session.add_all(
+        (
+            JournalLine(
+                entry_id=entry_id,
+                account_id=accounts["1102"].id,
+                account_code="1102",
+                debit="1.00",
+                credit="0",
+            ),
+            JournalLine(
+                entry_id=entry_id,
+                account_id=accounts["4201"].id,
+                account_code="4201",
+                debit="0",
+                credit="1.00",
+            ),
+        )
+    )
 
 
 def _seed(session, *, concept="Venta fiscalizada confirmada", overrides=None):
@@ -26,6 +66,7 @@ def _seed(session, *, concept="Venta fiscalizada confirmada", overrides=None):
     )
     session.add(entry)
     session.flush()
+    _attach_balanced_lines(session, entry.id)
 
     values = {
         "entry_id": entry.id,
@@ -221,6 +262,8 @@ def test_read_existing_entry_without_fiscal_audit_fails_closed(tmp_path, monkeyp
     try:
         entry = JournalEntry(date=datetime.now(timezone.utc), concept="Histórico", state="draft")
         session.add(entry)
+        session.flush()
+        _attach_balanced_lines(session, entry.id)
         session.commit()
         with pytest.raises(LookupError, match="audit|fiscal"):
             load_fiscal_posting_audit_snapshot(session, entry.id)
