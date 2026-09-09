@@ -4,7 +4,7 @@
 
 Este documento concreta el contrato de producto solicitado por [PRODUCT_BACKLOG_V1.md](PRODUCT_BACKLOG_V1.md), subordinado a la [Constitución](AQORATH_CONSTITUTION_V1.md) y a [INSTRUCCIONES.md](../INSTRUCCIONES.md). No sustituye el backlog ni crea una secuencia de fases. Los identificadores `V1-xx` son casos de aceptación, no tareas nuevas.
 
-Estado de entrega de AQR-001: contrato preparado para revisión e incorporación; **no aceptado en main todavía**. La tarea conserva `NEXT` hasta cumplir el protocolo de cierre. Esta matriz define resultados futuros: no certifica que hoy estén disponibles.
+Estado de entrega de AQR-001: **incorporada y aceptada en main mediante PR #31**, merge `bff58de7cad11de6c2ab37c0d3e0b7b6c20ae003`, con autorización expresa del usuario. Esta matriz define resultados futuros: no certifica que hoy estén disponibles.
 
 ## 1. Frontera de producto
 
@@ -315,4 +315,4 @@ Las tasas/fechas históricas del archivo son evidencia del código, no certifica
 
 ## 7. Continuidad de esta entrega
 
-AQR-001 permanece como único `NEXT` mientras esta entrega no se incorpore a `main`. No iniciar AQR-002 en paralelo por considerar terminado el documento. Tras autorización explícita de fusión, aplicar el cierre de INSTRUCCIONES §10: registrar commit/PR aceptado, marcar AQR-001 `DONE`, pasar únicamente AQR-002 a `NEXT` y alinear los punteros SIGUIENTE. La auditoría V2 sólo cambia si cambian materialmente capacidades/arquitectura; esta matriz no declara cambios de runtime.
+AQR-001 está incorporada mediante PR #31 y queda DONE en el backlog. El siguiente trabajo es la única tarea NEXT allí registrada, inicialmente AQR-002. No reconstruir la matriz ni interpretar las fichas como capacidades de runtime ya terminadas. La continuidad y la autorización operativa se rigen por INSTRUCCIONES.md; la auditoría V2 sólo cambia si cambian materialmente capacidades/arquitectura.

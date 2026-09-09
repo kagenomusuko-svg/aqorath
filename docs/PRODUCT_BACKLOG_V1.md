@@ -48,13 +48,13 @@ No volver a tratar como tareas nuevas, salvo defecto probado:
 
 ## AQR-001 — Matriz de aceptación del producto V1
 
-**Estado:** `NEXT`
+**Estado:** `DONE`
 
-### Entrega preparada para revisión
+### Aceptación
 
-Contrato único: [PRODUCT_ACCEPTANCE_V1.md](PRODUCT_ACCEPTANCE_V1.md), preparado en la rama `aqr-001-product-acceptance-matrix`. Incluye operaciones, límites, evidencia técnica y guiones de aceptación profesional/humana. No modifica runtime.
+Contrato único: [PRODUCT_ACCEPTANCE_V1.md](PRODUCT_ACCEPTANCE_V1.md), incorporado por [PR #31](https://github.com/kagenomusuko-svg/aqorath/pull/31) en `bff58de7cad11de6c2ab37c0d3e0b7b6c20ae003` el 2026-09-09, con autorización expresa del usuario.
 
-Se conserva `NEXT`: falta incorporación autorizada a `main` para cerrar conforme a `INSTRUCCIONES.md` §10. No iniciar AQR-002 ni reconstruir esta matriz; revisar la entrega y su evidencia.
+Diff completo revisado: sólo matriz y enlace de continuidad; 22 fichas, campos de aceptación y límites explícitos. CI del head `049656de46d8a5cc4f479ce5c07c8960be3b7474`: **1912 passed, 8 warnings**, [run 34381734672](https://github.com/kagenomusuko-svg/aqorath/actions/runs/34381734672). El árbol del merge coincide con el head revisado. No cambia runtime ni declara completados los flujos futuros de la matriz.
 
 ### Resultado de producto
 
@@ -111,7 +111,7 @@ Ninguna. Es el próximo paso porque gobierna el alcance de todas las tareas post
 
 ## AQR-002 — Períodos contables y ejercicio fiscal como autoridades de dominio
 
-**Estado:** `TODO`
+**Estado:** `NEXT`
 
 ### Resultado de producto
 
@@ -510,4 +510,4 @@ Al completar una tarea:
 
 ## SIGUIENTE ACTUAL
 
-`AQR-001 — Matriz de aceptación del producto V1`.
+`AQR-002 — Períodos contables y ejercicio fiscal como autoridades de dominio`.
