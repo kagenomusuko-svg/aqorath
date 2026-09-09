@@ -1,8 +1,8 @@
 """Canonical persistence invariants for journal lines.
 
-This module is deliberately small and side-effect free.  It defines the last
-monetary/accounting checks that every ORM persistence path must satisfy before a
-journal entry can become durable.
+This module is deliberately small and side-effect free. It defines the monetary
+and accounting checks that every ORM persistence path must satisfy before a journal
+entry can become durable.
 """
 
 from __future__ import annotations
@@ -32,10 +32,34 @@ def _exact_money(value: Any, *, field: str, index: int) -> Decimal:
         ) from exc
 
     if not amount.is_finite():
-        raise LedgerInvariantError(
-            f"JournalLine {index}: {field} must be finite"
-        )
+        raise LedgerInvariantError(f"JournalLine {index}: {field} must be finite")
     return amount
+
+
+def validate_journal_line_money(line: Any, *, index: int = 0) -> tuple[Decimal, Decimal]:
+    """Validate invariants that are always meaningful for one line in isolation.
+
+    This deliberately does not require entry/account identity. ORM relationships may
+    materialize foreign-key ids only during a flush. Aggregate identity and balance
+    checks belong to the final pre-commit validation of the complete JournalEntry.
+    """
+
+    debit = _exact_money(_field(line, "debit"), field="debit", index=index)
+    credit = _exact_money(_field(line, "credit"), field="credit", index=index)
+
+    if debit < 0 or credit < 0:
+        raise LedgerInvariantError(
+            f"JournalLine {index}: debit and credit must be non-negative"
+        )
+
+    debit_positive = debit > 0
+    credit_positive = credit > 0
+    if debit_positive == credit_positive:
+        raise LedgerInvariantError(
+            f"JournalLine {index}: exactly one of debit or credit must be positive"
+        )
+
+    return debit, credit
 
 
 def validate_journal_lines(lines: Iterable[Any]) -> None:
@@ -62,33 +86,13 @@ def validate_journal_lines(lines: Iterable[Any]) -> None:
         account_code = _field(line, "account_code")
 
         if entry_id is None:
-            raise LedgerInvariantError(
-                f"JournalLine {index}: entry_id is required"
-            )
+            raise LedgerInvariantError(f"JournalLine {index}: entry_id is required")
         if account_id is None:
-            raise LedgerInvariantError(
-                f"JournalLine {index}: account_id is required"
-            )
+            raise LedgerInvariantError(f"JournalLine {index}: account_id is required")
         if account_code is None or not str(account_code).strip():
-            raise LedgerInvariantError(
-                f"JournalLine {index}: account_code is required"
-            )
+            raise LedgerInvariantError(f"JournalLine {index}: account_code is required")
 
-        debit = _exact_money(_field(line, "debit"), field="debit", index=index)
-        credit = _exact_money(_field(line, "credit"), field="credit", index=index)
-
-        if debit < 0 or credit < 0:
-            raise LedgerInvariantError(
-                f"JournalLine {index}: debit and credit must be non-negative"
-            )
-
-        debit_positive = debit > 0
-        credit_positive = credit > 0
-        if debit_positive == credit_positive:
-            raise LedgerInvariantError(
-                f"JournalLine {index}: exactly one of debit or credit must be positive"
-            )
-
+        debit, credit = validate_journal_line_money(line, index=index)
         total_debit += debit
         total_credit += credit
 
