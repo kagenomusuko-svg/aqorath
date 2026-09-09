@@ -145,13 +145,15 @@ AQR-001.
 
 ## AQR-003 — Inmutabilidad de pólizas consolidadas y correcciones por reversión
 
-**Estado:** `DONE`
+**Estado:** `NEXT`
 
 ### Aceptación y correcciones verificadas
 
 La autoridad de persistencia rechaza modificar o borrar una póliza `posted`. La corrección usa staging canónico para crear una reversión balanceada, conserva el asiento original en estado `reversed`, exige motivo y registra la relación uno-a-uno en `journalentryreversal`. La migración 5→6 es aditiva y fail-closed. Incorporada mediante [PR #35](https://github.com/kagenomusuko-svg/aqorath/pull/35), merge `5f881d64350e43844fa744b15b003683c66b5414`. CI verde (run 34387491439); suite completa local: **1938 passed, 8 warnings**. Diff completo revisado y sin regresión conocida.
 
 La comprobación de cierre de PR #36 reprodujo dos omisiones del PR #35: edición balanceada de líneas posted y ausencia de AuditEvent al revertir. PR #36 las corrige sobre los mismos listeners/staging y repositorio de auditoría; además protege reversed/identidades y prueba rollback incluso ante error capturado, así como corrección 150→120 con tres pólizas y dos eventos. La afirmación de aceptación previa al PR #36 fue prematura; el CI del PR #35 no cubría estos casos.
+
+Decisión material pendiente: [correcciones de ejercicios cerrados](AQR_003_CLOSED_YEAR_DECISION.md). El PR #36 permanece borrador con trabajo técnico preparado; no corresponde cerrar AQR-003 ni adelantar AQR-004 mientras se elige ese efecto contable.
 
 ### Resultado de producto
 
@@ -176,7 +178,7 @@ AQR-002.
 
 ## AQR-004 — Caso de uso unificado: hecho económico → decisión → consentimiento → posting → auditoría
 
-**Estado:** `NEXT`
+**Estado:** `TODO`
 
 ### Resultado de producto
 
@@ -520,4 +522,4 @@ Al completar una tarea:
 
 ## SIGUIENTE ACTUAL
 
-`AQR-004 — Caso de uso unificado: hecho económico → decisión → consentimiento → posting → auditoría`.
+`AQR-003 — Inmutabilidad de pólizas consolidadas y correcciones por reversión`.

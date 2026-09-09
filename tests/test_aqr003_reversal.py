@@ -104,6 +104,27 @@ def test_posted_identity_change_and_forged_reversed_state_are_rejected(posted):
         with pytest.raises(LedgerInvariantError): s.commit()
 
 
+def test_closed_year_correction_is_not_silently_charged_to_new_year(posted, tmp_path):
+    from aqorath.exercise import close_exercise
+    from aqorath.reversal import reverse_posted_entry
+    from aqorath.models import Account
+    from aqorath.accounting_period_repository import open_fiscal_year
+    engine,eid=posted
+    year=date.today().year
+    with Session(engine) as s:
+        s.add(Account(code='3104',name='Acumulado',nature='CREDIT'));s.commit()
+        if not s.execute(text('SELECT year FROM fiscalyear WHERE year=:y'),{'y':year+1}).first():
+            open_fiscal_year(s,year+1);s.commit()
+    assert close_exercise(year=year,out_root=tmp_path/'backups')['ok']
+    with Session(engine) as s:
+        count=s.execute(text('SELECT COUNT(*) FROM journalentry')).scalar()
+        with pytest.raises(PeriodError,match='explicit accounting policy'):
+            reverse_posted_entry(s,eid,'prior year error',date(year+1,1,1))
+        s.commit()
+        assert s.execute(text('SELECT COUNT(*) FROM journalentry')).scalar()==count
+        assert s.execute(text('SELECT COUNT(*) FROM journalentryreversal')).scalar()==0
+
+
 def test_posted_is_immutable_and_reversal_is_atomic(tmp_path, monkeypatch):
     import aqorath.storage as storage
     from aqorath.core import post_entry

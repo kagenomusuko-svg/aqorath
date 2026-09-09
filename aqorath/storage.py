@@ -225,7 +225,7 @@ def _register_journal_invariant_listener():
 
         for obj in list(session.deleted):
             if isinstance(obj, JournalEntry) and obj.id is not None:
-                persisted_state = session.connection().execute(text('SELECT state FROM journalentry WHERE id=:id'), {'id': obj.id}).scalar()
+                persisted_state = session.connection().execute(text('SELECT state FROM journalentry WHERE id=:id'), {'id': sa_inspect(obj).identity[0]}).scalar()
                 if persisted_state in ("posted", "reversed"):
                     raise LedgerInvariantError("Posted JournalEntry cannot be deleted; use reversal")
                 deleted_ids.add(int(obj.id))
@@ -248,8 +248,8 @@ def _register_journal_invariant_listener():
                 affected_ids.add(int(current_entry_id))
             owners = set(history.deleted)
             owners.add(current_entry_id)
-            if obj.id is not None:
-                owners.add(session.connection().execute(text('SELECT entry_id FROM journalline WHERE id=:id'), {'id': obj.id}).scalar())
+            if state.identity is not None:
+                owners.add(session.connection().execute(text('SELECT entry_id FROM journalline WHERE id=:id'), {'id': state.identity[0]}).scalar())
             staged_ids = {e.id for e in new_entries}
             for owner_id in owners - staged_ids - {None}:
                 owner_state = session.connection().execute(text('SELECT state FROM journalentry WHERE id=:id'), {'id': owner_id}).scalar()

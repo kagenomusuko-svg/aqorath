@@ -362,7 +362,7 @@ Se localizaron abiertos #2, #11, #13, #14, #15, #16, #18 y #19. Contienen decisi
 
 ### P0 — integridad contable bloqueante
 
-**Ninguno conocido en este corte.**
+**Corte histórico PR #30: ninguno conocido.** La verificación de PR #36 reproduce protección incompleta de líneas posted y ausencia de AuditEvent en la reversión de PR #35. Las correcciones están preparadas, no fusionadas; consultar §19 antes de usar esa ruta.
 
 Esto significa “no identificado por la suite y revisión actual”, no “imposible que exista”.
 
@@ -412,7 +412,7 @@ Contrato aprobado: [AQR_002_PERIOD_DECISION.md](AQR_002_PERIOD_DECISION.md). Se 
 
 El cierre ahora cancela ingresos/costos/gastos del ejercicio y acumula el resultado en 3104, conservando el staging canónico y un respaldo validado. Requiere diciembre abierto y año explícito. No reabre períodos ni duplica un cierre anterior.
 
-El calendario de bases legadas requiere declaración explícita del inicio, estados históricos y correspondencias incompatibles; no se infieren con la migración de esquema. AQR-003 ya incorpora inmutabilidad y reversión canónica; AQR-004 sigue la orquestación. No se amplía el alcance fiscal V1 ni se declara una UI productiva.
+El calendario de bases legadas requiere declaración explícita del inicio, estados históricos y correspondencias incompatibles; no se infieren con la migración de esquema. AQR-003 continúa su aceptación antes de AQR-004. No se amplía el alcance fiscal V1 ni se declara una UI productiva.
 
 Evidencia nueva: 24 casos en `tests/test_aqr002_accounting_periods.py` y regresión completa. La incorporación y CI del main resultante se registran en el cierre del backlog.
 
@@ -421,4 +421,4 @@ Evidencia nueva: 24 casos en `tests/test_aqr002_accounting_periods.py` y regresi
 
 PR #35 incorporó la inmutabilidad de pólizas posted en la frontera de persistencia y el flujo canónico de reversión. La migración 5→6 añade `journalentryreversal` de manera aditiva. La reversión invierte líneas exactas, conserva el original como `reversed`, exige motivo y bloquea duplicados y destinos cerrados. La suite completa del PR quedó verde.
 
-Corrección de ese corte en PR #36: faltaban protección de líneas/identidad y estados reversed, y AuditEvent transaccional. Se reprodujo la modificación de dos líneas posted de 150 a 120 y una reversión con cero eventos. El cierre incorpora esas protecciones, auditoría mediante el repositorio existente y corrección compuesta sobre staging. No implica invalidar los fundamentos anteriores ni ampliar cobertura fiscal.
+Corrección de ese corte preparada, todavía sin incorporar a main, en PR #36: faltaban protección de líneas/identidad y estados reversed, y AuditEvent transaccional. Se reprodujo la modificación de dos líneas posted de 150 a 120 y una reversión con cero eventos. El borrador contiene esas protecciones, auditoría mediante el repositorio existente y corrección compuesta sobre staging. No implica invalidar los fundamentos anteriores ni ampliar cobertura fiscal. La aceptación espera la decisión documentada en `AQR_003_CLOSED_YEAR_DECISION.md` sobre ejercicios cerrados.

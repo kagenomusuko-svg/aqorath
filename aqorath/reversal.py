@@ -58,6 +58,11 @@ def _stage_reversal(session, entry_id, reason, reversal_date):
         raise LookupError("Journal entry not found")
     if row["state"] != "posted":
         raise PeriodError("Only a posted entry can be reversed")
+    from .accounting_period import accounting_date
+    from .accounting_period_repository import load_fiscal_year
+    source_year = load_fiscal_year(session, accounting_date(row['date']).year)
+    if source_year.state == 'closed':
+        raise PeriodError('Correction of a closed fiscal year requires an explicit accounting policy')
     if session.execute(text("SELECT id FROM journalentryreversal WHERE original_entry_id=:id"), {"id": entry_id}).first():
         raise PeriodError("Journal entry already has a reversal")
     lines = session.execute(text("SELECT account_code,debit,credit,description FROM journalline WHERE entry_id=:id ORDER BY id"), {"id": entry_id}).mappings().all()

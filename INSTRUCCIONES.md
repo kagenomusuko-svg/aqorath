@@ -171,7 +171,9 @@ Una tarea sólo pasa de `NEXT` a `DONE` cuando:
 
 ## 11. SIGUIENTE
 
-**`AQR-004 — Caso de uso unificado: hecho económico → decisión → consentimiento → posting → auditoría`**
+**`AQR-003 — Inmutabilidad de pólizas consolidadas y correcciones por reversión`**
+
+La comprobación de PR #36 encontró defectos reproducibles del cierre AQR-003 y una decisión no resuelta sobre correcciones de ejercicios cerrados. Correcciones técnicas y prueba de bloqueo preparadas en ese PR; contrato pendiente en `docs/AQR_003_CLOSED_YEAR_DECISION.md`. No declarar DONE ni iniciar AQR-004 hasta completar esta aceptación. El verde histórico no acredita casos que no se probaron.
 
 AQR-001 fue incorporada mediante PR #31 (`bff58de7cad11de6c2ab37c0d3e0b7b6c20ae003`). Su matriz única es `docs/PRODUCT_ACCEPTANCE_V1.md`. Consultar siempre el único `NEXT` del backlog antes de comenzar trabajo.
 
