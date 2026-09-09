@@ -198,10 +198,10 @@ def _register_account_listener():
 def _register_journal_invariant_listener():
     """Install the canonical fail-closed JournalEntry persistence guard.
 
-    JournalEntry is intentionally flushed before its lines by the shared staging
-    primitive, so validation cannot reject a transient entry-only flush.  Instead
-    we track entries/lines during the transaction, validate every flush that writes
-    JournalLine rows, and validate the complete tracked set again before commit.
+    JournalEntry may be flushed before its lines so ORM-generated ids can be
+    materialized. Per-line monetary invariants are therefore checked during flush,
+    while identity and exact double-entry balance are checked only immediately before
+    commit, when the complete durable state is available.
     """
     global _journal_listener_registered
     if _journal_listener_registered:
@@ -213,7 +213,11 @@ def _register_journal_invariant_listener():
         return
 
     try:
-        from aqorath.ledger_invariants import LedgerInvariantError, validate_journal_lines
+        from aqorath.ledger_invariants import (
+            LedgerInvariantError,
+            validate_journal_line_money,
+            validate_journal_lines,
+        )
         from aqorath.models import JournalEntry, JournalLine
     except Exception as exc:
         raise RuntimeError(
@@ -241,12 +245,18 @@ def _register_journal_invariant_listener():
         deleted_ids = session.info.setdefault(deleted_entries_key, set())
 
         for obj in list(session.new):
-            if isinstance(obj, JournalEntry):
+            if isinstance(obj, JournalEntry) and obj not in new_entries:
                 new_entries.append(obj)
 
         for obj in list(session.deleted):
             if isinstance(obj, JournalEntry) and obj.id is not None:
                 deleted_ids.add(int(obj.id))
+
+        # Local line invariants never depend on the aggregate JournalEntry state and
+        # can be enforced safely on every flush.
+        for index, obj in enumerate(list(session.new) + list(session.dirty)):
+            if isinstance(obj, JournalLine):
+                validate_journal_line_money(obj, index=index)
 
         touched_lines = list(session.new) + list(session.dirty) + list(session.deleted)
         for obj in touched_lines:
@@ -260,11 +270,8 @@ def _register_journal_invariant_listener():
                     affected_ids.add(int(old_entry_id))
 
             current_entry_id = getattr(obj, "entry_id", None)
-            if current_entry_id is None:
-                if obj in session.deleted:
-                    continue
-                raise LedgerInvariantError("JournalLine.entry_id is required")
-            affected_ids.add(int(current_entry_id))
+            if current_entry_id is not None:
+                affected_ids.add(int(current_entry_id))
 
     def _tracked_entry_ids(session: SASession) -> set[int]:
         ids = set(session.info.get(affected_entries_key, set()))
@@ -323,22 +330,17 @@ def _register_journal_invariant_listener():
     def _before_flush(session, flush_context, instances):
         _track(session)
 
-    def _after_flush_postexec(session, flush_context):
-        if not _enabled(session):
-            return
-        affected_ids = set(session.info.get(affected_entries_key, set()))
-        affected_ids.difference_update(session.info.get(deleted_entries_key, set()))
-        if affected_ids:
-            _validate_ids(session, affected_ids)
-
     def _before_commit(session):
         if not _enabled(session):
             return
 
-        # Ensure pending JournalLine rows are in SQLite before the final exact check.
+        # Materialize pending ORM state first. The flush listener enforces line-local
+        # invariants but deliberately permits a temporarily incomplete entry.
         if session.new or session.dirty or session.deleted:
             session.flush()
 
+        # R4 is enforced here: no tracked JournalEntry may become durable unless its
+        # complete persisted line set has valid account identity and exact balance.
         entry_ids = _tracked_entry_ids(session)
         if entry_ids:
             _validate_ids(session, entry_ids)
@@ -350,7 +352,6 @@ def _register_journal_invariant_listener():
             _clear_tracking(session)
 
     event.listen(SASession, "before_flush", _before_flush)
-    event.listen(SASession, "after_flush_postexec", _after_flush_postexec)
     event.listen(SASession, "before_commit", _before_commit)
     event.listen(SASession, "after_transaction_end", _after_transaction_end)
     setattr(SASession, marker, True)
