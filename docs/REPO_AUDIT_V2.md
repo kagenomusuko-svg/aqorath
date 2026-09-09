@@ -1,181 +1,200 @@
 # REPO AUDIT V2 — ESTADO ACTUAL DE AQORATH
 
 **Fecha de corte:** 2026-09-09  
-**Rama auditada:** `main`  
-**Baseline de runtime:** `7623e4eb0636064cdab0582ce3c98e7b9c844e93`  
-**PR de runtime más reciente incluido:** #30 — Phase 6BP persistence hardening  
-**Head probado previo al merge:** `7dbef85bcdd4157106c3779356303c9271dc56bb`  
-**Suite completa verificada:** **1912 passed, 0 failed**
+**Rama de continuidad:** `main`  
+**Baseline histórico de runtime:** `7623e4eb0636064cdab0582ce3c98e7b9c844e93` (PR #30)  
+**Runtime material vigente:** AQR-002 + AQR-003 + AQR-004  
+**Esquema vigente:** 6
 
-> Este documento sustituye a `REPO_AUDIT_V1.md` como descripción del estado actual. V1 queda conservado únicamente como referencia histórica en el historial de Git.
+> Este documento sustituye a `REPO_AUDIT_V1.md` como descripción del estado actual. V1 queda únicamente como referencia histórica. Los apartados del baseline PR #30 conservan valor de evidencia; las actualizaciones AQR posteriores prevalecen cuando amplían el estado material.
 
 ---
 
 ## 1. Conclusión ejecutiva
 
-Aqorath ya no se encuentra en el estado descrito por la auditoría del 23 de agosto.
+Aqorath dispone de un núcleo contable local ampliamente endurecido y probado: SQLite como autoridad, dinero exacto, partida doble, catálogo gobernado, resolución de hechos económicos, reporting, fiscalidad versionada, trazabilidad, fundamentos OSC y activos fijos.
 
-El proyecto dispone hoy de un **núcleo contable ampliamente endurecido y probado**, con una autoridad local SQLite, dinero exacto, catálogo gobernado/extensible, flujos de hechos económicos, reporting, fiscalidad versionada, explicabilidad, varios fundamentos OSC y activos fijos.
+AQR-002 añadió la autoridad explícita de período y ejercicio. AQR-003 consolidó inmutabilidad append-only y corrección por reversión con auditoría. AQR-004 compuso las autoridades existentes en un caso de uso Application ordinario completo: **hecho → decisión → consentimiento → posting → auditoría**, sin crear un segundo motor ni una persistencia paralela.
 
-### Resultado de esta auditoría
+### Resultado del corte
 
-- **P0 conocidos que obliguen a detener el desarrollo:** ninguno identificado en el corte auditado.
-- **Regresión conocida en el baseline incorporado mediante PR #30:** ninguna después de la corrección y suite completa verde.
-- **Estado de producción:** **NO declarado listo para producción**. La ausencia de P0 conocidos no equivale a completitud de producto ni a certificación contable/fiscal.
-- **Riesgo principal actual:** pérdida de dirección por documentación/PR históricos y por confundir “fundamentos de dominio implementados” con “flujos de producto terminados”.
-
-La prioridad pasa, por tanto, de rehacer fundamentos a **cerrar capacidades de producto contra un alcance V1 explícito**.
+- **P0 de integridad contable conocidos:** ninguno abierto después de PR #36/#37.
+- **Estado de producción:** **NO declarado listo para producción**; una suite verde no sustituye aceptación profesional/humana ni cobertura fiscal declarada.
+- **Gap de producto principal inmediato:** no existe una superficie de presentación productiva vigente.
+- **Continuidad:** `PRODUCT_BACKLOG_V1.md` contiene exactamente un `NEXT`: AQR-005.
 
 ---
 
 ## 2. Evidencia de corte
 
-El merge de PR #30 incorporó el endurecimiento transversal de persistencia sobre el estado posterior a 6BO.2.
+### Baseline histórico — PR #30
 
-Se verificó la suite completa del head final de la rama antes de fusionar:
+- merge `7623e4eb0636064cdab0582ce3c98e7b9c844e93`;
+- head probado `7dbef85bcdd4157106c3779356303c9271dc56bb`;
+- suite registrada: **1912 passed, 0 failed**.
 
-```text
-1912 passed
-0 failed
-```
+### AQR-002 — autoridad temporal
 
-PR #29, que reutilizaba incorrectamente la etiqueta histórica “Phase 6U” y retiraba funcionalidad de cierre de ejercicio, fue cerrado sin fusionar y supersedido por #30.
+- contrato: `AQR_002_PERIOD_DECISION.md`;
+- PR #33 incorporado; autoridad única de ejercicio/período, posting bloqueado en período cerrado y cierre anual por staging canónico;
+- consultas de rango componen el motor de saldos; no existen calendarios paralelos ni inferencia histórica silenciosa.
 
-Los commits posteriores a `7623e4...` que sólo modifican documentación de gobierno no alteran este baseline de runtime.
+### AQR-003 — inmutabilidad/reversión
+
+- PR #35 incorporó la base de estados y reversión;
+- PR #36, merge `63e321fececb301eaa1337baff7ebe4acb07682a`;
+- head revisado `84cbc947259da62c03c5c5546d6699d542e2a479`;
+- CI verde run 34393029104;
+- suite completa local registrada por la rama: **1944 passed, 8 warnings**;
+- comparación head→merge: cero diferencias de archivos.
+
+PR #36 cerró dos defectos reproducidos tras PR #35: edición balanceada de líneas `posted` y reversión sin `AuditEvent`. Protege cabecera/líneas/identidad/estado `reversed`, hace reversión + auditoría atómica y prueba rollback ante fallo aun si el llamador captura la excepción.
+
+La decisión `AQR_003_CLOSED_YEAR_DECISION.md` aprobó bloquear preventivamente correcciones automáticas de ejercicios ya cerrados mediante reversión/sustitución sobre cuentas originales en un ejercicio posterior. En ejercicios abiertos se conserva la autoridad canónica. La política futura de errores de ejercicios anteriores permanece separada y no es el `NEXT`.
+
+### AQR-004 — caso de uso unificado
+
+- contrato: `AQR_004_UNIFIED_USE_CASE.md`;
+- PR #37, merge `fe99ce06f334f8a12d37146f4504e78f497b18ca`;
+- head revisado `f6a268b43dd7b600201a7dfe5501ee804a8d8926`;
+- CI verde run 34394126158;
+- comparación head→merge: cero diferencias de archivos;
+- ocho pruebas AQR-004 nuevas, además de la regresión completa ejecutada por CI.
+
+AQR-004 añade únicamente composición: `AccountingDecision` inmutable, preparación mediante provenance + bindings + resolución + explicación + snapshot, consentimiento por la autoridad existente, posting por `PostingInstruction` y staging canónico, y `AuditEvent entry_posted` en la misma transacción. La fiscalidad ya confirmada delega a `fiscalized_posting_persistence.py`.
 
 ---
 
-## 3. Invariantes y fundamentos actualmente protegidos
-
-### 3.1 Ledger y persistencia
+## 3. Ledger y persistencia
 
 Estado: **IMPLEMENTADO / PROBADO**
 
-- partida doble como invariante de persistencia;
-- rechazo de JournalEntry vacío o descuadrado en la frontera canónica;
-- validación local de JournalLine;
-- validación agregada de líneas completas antes de commit;
-- integridad `account_id` / `account_code` contra Account;
-- dinero exacto mediante Decimal/representación exacta;
-- una sola autoridad contable local SQLite;
-- cierre de ejercicio reencauzado por la autoridad canónica de posting.
+- partida doble y rechazo de pólizas vacías/descuadradas;
+- validación `account_id` / `account_code` contra `Account`;
+- dinero exacto;
+- SQLite como única autoridad primaria;
+- `JournalEntry.state` explícito `draft / posted / reversed`;
+- pólizas `posted`/`reversed` y sus líneas son inmutables;
+- corrección mediante reversión vinculada, nunca edición destructiva;
+- toda reversión produce `AuditEvent` en la misma transacción;
+- posting AQR-004 termina explícitamente `posted` y queda bajo estas invariantes.
 
-No reintroducir escritura directa o fallback alternativo para “salvar” errores de la autoridad canónica.
+No reintroducir escritura directa/fallback alternativo para “salvar” errores del staging canónico.
 
-### 3.2 Catálogo
+---
+
+## 4. Período y ejercicio
+
+Estado: **IMPLEMENTADO AQR-002**
+
+- ejercicio enero–diciembre;
+- primer ejercicio corto desde inicio efectivo;
+- meses calendario exclusivos;
+- años abiertos explícitamente;
+- fecha de posting resuelta por una sola autoridad;
+- período cerrado rechaza nuevos postings;
+- cierre anual utiliza staging canónico y acumula el resultado en 3104;
+- rangos arbitrarios son consultas, no períodos alternativos.
+
+AQR-004 revalida el período dentro de la transacción de posting: una preparación previa no concede autorización si el período se cierra después.
+
+---
+
+## 5. Catálogo y resolución de cuentas
 
 Estado: **IMPLEMENTADO / PROBADO**
 
 - catálogo canónico gobernado;
-- extensiones particulares de entidad bajo padre canónico;
-- código generado;
+- extensiones particulares bajo padre canónico;
 - naturaleza heredada;
-- protección de estructura;
-- resolución/bindings de roles contables.
+- bindings persistidos de rol semántico → cuenta concreta;
+- resolución por catálogo existente.
 
-### 3.3 Migraciones, integridad y seguridad local
-
-Estado: **FUNDACIÓN IMPLEMENTADA**
-
-`aqorath/migrations.py` es la autoridad central de evolución del esquema y contiene:
-
-- `PRAGMA user_version`;
-- migraciones secuenciales;
-- validación de integridad;
-- backup previo;
-- restore seguro;
-- rechazo de versiones futuras desconocidas.
-
-`CURRENT_SCHEMA_VERSION = 4` en el corte auditado. Existen tablas aditivas posteriores que preservan la verdad v4 sin reinterpretarla.
-
-Falta convertir estas capacidades de infraestructura en un flujo de producto operable por el usuario; eso está registrado como AQR-014.
+El caso de uso AQR-004 obtiene bindings desde SQLite. La superficie común no necesita suministrar códigos contables.
 
 ---
 
-## 4. Flujo de hechos económicos y autoridad de aplicación
+## 6. Flujo de hechos económicos y autoridad Application
 
-Estado: **FUNDACIÓN AMPLIA / ORQUESTACIÓN DE PRODUCTO PENDIENTE**
+Estado: **ORQUESTACIÓN ORDINARIA UNIFICADA IMPLEMENTADA**
 
-`aqorath/application.py` funciona como fachada canónica independiente de interfaz y ya delega a autoridades especializadas para:
+Fundamentos existentes:
 
-- hechos económicos;
-- resolución de cuentas;
-- bindings;
+- `EconomicFact` y `EconomicEvent`;
+- resolución semántica;
+- provenance entre hecho y propuesta;
+- account bindings y resolución concreta;
+- explicación estructurada;
 - confirmación;
 - posting;
-- reporting;
-- tratamiento fiscal;
-- posting fiscalizado y auditoría;
-- Entity / FiscalProfile;
-- ThirdParty;
-- DocumentReference;
-- metadatos CFDI;
-- dimensiones analíticas;
-- activos fijos.
+- auditoría.
 
-Existe `EconomicEvent` como valor de dominio puro con fecha, importe Decimal, descripción, tercero y contexto.
+AQR-004 compone esos fundamentos en `accounting_operation.py`:
+
+1. `prepare_accounting_operation(session, fact, posting_date)`;
+2. `confirm_accounting_operation(decision)`;
+3. `execute_accounting_operation(confirmed_decision)`;
+4. `load_accounting_operation_audit(...)`.
+
+La decisión no constituye un segundo ledger. La evidencia durable se divide por autoridad:
+
+- JournalEntry/JournalLine: cuentas, importes, fecha y estado efectivamente consolidados;
+- AuditEvent `entry_posted`: hecho, fecha solicitada, rule_id/version, consentimiento y explicación estructurada;
+- auditoría fiscal: provenance fiscal cuando aplica.
+
+---
+
+## 7. Fiscalidad
+
+Estado: **ARQUITECTURA Y FLUJOS IMPLEMENTADOS; COBERTURA V1 NO CERRADA**
+
+Existen:
+
+- FiscalRuleSet y registry;
+- reglas/datos versionados;
+- aplicabilidad por fecha/contexto;
+- cálculo exacto;
+- redondeo;
+- confirmación fiscal y monetaria;
+- efectos contables fiscales;
+- composición hecho + efecto fiscal;
+- resolución de cuentas;
+- posting fiscalizado;
+- persistencia/lectura de auditoría fiscal;
+- múltiples efectos fiscales.
+
+AQR-004 no infiere silenciosamente una regla fiscal desde un hecho ordinario. `execute_fiscalized_accounting_operation(...)` delega la instrucción y persistencia de una verdad fiscalizada **ya confirmada** a las autoridades existentes.
 
 ### Pendiente real
 
-Componer las autoridades existentes en un contrato de caso de uso completo y estable que una superficie de presentación pueda consumir sin conocer detalles contables internos. Registrado como AQR-004.
+AQR-010/AQR-011 deben cerrar documento fuente, aplicabilidad y cobertura fiscal V1. Lo no soportado debe fallar explícitamente.
 
 ---
 
-## 5. Reporting financiero
+## 8. Reporting financiero y documentos
 
 Estado: **IMPLEMENTACIÓN MATERIAL EXISTENTE**
 
 Existe cobertura para:
 
 - trial balance por fecha;
-- semántica de estados financieros;
 - estado de resultados;
 - balance general;
 - bundle de estados;
-- CSV;
-- XLSX;
-- PDF;
+- CSV/XLSX/PDF;
 - fuente SQLite única.
 
-También existen fundamentos para ReportDefinition, ReportRequest, ReportPackage, CustomReportPackage y aplicabilidad.
+También existen fundamentos de ReportDefinition, ReportRequest, ReportPackage y CustomReportPackage.
 
-### Pendiente real
-
-Convertir las fundaciones de definición/paquetes en un motor completo de documentos del producto y añadir reportes especializados OSC/fiscales conforme se completen sus capacidades. AQR-013.
+Pendiente: convertirlos en motor completo de documentos/reportes de producto (AQR-013) y añadir reportes especializados conforme se completen OSC/fiscalidad.
 
 ---
 
-## 6. Fiscalidad
-
-Estado: **ARQUITECTURA Y FLUJOS IMPLEMENTADOS; COBERTURA DE PRODUCTO NO CERRADA**
-
-Existen:
-
-- FiscalRuleSet;
-- registry e instalación de reglas;
-- datos fiscales mexicanos curados;
-- aplicabilidad por fecha/contexto;
-- cálculo exacto;
-- políticas de redondeo;
-- confirmación fiscal y monetaria;
-- efectos contables fiscales;
-- composición hecho económico + efecto fiscal;
-- resolución de cuentas;
-- posting fiscalizado;
-- persistencia y lectura de auditoría fiscal;
-- múltiples efectos fiscales.
-
-### Pendiente real
-
-No se declara que Aqorath cubra genéricamente “la fiscalidad mexicana”. Debe congelarse qué regímenes, obligaciones y casos son V1, completar sólo esos casos y declarar explícitamente los no soportados. AQR-011.
-
----
-
-## 7. Entidad, terceros y evidencia
+## 9. Entidad, terceros y evidencia
 
 Estado: **FUNDACIONES IMPLEMENTADAS**
 
-Existen conceptos y persistencia para:
+Existen:
 
 - Entity;
 - EntityProfile;
@@ -185,100 +204,60 @@ Existen conceptos y persistencia para:
 - CfdiImportMetadata;
 - AuditEvent.
 
-La arquitectura ya evita reducir la entidad al antiguo switch binario “Comercial / OSC”.
+La identidad de entidad no se reduce a un selector “Comercial / OSC”.
 
-### Pendientes de producto
-
-- submayores operativos de cuentas por cobrar/pagar: AQR-006;
-- CFDI XML real como fuente verificable: AQR-010.
+Pendientes: submayores operativos AQR-006 y CFDI XML real AQR-010.
 
 ---
 
-## 8. OSC
+## 10. OSC
 
-Estado: **FUNDACIONES PARCIALES; CAPACIDAD INSTITUCIONAL INCOMPLETA**
+Estado: **FUNDACIONES PARCIALES**
 
-Existen:
+Existen Program, Donation y AnalyticalDimension/valores/asignaciones.
 
-- Program;
-- Donation;
-- AnalyticalDimension y valores;
-- asignación de dimensiones a líneas contables.
+No se localizaron como capacidades completas Fund, FundingSource ni InKindDonation.
 
-No se localizaron como implementaciones actuales separadas:
-
-- Fund;
-- FundingSource;
-- InKindDonation.
-
-El baseline conceptual sí los exige para la dirección OSC.
-
-### Pendientes
-
-- recursos, fondos, fuentes y restricciones: AQR-008;
-- donativos completos y donativos en especie: AQR-009.
+Pendientes: AQR-008 (fondos/fuentes/restricciones) y AQR-009 (donativos completos/en especie).
 
 ---
 
-## 9. Activos fijos
+## 11. Activos fijos
 
 Estado: **CAPACIDAD TÉCNICA AVANZADA**
 
-Existen fundamentos y flujos para:
+Existen registro/persistencia, adquisición, confirmación, posting idempotente, depreciación, asignación exacta, reconocimiento por período, resolución contable y reconstrucción de valor en libros.
 
-- FixedAsset;
-- registro/persistencia;
-- adquisición;
-- confirmación;
-- posting idempotente de adquisición;
-- depreciación;
-- asignación monetaria exacta;
-- reconocimiento por período;
-- resolución contable;
-- confirmación;
-- posting idempotente;
-- reconstrucción de estado en libros.
-
-Debe evaluarse como flujo de usuario dentro de la matriz V1 AQR-001, pero no corresponde reconstruir el subsistema.
+No corresponde reconstruir este subsistema; debe integrarse en la experiencia de producto.
 
 ---
 
-## 10. Explicabilidad y aprendizaje
+## 12. Explicabilidad y aprendizaje
 
-Estado: **FUNDACIÓN IMPLEMENTADA**
+Estado: **FUNDACIÓN IMPLEMENTADA / INTEGRACIÓN DE PRODUCTO PARCIAL**
 
-Existen:
+Existen ExplanationData, formatting/presentation/delivery, explicación bajo demanda, progresividad, topic learning y UserKnowledgeState.
 
-- Explanation estructurada;
-- formatting;
-- presentation;
-- delivery;
-- explicación bajo demanda;
-- progresividad de explicación;
-- topic learning;
-- UserKnowledgeState y persistencia.
-
-### Pendiente real
-
-Integrarlo en los flujos de producto y en la vista común/profesional, no crear una segunda fuente narrativa. AQR-004 y AQR-005.
+AQR-004 ya incorpora `ExplanationData` a la misma decisión y conserva evidencia estructurada en auditoría. AQR-005 deberá presentarla sin crear una segunda fuente narrativa.
 
 ---
 
-## 11. Conceptos del baseline: mapa de cobertura
+## 13. Conceptos del baseline: mapa de cobertura
 
-| Concepto | Estado en el corte |
+| Concepto | Estado actual |
 |---|---|
 | Entity | Fundación implementada |
 | EntityProfile | Fundación implementada |
 | FiscalProfile | Fundación implementada |
-| AccountingPeriod | Implementado AQR-002: meses calendario exclusivos, bloqueo y resolvedor puro único |
-| FiscalYear | Implementado AQR-002: año calendario, primer ejercicio corto y cierre atómico por staging canónico |
+| AccountingPeriod | Implementado AQR-002 |
+| FiscalYear | Implementado AQR-002 |
 | Account | Implementado |
 | AccountExtension | Implementado |
 | EconomicEvent | Implementado |
-| AccountingDecision | **Representado parcialmente por proposal/resolution/provenance; aggregate durable unificado pendiente** |
-| JournalEntry | Implementado |
-| JournalLine | Implementado |
+| EconomicFact | Implementado |
+| AccountingDecision | **Valor unificado AQR-004 + evidencia durable distribuida ledger/AuditEvent** |
+| JournalEntry | Implementado; posted/reversed inmutable AQR-003 |
+| JournalLine | Implementado; líneas consolidadas inmutables AQR-003 |
 | ThirdParty | Implementado |
 | DocumentReference | Implementado |
 | Program | Fundación implementada |
@@ -289,112 +268,94 @@ Integrarlo en los flujos de producto y en la vista común/profesional, no crear 
 | InKindDonation | **Pendiente** |
 | BankAccount | **Pendiente** |
 | FiscalRuleSet | Implementado |
-| ExplanationData / explicación estructurada | Implementado por módulos equivalentes |
+| ExplanationData | Implementado e integrado en AQR-004 |
 | UserKnowledgeState | Implementado |
 | ReportDefinition | Fundación implementada |
 | ReportRequest | Fundación implementada |
 | ReportPackage | Fundación implementada |
 | CustomReportPackage | Fundación implementada |
-| AuditEvent | Implementado |
-| FixedAsset | Implementado aunque no figuraba como núcleo del listado original de 29 |
+| AuditEvent | Implementado; reversal/posting ordinario integrados |
+| FixedAsset | Implementado |
 
 ---
 
-## 12. Superficie de presentación
+## 14. Superficie de presentación
 
 Estado: **GAP DE PRODUCTO CRÍTICO, NO P0 DE INTEGRIDAD**
 
-No se localizó en el `main` auditado una UI productiva vigente (`aqorath/ui`, `desktop.py` o equivalente actual).
+No se localiza en `main` una UI productiva vigente (`aqorath/ui`, `desktop.py` o equivalente actual).
 
-Los PR antiguos #18/#19 sobre PySide corresponden a una etapa anterior y no deben fusionarse sobre el estado actual: pedían códigos contables al usuario y dependían de supuestos que ya no representan la arquitectura vigente.
+Los PR históricos de PySide #18/#19 pertenecen a una arquitectura supersedida: pedían códigos contables al usuario y no deben revivirse por inercia.
 
-AQR-005 define la nueva superficie, una vez establecida la orquestación de AQR-004.
-
----
-
-## 13. Otras capacidades de producto faltantes
-
-No se localizaron como capacidades completas actuales:
-
-
-- BankAccount y conciliación bancaria;
-- Fund/FundingSource/restricciones OSC;
-- InKindDonation;
-- CFDI XML productivo de extremo a extremo;
-- cobertura fiscal V1 declarada y cerrada;
-- inventario/costos como capacidad opcional;
-- experiencia de backup/restore para usuario;
-- empaquetado/release de producto;
-- prueba humana reproducible de la interfaz común.
-
-Todas están registradas, ordenadas y acotadas en `PRODUCT_BACKLOG_V1.md`.
+AQR-005 es el único `NEXT`. Debe consumir `application.py`/casos de uso canónicos y ofrecer vista común + profesional sobre la misma verdad.
 
 ---
 
-## 14. Deuda de gobernanza y documentación encontrada
+## 15. Otras capacidades de producto faltantes
 
-### 14.1 REPO_AUDIT_V1 obsoleto
+- submayores CxC/CxP operativos;
+- BankAccount y conciliación;
+- fondos/fuentes/restricciones OSC;
+- donativo en especie;
+- CFDI XML productivo;
+- cobertura fiscal V1 declarada;
+- inventario/costos según alcance V1;
+- motor completo de documentos/reportes;
+- experiencia de backup/restore;
+- empaquetado/release;
+- prueba humana reproducible.
 
-V1 describía 26 tests y defectos P0/P1 que posteriormente fueron corregidos. Usarlo como “estado actual” podía hacer que una nueva conversación reabriera trabajo terminado.
-
-**Resolución:** V2 pasa a ser la auditoría actual; V1 se convierte en tombstone histórico.
-
-### 14.2 PR antiguos abiertos
-
-Se localizaron abiertos #2, #11, #13, #14, #15, #16, #18 y #19. Contienen decisiones antiguas como:
-
-- fallback JSON;
-- SQLite directo como fallback de posting;
-- account_code sin Account;
-- selector inmutable Comercial/OSC;
-- UI histórica;
-- tolerancia de esquema incompatible con el fail-closed actual.
-
-**Resolución:** deben quedar cerrados como supersedidos. Ninguno es fuente de continuidad.
-
-### 14.3 Documentación especializada histórica
-
-`docs/CFDI.md` y otros documentos pueden conservar contenido útil pero no deben utilizarse como prueba de que una función está implementada. El código actual, los tests, esta auditoría y el backlog prevalecen para estado/continuidad.
+Todas están registradas y ordenadas en `PRODUCT_BACKLOG_V1.md`.
 
 ---
 
-## 15. Riesgos actuales
+## 16. Gobernanza y documentación
 
-### P0 — integridad contable bloqueante
+- `REPO_AUDIT_V1.md` es histórico y supersedido.
+- PR antiguos #2, #11, #13, #14, #15, #16, #18 y #19 no son autoridad de continuidad y no deben fusionarse sobre `main`.
+- `CFDI.md` y documentos especializados pueden conservar contexto, pero no prueban implementación.
+- Las etiquetas de fases históricas en commits/tests son arqueología, no roadmap.
+- La continuidad deriva exclusivamente del único `NEXT` del backlog.
 
-**Corte histórico PR #30: ninguno conocido.** La verificación de PR #36 reproduce protección incompleta de líneas posted y ausencia de AuditEvent en la reversión de PR #35. Las correcciones están preparadas, no fusionadas; consultar §19 antes de usar esa ruta.
+---
 
-Esto significa “no identificado por la suite y revisión actual”, no “imposible que exista”.
+## 17. Riesgos actuales
+
+### P0 — integridad contable
+
+**Ninguno conocido en el corte actual.** Los defectos reproducidos durante la revisión de AQR-003 quedaron corregidos e integrados por PR #36.
+
+“Ninguno conocido” no significa garantía absoluta de ausencia de defectos.
 
 ### P1 — completitud/seguridad de producto
 
-
-- ausencia de superficie de usuario actual;
-- ausencia de bancos/conciliación;
+- ausencia de superficie productiva;
+- bancos/conciliación pendientes;
 - OSC incompleto en fondos/fuentes/restricciones;
-- CFDI y cobertura fiscal V1 incompletos;
-- producto no empaquetado para instalación/actualización.
+- CFDI/cobertura fiscal V1 incompletos;
+- producto no empaquetado.
 
-### P2 — higiene y mantenibilidad
+### P2 — higiene/mantenibilidad
 
-- documentación histórica que debe permanecer claramente marcada;
-- scripts/assets/templates antiguos en raíz que deben evaluarse antes de release, no borrar por intuición;
-- nombres históricos de fases en tests/commits que pueden confundir si se usan como roadmap;
-- prueba humana de la matriz AQR-001 pendiente de la superficie AQR-005.
+- documentación y nombres históricos que deben permanecer marcados;
+- scripts/assets/templates antiguos que deberán evaluarse antes de release;
+- prueba humana pendiente de AQR-005.
 
 ---
 
-## 16. Qué sigue
+## 18. Qué sigue
 
-La continuidad **NO** se deriva de la numeración histórica de fases.
+La continuidad **NO** se deriva de numeración histórica ni de PR antiguos.
 
 Leer `INSTRUCCIONES.md` y ejecutar la única tarea `NEXT` de `PRODUCT_BACKLOG_V1.md`:
 
-La matriz AQR-001 fue incorporada por PR #31. El backlog vigente determina el siguiente trabajo; este corte no sustituye su único NEXT.
+> **AQR-005 — Superficie de presentación V1: vista común + vista profesional**
+
+Antes de seleccionar tecnología de presentación debe verificarse si el repositorio ya fijó esa elección. Si no la fijó y existen arquitecturas legítimas incompatibles, la autorización operativa exige una decisión humana real; no debe disfrazarse esa elección como refactor técnico.
 
 ---
 
-## 17. Límite de esta auditoría
+## 19. Límite de esta auditoría
 
 Esta auditoría combina estructura del repositorio, código vigente, pruebas y CI. No constituye:
 
@@ -405,20 +366,3 @@ Esta auditoría combina estructura del repositorio, código vigente, pruebas y C
 - garantía de ausencia absoluta de defectos.
 
 Es el **corte técnico y arquitectónico de autoridad para continuar el desarrollo** a partir del 2026-09-09.
-
-## 18. Actualización material AQR-002 — PR #33
-
-Contrato aprobado: [AQR_002_PERIOD_DECISION.md](AQR_002_PERIOD_DECISION.md). Se añaden autoridad temporal pura, persistencia de calendario/ejercicio/mes, migración 4→5 explícita, comprobación común en posting ordinario/fiscalizado/activos y cierre anual atómico. Las consultas por período/rango componen el motor de saldos existente. Los apartados que describen PR #30 permanecen como evidencia del corte histórico, no como ausencia de estas nuevas capacidades.
-
-El cierre ahora cancela ingresos/costos/gastos del ejercicio y acumula el resultado en 3104, conservando el staging canónico y un respaldo validado. Requiere diciembre abierto y año explícito. No reabre períodos ni duplica un cierre anterior.
-
-El calendario de bases legadas requiere declaración explícita del inicio, estados históricos y correspondencias incompatibles; no se infieren con la migración de esquema. AQR-003 continúa su aceptación antes de AQR-004. No se amplía el alcance fiscal V1 ni se declara una UI productiva.
-
-Evidencia nueva: 24 casos en `tests/test_aqr002_accounting_periods.py` y regresión completa. La incorporación y CI del main resultante se registran en el cierre del backlog.
-
-
-## 19. Actualización material AQR-003
-
-PR #35 incorporó la inmutabilidad de pólizas posted en la frontera de persistencia y el flujo canónico de reversión. La migración 5→6 añade `journalentryreversal` de manera aditiva. La reversión invierte líneas exactas, conserva el original como `reversed`, exige motivo y bloquea duplicados y destinos cerrados. La suite completa del PR quedó verde.
-
-Corrección de ese corte preparada, todavía sin incorporar a main, en PR #36: faltaban protección de líneas/identidad y estados reversed, y AuditEvent transaccional. Se reprodujo la modificación de dos líneas posted de 150 a 120 y una reversión con cero eventos. El borrador contiene esas protecciones, auditoría mediante el repositorio existente y corrección compuesta sobre staging. No implica invalidar los fundamentos anteriores ni ampliar cobertura fiscal. La aceptación espera la decisión documentada en `AQR_003_CLOSED_YEAR_DECISION.md` sobre ejercicios cerrados.
