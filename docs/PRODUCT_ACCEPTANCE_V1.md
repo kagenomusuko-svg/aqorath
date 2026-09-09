@@ -251,7 +251,7 @@ Las tasas/fechas históricas del archivo son evidencia del código, no certifica
 - **Hecho:** «Registré 150 por error; eran 120. Quiero corregirlo indicando el motivo».
 - **Resultado profesional:** original intacto, reversión de 150 vinculada y asiento correcto de 120; neto 120, historia reconstruible y efectos documentales/partidas reconciliados.
 - **Evidencia y explicación:** original, reversión, sustituto, motivo, fecha y AuditEvent; explicar neto e historial.
-- **E:** `aqorath/audit_event.py`, `test_p6_audit_event_foundation.py` sólo fundamento de auditoría, no workflow de reversión. **F:** AQR-003: inmutabilidad posted, vínculos, rechazo de doble reversión y pruebas con períodos/submayores.
+- **E:** `aqorath/audit_event.py`, `test_p6_audit_event_foundation.py` acreditan la base de trazabilidad; `aqorath/reversal.py` y `tests/test_aqr003_reversal.py` cubren inmutabilidad, reversión balanceada, vínculo único, motivo, doble reversión y rechazo transaccional por período cerrado. **F:** integración de evidencia AuditEvent y submayores completos en AQR-003.
 - **Prueba humana:** localizar operación, corregir con motivo y ver tres asientos vinculados cuyo neto sea 120.
 - **Límite:** corrección contable no cancela CFDI ni sustituye trámite fiscal; no editar/borrar posted.
 

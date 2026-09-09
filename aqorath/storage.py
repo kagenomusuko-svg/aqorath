@@ -207,12 +207,22 @@ def _register_journal_invariant_listener():
         for obj in list(session.dirty):
             if isinstance(obj, JournalEntry) and obj.id is not None:
                 from aqorath.accounting_period_repository import validate_persisted_period, require_open_period
+                state = sa_inspect(obj)
+                original = state.attrs.state.history.deleted
+                persisted_state = original[0] if original else obj.state
+                changed = any(getattr(state.attrs, name).history.has_changes() for name in ("date", "concept", "doc_ref", "period_id", "posted_by", "state"))
+                if persisted_state == "posted" and state.attrs.date.history.has_changes():
+                    validate_persisted_period(session, obj.id)
+                if persisted_state == "posted" and changed:
+                    raise LedgerInvariantError("Posted JournalEntry is immutable; use reversal")
                 validate_persisted_period(session, obj.id)
                 obj.period_id = require_open_period(session, obj.date, obj.period_id).id
                 affected_ids.add(int(obj.id))
 
         for obj in list(session.deleted):
             if isinstance(obj, JournalEntry) and obj.id is not None:
+                if obj.state == "posted":
+                    raise LedgerInvariantError("Posted JournalEntry cannot be deleted; use reversal")
                 deleted_ids.add(int(obj.id))
 
         for index, obj in enumerate(list(session.new) + list(session.dirty)):

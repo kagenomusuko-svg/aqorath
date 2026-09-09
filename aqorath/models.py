@@ -279,6 +279,16 @@ class JournalEntry(SQLModel, table=True):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class JournalEntryReversalRecord(SQLModel, table=True):
+    __tablename__ = "journalentryreversal"
+    __table_args__ = (UniqueConstraint("original_entry_id", name="uq_reversal_original"),)
+    id: Optional[int] = Field(default=None, primary_key=True)
+    original_entry_id: int = Field(foreign_key="journalentry.id", index=True)
+    reversal_entry_id: int = Field(foreign_key="journalentry.id", unique=True, index=True)
+    reason: str = Field(sa_column=Column(Text, nullable=False))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class FixedAssetDepreciationPostingRecord(SQLModel, table=True):
     """One-use persisted identity for one fixed-asset depreciation period."""
 

@@ -374,8 +374,8 @@ def test_schema_additively_ensures_ordered_additional_effect_records_without_bum
 
     db = tmp_path / "multi-effects-additive.db"
     migrations.migrate_database(db)
-    assert migrations.CURRENT_SCHEMA_VERSION == 5
-    assert migrations.get_schema_version(db) == 5
+    assert migrations.CURRENT_SCHEMA_VERSION == 6
+    assert migrations.get_schema_version(db) == 6
 
     conn = sqlite3.connect(str(db))
     try:
@@ -388,8 +388,8 @@ def test_schema_additively_ensures_ordered_additional_effect_records_without_bum
         conn.close()
 
     result = migrations.migrate_database(db)
-    assert result["to_version"] == 5
-    assert migrations.get_schema_version(db) == 5
+    assert result["to_version"] == 6
+    assert migrations.get_schema_version(db) == 6
 
     conn = sqlite3.connect(str(db))
     try:

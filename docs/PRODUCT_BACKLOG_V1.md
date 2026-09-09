@@ -147,6 +147,10 @@ AQR-001.
 
 **Estado:** `NEXT`
 
+### Implementación en curso
+
+La autoridad de persistencia rechaza modificar o borrar una póliza `posted`. La corrección usa staging canónico para crear una reversión balanceada, conserva el asiento original en estado `reversed`, exige motivo y registra la relación uno-a-uno en `journalentryreversal`. La migración 5→6 es aditiva y fail-closed. La tarea permanece `NEXT` hasta fusionar y verificar CI.
+
 ### Resultado de producto
 
 Una póliza consolidada no se “edita para que cuadre”. Los errores se corrigen mediante operaciones contables trazables.

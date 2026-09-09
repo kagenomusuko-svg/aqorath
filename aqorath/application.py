@@ -917,3 +917,8 @@ def close_accounting_year(year, out_root=None):
 def get_accounting_range_balances(session, start, end):
     from .accounting_period_repository import get_date_range_balances
     return get_date_range_balances(session, start, end)
+
+
+def reverse_posted_journal_entry(session, entry_id, reason, reversal_date=None):
+    from .reversal import reverse_posted_entry
+    return reverse_posted_entry(session, entry_id, reason, reversal_date)

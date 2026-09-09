@@ -63,7 +63,7 @@ def _fresh_db(tmp_path, filename="cfdi-import-metadata.db"):
 
     db_path = tmp_path / filename
     result = migrate_database(str(db_path))
-    assert result["to_version"] == 5
+    assert result["to_version"] == 6
     return db_path, create_engine(f"sqlite:///{db_path}")
 
 
@@ -358,7 +358,7 @@ def test_frozen_v4_additively_creates_cfdi_metadata_schema_with_one_to_one_docum
 
     db_path, engine = _fresh_db(tmp_path, "schema.db")
     try:
-        assert CURRENT_SCHEMA_VERSION == 5
+        assert CURRENT_SCHEMA_VERSION == 6
         conn = sqlite3.connect(str(db_path))
         try:
             tables = {
@@ -470,14 +470,14 @@ def test_current_v4_additive_ensure_adds_cfdi_metadata_without_rewriting_existin
             conn.execute("DROP TABLE cfdiimportmetadata")
             conn.commit()
             version_before = conn.execute("PRAGMA user_version").fetchone()[0]
-            assert version_before == 5
+            assert version_before == 6
         finally:
             conn.close()
 
         result = migrate_database(str(db_path))
         assert result == {
-            "from_version": 5,
-            "to_version": 5,
+            "from_version": 6,
+            "to_version": 6,
             "migrated": False,
             "backup_path": None,
         }

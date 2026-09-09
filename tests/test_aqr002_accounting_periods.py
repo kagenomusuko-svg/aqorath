@@ -136,7 +136,7 @@ def test_migration_v4_preserves_unknown_calendar_and_money(tmp_path):
         for table in ('accountingperiod','fiscalyear','accountingcalendar'): conn.execute(f'DROP TABLE {table}')
         conn.execute('CREATE TABLE preserved (amount TEXT)');conn.execute("INSERT INTO preserved VALUES ('12.3400')")
     result=migrate_database(path)
-    assert result['from_version']==4 and result['to_version']==5
+    assert result['from_version']==4 and result['to_version']==6
     assert result['backup_path']
     with sqlite3.connect(path) as conn:
         assert conn.execute('SELECT * FROM accountingcalendar').fetchall()==[]
