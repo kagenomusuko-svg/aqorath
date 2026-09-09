@@ -50,7 +50,7 @@ La vista común y la vista profesional son dos superficies sobre el **mismo moto
 - Última suite completa asociada a ese corte: **1912 passed, 0 failed**.
 - No existe, al cierre de la auditoría del 2026-09-09, un P0 conocido que obligue a reabrir los fundamentos ya validados.
 
-### Runtime vigente — AQR-002 / AQR-003 / AQR-004
+### Runtime vigente — AQR-002 / AQR-003 / AQR-004 / AQR-005
 
 AQR-002 quedó incorporada por PR #33 y establece la única autoridad de período/calendario; contrato `docs/AQR_002_PERIOD_DECISION.md`.
 
@@ -58,7 +58,9 @@ AQR-003 quedó aceptada mediante PR #36, merge `63e321fececb301eaa1337baff7ebe4a
 
 AQR-004 quedó incorporada mediante PR #37, merge `fe99ce06f334f8a12d37146f4504e78f497b18ca`, head revisado `f6a268b43dd7b600201a7dfe5501ee804a8d8926`, CI verde run 34394126158. `accounting_operation.py` compone hecho → decisión → consentimiento → posting → auditoría; `accounting_operation_persistence.py` reutiliza `core._stage_entry_in_session`, revalida período y confirma `JournalEntry.state='posted'` + `AuditEvent` en una sola transacción. La ejecución fiscalizada delega en las autoridades fiscalizadas existentes. Contrato: `docs/AQR_004_UNIFIED_USE_CASE.md`.
 
-Las comparaciones de los heads revisados de PR #36 y #37 contra sus merges mostraron cero diferencias de archivos.
+AQR-005 quedó incorporada mediante PR #39, merge `97604e1e887129cd4ded484f1e170c10396ea980`, head revisado `d0c10b4003c23c63be223752f3db4dea8da5cba2`, CI verde run 34397980985. El tree del merge y del head revisado coincide exactamente en `d9d41cd0989f588256b46d1b1f40d1b9a0a3545e`. La decisión `docs/AQR_005_SURFACE_DECISION.md` deriva una superficie web local estrictamente loopback: FastAPI permanece como adaptador delgado, `presentation_controller.py` conserva sólo previews efímeros, `surface_application.py` delega en AQR-004 y autoridades Application, y `accounting_operation_read.py` proyecta directamente ledger/período/documentos/reversión/auditoría sin una persistencia o índice paralelo. La vista común solicita únicamente hecho, importe y fecha; la profesional inspecciona la misma verdad persistida. Operación: `docs/AQR_005_LOCAL_SURFACE.md`.
+
+Las comparaciones de los heads revisados de PR #36/#37 y el tree verificado de PR #39 contra sus merges no mostraron diferencias materiales del contenido aceptado.
 
 Los commits exclusivamente documentales posteriores pueden avanzar main sin cambiar este corte de runtime.
 
@@ -73,6 +75,7 @@ Ya existe base funcional y pruebas para, entre otros:
 - migraciones versionadas, integridad, backup y restore;
 - hechos económicos, resolución semántica, bindings, confirmación y posting;
 - caso de uso ordinario unificado con decisión, explicación, consentimiento, posting `posted` y auditoría atómica;
+- superficie local común + profesional sobre los mismos casos de uso y persistencia;
 - cuentas por cobrar/pagar en los flujos contables ya cubiertos;
 - estados financieros y exportación CSV/XLSX/PDF;
 - reglas fiscales versionadas, cálculo, confirmación, composición, posting fiscalizado y auditoría;
@@ -179,9 +182,9 @@ Una tarea sólo pasa de `NEXT` a `DONE` cuando:
 
 ## 11. SIGUIENTE
 
-**`AQR-005 — Superficie de presentación V1: vista común + vista profesional`**
+**`AQR-006 — Cuentas por cobrar y pagar como submayores operativos`**
 
-AQR-003 y AQR-004 ya están incorporadas en `main`. AQR-005 debe partir del caso de uso canónico y de las autoridades ya consolidadas; no debe revivir una UI histórica supersedida ni trasladar reglas contables/fiscales a la presentación. Antes de elegir tecnología o arquitectura de superficie, inspeccionar el repositorio y determinar si esa elección ya está resuelta por una autoridad vigente. Si existen varias arquitecturas legítimas incompatibles y el repositorio no selecciona una, aplicar la regla de decisión humana del §12.
+AQR-005 ya está incorporada en `main`. AQR-006 debe convertir los flujos contables existentes de crédito/cobro/pago y `ThirdParty` en submayores operativos sin crear una segunda contabilidad. Antes de añadir persistencia, inspeccionar exhaustivamente qué identidad representa hoy cada obligación y cómo se relacionan EconomicFact/EconomicEvent, AccountingDecision, JournalEntry, ThirdParty y DocumentReference. El origen de la obligación, cada aplicación y el saldo abierto deben distinguirse explícitamente; todo saldo CxC/CxP debe ser reproducible y reconciliable con el ledger canónico. Reutilizar posting AQR-004, período AQR-002, reversión AQR-003 y auditoría; una divergencia debe detectarse y detener/supervisar la operación, nunca quedar silenciosa.
 
 AQR-001 fue incorporada mediante PR #31 (`bff58de7cad11de6c2ab37c0d3e0b7b6c20ae003`). Su matriz única es `docs/PRODUCT_ACCEPTANCE_V1.md`. Consultar siempre el único `NEXT` del backlog antes de comenzar trabajo.
 
