@@ -167,8 +167,19 @@ Una tarea sólo pasa de `NEXT` a `DONE` cuando:
 
 ## 11. SIGUIENTE
 
-**`AQR-001 — Matriz de aceptación del producto V1`**
+**`AQR-002 — Períodos contables y ejercicio fiscal como autoridades de dominio`**
 
-La definición, alcance y criterios de aceptación están en `docs/PRODUCT_BACKLOG_V1.md`.
+AQR-001 fue incorporada mediante PR #31 (`bff58de7cad11de6c2ab37c0d3e0b7b6c20ae003`). Su matriz única es `docs/PRODUCT_ACCEPTANCE_V1.md`. Consultar siempre el único `NEXT` del backlog antes de comenzar trabajo.
 
-No comenzar `AQR-002` hasta que `AQR-001` quede incorporada a `main`, salvo que del propio análisis de AQR-001 surja una dependencia técnica estrictamente necesaria.
+## 12. Autorización operativa vigente — 2026-09-09
+
+El usuario autorizó expresamente fusionar PR #31 tras verificarlo y continuar autónomamente sobre las tareas AQR del backlog, incluida la fusión de PR preparados por el propio agente. No solicitar autorización individual nuevamente cuando se cumplan todas estas condiciones:
+
+- corresponde a la única tarea NEXT y cumple sus criterios de aceptación;
+- diff completo revisado, sin regresión conocida, suite relevante verde y suite completa ejecutada o verificada si el cambio afecta transversalmente al runtime;
+- PR fusionable contra main vigente, sin violar la Constitución;
+- no requiere decisiones de producto, contables, fiscales o arquitectónicas que el repositorio no haya resuelto.
+
+Después de cada fusión, verificar main, actualizar el backlog conforme al §10, dejar exactamente un NEXT, actualizar REPO_AUDIT_V2 sólo si cambiaron materialmente arquitectura o capacidades, releer el estado vigente y continuar. Los commits internos no son nuevas fases ni motivo para detenerse.
+
+Detenerse únicamente ante una decisión humana real, cambio constitucional necesario, decisión contable/fiscal material no resuelta, elección entre arquitecturas legítimas incompatibles, regresión de alcance indeterminable, operación irreversible fuera de esta autorización o agotamiento de tareas elegibles. Antes de detenerse, preparar lo resoluble y presentar decisión exacta, evidencia de por qué no se deriva del repositorio, alternativas, consecuencias y recomendación identificada como tal.
