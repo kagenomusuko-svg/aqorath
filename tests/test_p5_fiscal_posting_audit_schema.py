@@ -115,7 +115,7 @@ def test_audit_record_model_and_schema_version_contract_exist():
     from aqorath import migrations
     from aqorath.models import FiscalPostingAuditRecord
 
-    assert migrations.CURRENT_SCHEMA_VERSION == 6
+    assert migrations.CURRENT_SCHEMA_VERSION in migrations.MIGRATIONS
     assert 4 in migrations.MIGRATIONS
     assert FiscalPostingAuditRecord.__tablename__ == "fiscalpostingauditrecord"
     assert list(FiscalPostingAuditRecord.model_fields) == _EXPECTED_FIELDS
@@ -127,8 +127,8 @@ def test_fresh_v4_schema_has_exact_audit_columns_and_decimal_text_authority(tmp_
     db = tmp_path / "fresh-v4.db"
     result = migrations.migrate_database(db)
     assert result["from_version"] == 0
-    assert result["to_version"] == 6
-    assert migrations.get_schema_version(db) == 6
+    assert result["to_version"] == migrations.CURRENT_SCHEMA_VERSION
+    assert migrations.get_schema_version(db) == migrations.CURRENT_SCHEMA_VERSION
 
     conn = sqlite3.connect(str(db))
     try:
@@ -302,8 +302,8 @@ def test_schema_v3_migrates_to_v4_without_losing_existing_accounting_or_fiscal_t
 
     result = migrations.migrate_database(db)
     assert result["from_version"] == 3
-    assert result["to_version"] == 6
-    assert migrations.get_schema_version(db) == 6
+    assert result["to_version"] == migrations.CURRENT_SCHEMA_VERSION
+    assert migrations.get_schema_version(db) == migrations.CURRENT_SCHEMA_VERSION
 
     conn = sqlite3.connect(str(db))
     try:
@@ -500,8 +500,8 @@ def test_v4_migration_is_idempotent_and_preserves_existing_audit_rows(tmp_path):
 
         result = migrations.migrate_database(db)
         assert result == {
-            "from_version": 6,
-            "to_version": 6,
+            "from_version": migrations.CURRENT_SCHEMA_VERSION,
+            "to_version": migrations.CURRENT_SCHEMA_VERSION,
             "migrated": False,
             "backup_path": None,
         }
