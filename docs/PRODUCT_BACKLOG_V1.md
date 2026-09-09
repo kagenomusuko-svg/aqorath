@@ -113,6 +113,10 @@ Ninguna. Es el próximo paso porque gobierna el alcance de todas las tareas post
 
 **Estado:** `NEXT`
 
+### Decisión de producto pendiente
+
+Inspección y casos de aceptación preparados en [AQR_002_PERIOD_DECISION.md](AQR_002_PERIOD_DECISION.md). El baseline mantiene abiertas periodicidad, calendario del ejercicio y solapamiento; la matriz V1-10 no selecciona una política. Las alternativas y la recomendación están documentadas, sin cambio de runtime ni decisión tomada. Se conserva AQR-002 como único NEXT; no iniciar AQR-003.
+
 ### Resultado de producto
 
 Aqorath sabe a qué período pertenece cada operación y puede impedir contabilizar en períodos cerrados.
