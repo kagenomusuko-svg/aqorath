@@ -50,9 +50,15 @@ La vista común y la vista profesional son dos superficies sobre el **mismo moto
 - Última suite completa asociada a ese corte: **1912 passed, 0 failed**.
 - No existe, al cierre de la auditoría del 2026-09-09, un P0 conocido que obligue a reabrir los fundamentos ya validados.
 
-### Runtime vigente — AQR-002
+### Runtime vigente — AQR-002 / AQR-003 / AQR-004
 
-PR #33 y PR #35 incorporaron el calendario aprobado, períodos y cierre anual atómico en `5f881d64350e43844fa744b15b003683c66b5414`. Head revisado `7ede8f26c988c6ed57dbc5e94fc5114e435e6da9`, CI verde (run 34387491439), **1938 passed, 8 warnings** local. El árbol de main resultante coincide con ese head. Esquema actual 6; la migración no infiere estados ni calendarios históricos. Contrato: `docs/AQR_002_PERIOD_DECISION.md`.
+AQR-002 quedó incorporada por PR #33 y establece la única autoridad de período/calendario; contrato `docs/AQR_002_PERIOD_DECISION.md`.
+
+AQR-003 quedó aceptada mediante PR #36, merge `63e321fececb301eaa1337baff7ebe4acb07682a`, head revisado `84cbc947259da62c03c5c5546d6699d542e2a479`, CI verde run 34393029104. La rama registró suite completa local **1944 passed, 8 warnings**. Corrige edición balanceada de líneas posted, hace atómica reversión + `AuditEvent`, protege `reversed`/identidades y aplica la decisión aprobada de `docs/AQR_003_CLOSED_YEAR_DECISION.md`: ejercicios cerrados bloquean corrección automática con cuentas originales; ejercicios abiertos conservan la ruta canónica. Esquema actual 6.
+
+AQR-004 quedó incorporada mediante PR #37, merge `fe99ce06f334f8a12d37146f4504e78f497b18ca`, head revisado `f6a268b43dd7b600201a7dfe5501ee804a8d8926`, CI verde run 34394126158. `accounting_operation.py` compone hecho → decisión → consentimiento → posting → auditoría; `accounting_operation_persistence.py` reutiliza `core._stage_entry_in_session`, revalida período y confirma `JournalEntry.state='posted'` + `AuditEvent` en una sola transacción. La ejecución fiscalizada delega en las autoridades fiscalizadas existentes. Contrato: `docs/AQR_004_UNIFIED_USE_CASE.md`.
+
+Las comparaciones de los heads revisados de PR #36 y #37 contra sus merges mostraron cero diferencias de archivos.
 
 Los commits exclusivamente documentales posteriores pueden avanzar main sin cambiar este corte de runtime.
 
@@ -66,6 +72,7 @@ Ya existe base funcional y pruebas para, entre otros:
 - validación de cuentas y partida doble en la frontera de persistencia;
 - migraciones versionadas, integridad, backup y restore;
 - hechos económicos, resolución semántica, bindings, confirmación y posting;
+- caso de uso ordinario unificado con decisión, explicación, consentimiento, posting `posted` y auditoría atómica;
 - cuentas por cobrar/pagar en los flujos contables ya cubiertos;
 - estados financieros y exportación CSV/XLSX/PDF;
 - reglas fiscales versionadas, cálculo, confirmación, composición, posting fiscalizado y auditoría;
@@ -76,7 +83,8 @@ Ya existe base funcional y pruebas para, entre otros:
 - Program y Donation como fundamentos de dominio;
 - explicabilidad estructurada y progresividad pedagógica;
 - activos fijos, adquisición, depreciación y estado en libros;
-- cierre de ejercicio mediante la autoridad canónica de posting.
+- períodos, cierre de ejercicio y corrección por reversión sobre ejercicios abiertos;
+- inmutabilidad append-only de pólizas consolidadas.
 
 “Fundamento existente” no significa “capacidad de producto completa”. El backlog distingue ambas cosas.
 
@@ -171,9 +179,9 @@ Una tarea sólo pasa de `NEXT` a `DONE` cuando:
 
 ## 11. SIGUIENTE
 
-**`AQR-003 — Inmutabilidad de pólizas consolidadas y correcciones por reversión`**
+**`AQR-005 — Superficie de presentación V1: vista común + vista profesional`**
 
-La comprobación de PR #36 encontró defectos reproducibles del cierre AQR-003 y una decisión no resuelta sobre correcciones de ejercicios cerrados. Correcciones técnicas y prueba de bloqueo preparadas en ese PR; contrato pendiente en `docs/AQR_003_CLOSED_YEAR_DECISION.md`. No declarar DONE ni iniciar AQR-004 hasta completar esta aceptación. El verde histórico no acredita casos que no se probaron.
+AQR-003 y AQR-004 ya están incorporadas en `main`. AQR-005 debe partir del caso de uso canónico y de las autoridades ya consolidadas; no debe revivir una UI histórica supersedida ni trasladar reglas contables/fiscales a la presentación. Antes de elegir tecnología o arquitectura de superficie, inspeccionar el repositorio y determinar si esa elección ya está resuelta por una autoridad vigente. Si existen varias arquitecturas legítimas incompatibles y el repositorio no selecciona una, aplicar la regla de decisión humana del §12.
 
 AQR-001 fue incorporada mediante PR #31 (`bff58de7cad11de6c2ab37c0d3e0b7b6c20ae003`). Su matriz única es `docs/PRODUCT_ACCEPTANCE_V1.md`. Consultar siempre el único `NEXT` del backlog antes de comenzar trabajo.
 
