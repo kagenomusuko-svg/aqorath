@@ -1,8 +1,8 @@
 """Canonical operational projection for AQR-006 open items.
 
-The repository persists relationships only.  Every monetary value exposed here is
+The repository persists relationships only. Every monetary value exposed here is
 read from JournalLine and every cancellation is derived from the canonical reversal
-relationship.  No outstanding balance is stored.
+relationship. No outstanding balance, settlement state or aging bucket is stored.
 """
 
 from datetime import date
@@ -58,9 +58,11 @@ def _line_amount(line, side):
         if debit <= 0 or credit != Decimal("0"):
             raise SubledgerDivergenceError("linked control line is not an exact debit")
         return debit
-    if credit <= 0 or debit != Decimal("0"):
-        raise SubledgerDivergenceError("linked control line is not an exact credit")
-    return credit
+    if side == "credit":
+        if credit <= 0 or debit != Decimal("0"):
+            raise SubledgerDivergenceError("linked control line is not an exact credit")
+        return credit
+    raise SubledgerDivergenceError("invalid linked control-line side")
 
 
 def _active_entity(session):
@@ -182,6 +184,13 @@ def stage_open_item(
         raise ValueError("OpenItem entity must be the active Entity")
     _require_party(session, entity_id, third_party_id)
 
+    if session.exec(
+        select(_records.OpenItemRecord.id).where(
+            _records.OpenItemRecord.source_line_id == source_line_id
+        )
+    ).first() is not None:
+        raise ValueError("source control line already identifies an OpenItem")
+
     entry = session.get(_models.JournalEntry, source_entry_id)
     line = session.get(_models.JournalLine, source_line_id)
     if entry is None or line is None or line.entry_id != source_entry_id:
@@ -230,6 +239,13 @@ def stage_open_item_application(
     item = _load_item_record(session, open_item_id)
     _positive_id(application_entry_id, "application_entry_id")
     _positive_id(application_line_id, "application_line_id")
+
+    if session.exec(
+        select(_records.OpenItemApplicationRecord.id).where(
+            _records.OpenItemApplicationRecord.application_line_id == application_line_id
+        )
+    ).first() is not None:
+        raise ValueError("application control line already belongs to an OpenItemApplication")
 
     source_line = session.get(_models.JournalLine, item.source_line_id)
     entry = session.get(_models.JournalEntry, application_entry_id)
@@ -316,6 +332,8 @@ def load_open_item(session, open_item_id, as_of=None):
         raise SubledgerDivergenceError("OpenItem source line/entry mismatch")
     if document.entry_id != item.source_entry_id or document.third_party_id != item.third_party_id:
         raise SubledgerDivergenceError("OpenItem document provenance mismatch")
+    if accounting_date(entry.date) > as_of:
+        raise LookupError("OpenItem did not yet exist at as_of")
 
     original_amount = _line_amount(line, _SOURCE_SIDE[item.kind])
     source_effective = _entry_effective_as_of(session, item.source_entry_id, as_of)
@@ -375,13 +393,23 @@ def list_open_items(session, kind=None, third_party_id=None, as_of=None, include
     if third_party_id is not None:
         statement = statement.where(_records.OpenItemRecord.third_party_id == third_party_id)
     rows = session.exec(statement.order_by(_records.OpenItemRecord.id)).all()
-    views = tuple(load_open_item(session, row.id, as_of=as_of) for row in rows)
+
+    views = []
+    for row in rows:
+        entry = session.get(_models.JournalEntry, row.source_entry_id)
+        if entry is None:
+            raise SubledgerDivergenceError("OpenItem source JournalEntry is missing")
+        if accounting_date(entry.date) > as_of:
+            continue
+        views.append(load_open_item(session, row.id, as_of=as_of))
+    views = tuple(views)
     if include_settled:
         return views
     return tuple(view for view in views if view.status == "open")
 
 
 def _audit_control_account_ids(session, entity_id, kind):
+    """Recover control-account identities even when one confirmed effect is split."""
     role = _KIND_ROLE[kind]
     account_ids = set()
     for event in _audit_events.list_audit_events(session, entity_id):
@@ -394,7 +422,7 @@ def _audit_control_account_ids(session, entity_id, kind):
         explanation = decision.get("explanation")
         if type(explanation) is not dict:
             continue
-        for effect in explanation.get("effects", ()): 
+        for effect in explanation.get("effects", ()):
             if type(effect) is not dict or effect.get("account_role") != role:
                 continue
             side = effect.get("side")
@@ -402,47 +430,65 @@ def _audit_control_account_ids(session, entity_id, kind):
                 amount = Decimal(str(effect.get("amount")))
             except Exception as exc:
                 raise SubledgerDivergenceError("invalid accounting audit amount") from exc
+            if side not in ("debit", "credit") or not amount.is_finite() or amount <= 0:
+                raise SubledgerDivergenceError("invalid accounting audit control effect")
+
             rows = session.exec(
                 select(_models.JournalLine).where(
                     _models.JournalLine.entry_id == entry_id
                 )
             ).all()
-            matches = []
+            totals = {}
             for line in rows:
+                if type(line.account_id) is not int:
+                    continue
                 try:
-                    if side in ("debit", "credit") and _line_amount(line, side) == amount:
-                        matches.append(line)
+                    line_amount = _line_amount(line, side)
                 except SubledgerDivergenceError:
                     continue
-            if len(matches) != 1 or type(matches[0].account_id) is not int:
+                totals[line.account_id] = totals.get(line.account_id, Decimal("0")) + line_amount
+            matches = [account_id for account_id, total in totals.items() if total == amount]
+            if len(matches) != 1:
                 raise SubledgerDivergenceError(
-                    "accounting audit cannot resolve one canonical control line"
+                    "accounting audit cannot resolve one canonical control account"
                 )
-            account_ids.add(matches[0].account_id)
+            account_ids.add(matches[0])
     return account_ids
 
 
 def _reversal_line_id(session, original_entry_id, original_line):
+    """Map a reversed line by preserved JournalLine order, never by amount alone."""
     reversal = _reversal_record(session, original_entry_id)
     if reversal is None:
         return None
-    rows = session.exec(
-        select(_models.JournalLine).where(
-            _models.JournalLine.entry_id == reversal.reversal_entry_id,
-            _models.JournalLine.account_id == original_line.account_id,
-        )
+
+    original_rows = session.exec(
+        select(_models.JournalLine)
+        .where(_models.JournalLine.entry_id == original_entry_id)
+        .order_by(_models.JournalLine.id)
     ).all()
-    debit = _decimal(original_line.debit, "debit")
-    credit = _decimal(original_line.credit, "credit")
-    matches = [
-        row
-        for row in rows
-        if _decimal(row.debit, "debit") == credit
-        and _decimal(row.credit, "credit") == debit
-    ]
-    if len(matches) != 1 or type(matches[0].id) is not int:
-        raise SubledgerDivergenceError("cannot identify the exact reversal control line")
-    return matches[0].id
+    reversal_rows = session.exec(
+        select(_models.JournalLine)
+        .where(_models.JournalLine.entry_id == reversal.reversal_entry_id)
+        .order_by(_models.JournalLine.id)
+    ).all()
+    if len(original_rows) != len(reversal_rows):
+        raise SubledgerDivergenceError("reversal changed JournalLine cardinality")
+
+    positions = [index for index, row in enumerate(original_rows) if row.id == original_line.id]
+    if len(positions) != 1:
+        raise SubledgerDivergenceError("cannot locate original control-line position")
+    candidate = reversal_rows[positions[0]]
+    if candidate.account_id != original_line.account_id:
+        raise SubledgerDivergenceError("reversal line changed control account identity")
+    if (
+        _decimal(candidate.debit, "debit") != _decimal(original_line.credit, "credit")
+        or _decimal(candidate.credit, "credit") != _decimal(original_line.debit, "debit")
+    ):
+        raise SubledgerDivergenceError("reversal line does not exactly invert original line")
+    if type(candidate.id) is not int:
+        raise SubledgerDivergenceError("reversal control line lacks identity")
+    return candidate.id
 
 
 def reconcile_subledger(session, kind, as_of=None):
@@ -525,29 +571,38 @@ def assert_subledger_reconciled(session, kind, as_of=None):
     return result
 
 
+def assert_reconciliation_transition_preserved(before, after):
+    """Permit known historical gaps only when the new operation does not worsen them."""
+    if not isinstance(before, SubledgerReconciliation) or not isinstance(
+        after, SubledgerReconciliation
+    ):
+        raise TypeError("before and after must be SubledgerReconciliation")
+    if before.kind != after.kind or before.as_of != after.as_of:
+        raise ValueError("reconciliation snapshots must share kind and as_of")
+    if before.difference != after.difference:
+        raise SubledgerDivergenceError("subledger operation changed pre-existing reconciliation difference")
+    if before.unassigned_line_ids != after.unassigned_line_ids:
+        raise SubledgerDivergenceError("subledger operation changed pre-existing unassigned control lines")
+    return after
+
+
 def assert_entry_reversible(session, entry_id):
-    """Protect an obligation origin from reversal while effective applications exist."""
+    """Protect obligation origins while any linked application remains effective."""
     _positive_id(entry_id, "entry_id")
-    rows = session.exec(
+    items = session.exec(
         select(_records.OpenItemRecord).where(
             _records.OpenItemRecord.source_entry_id == entry_id
         )
     ).all()
-    if not rows:
-        return
-    if len(rows) != 1:
-        raise SubledgerDivergenceError("one entry owns multiple OpenItems")
-    item = rows[0]
-    for application in session.exec(
-        select(_records.OpenItemApplicationRecord).where(
-            _records.OpenItemApplicationRecord.open_item_id == item.id
-        )
-    ).all():
-        entry = session.get(_models.JournalEntry, application.application_entry_id)
-        if entry is None:
-            raise SubledgerDivergenceError("application references missing JournalEntry")
-        if entry.state == "posted":
-            raise ValueError("reverse open-item applications before reversing the obligation")
+    for item in items:
+        applications = session.exec(
+            select(_records.OpenItemApplicationRecord).where(
+                _records.OpenItemApplicationRecord.open_item_id == item.id
+            )
+        ).all()
+        for application in applications:
+            if _entry_effective_as_of(session, application.application_entry_id, date.max):
+                raise ValueError("reverse open-item applications before reversing the obligation")
 
 
 def assert_entry_correctable(session, entry_id):
@@ -577,6 +632,7 @@ __all__ = [
     "list_open_items",
     "reconcile_subledger",
     "assert_subledger_reconciled",
+    "assert_reconciliation_transition_preserved",
     "assert_entry_reversible",
     "assert_entry_correctable",
 ]
