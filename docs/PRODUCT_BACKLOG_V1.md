@@ -386,7 +386,7 @@ Aqorath declara exactamente qué casos fiscales mexicanos soporta y puede defend
 
 ### Fundación existente
 
-FiscalRuleSet, registry, datos versionados, aplicabilidad, cálculo, confirmación, efectos y auditoría ya existen.
+FiscalRuleSet, registry, datos versionados, aplicabilidad, cálculo, redondeo, confirmación, efectos y auditoría ya existen.
 
 ### Trabajo
 
