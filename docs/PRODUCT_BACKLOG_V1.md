@@ -223,7 +223,13 @@ AQR-002 y AQR-003.
 
 ## AQR-005 — Superficie de presentación V1: vista común + vista profesional
 
-**Estado:** `NEXT`
+**Estado:** `DONE`
+
+### Aceptación
+
+Decisión arquitectónica: [AQR_005_SURFACE_DECISION.md](AQR_005_SURFACE_DECISION.md). Operación local: [AQR_005_LOCAL_SURFACE.md](AQR_005_LOCAL_SURFACE.md). PR #39 fue incorporado en `97604e1e887129cd4ded484f1e170c10396ea980`; head definitivo revisado `d0c10b4003c23c63be223752f3db4dea8da5cba2`, CI verde [run 34397980985](https://github.com/kagenomusuko-svg/aqorath/actions/runs/34397980985). El merge y el head revisado comparten exactamente el tree `d9d41cd0989f588256b46d1b1f40d1b9a0a3545e`.
+
+La superficie V1 es web local estrictamente loopback. FastAPI es sólo adaptador; el controlador conserva únicamente previews efímeros; `surface_application.py` delega preparación/confirmación/posting a AQR-004 y consultas a autoridades Application; el read-model profesional consume directamente ledger, período, documentos, reversión y auditoría sin una segunda persistencia ni índice paralelo. La vista común sólo solicita hecho económico, importe y fecha; la profesional inspecciona la misma póliza, sus cuentas, período, referencias, fiscalidad y trazabilidad. Las pruebas cubren ausencia de escritura en prepare/cancel, consentimiento exacto, equivalencia common/professional, ledger+AuditEvent real, período cerrado heredado de AQR-002, índice reciente respaldado por `JournalEntry`, aislamiento del framework y binding sólo a `127.0.0.1`.
 
 ### Resultado de producto
 
@@ -231,7 +237,7 @@ Aqorath deja de ser sólo un motor probado y se vuelve utilizable por su usuario
 
 ### Estado actual
 
-El `main` auditado no contiene una interfaz de usuario productiva vigente. PR antiguos de PySide pertenecen a una arquitectura supersedida y no deben revivirse por inercia.
+Existe una superficie productiva local nueva; los PR antiguos de PySide y los assets históricos `templates/`/`static/` permanecen supersedidos y no son autoridad.
 
 ### Trabajo
 
@@ -244,7 +250,7 @@ Dos vistas sobre la misma verdad:
 
 ### Criterio de aceptación
 
-La misma operación ingresada desde la vista común puede revisarse en la profesional sin diferencias sustantivas; una persona no contadora puede completar los flujos V1 definidos en AQR-001.
+La misma operación ingresada desde la vista común puede revisarse en la profesional sin diferencias sustantivas; una persona no contadora puede completar los flujos V1 definidos en AQR-001 conforme esos casos de uso están implementados.
 
 ### Dependencia
 
@@ -254,7 +260,7 @@ AQR-004.
 
 ## AQR-006 — Cuentas por cobrar y pagar como submayores operativos
 
-**Estado:** `TODO`
+**Estado:** `NEXT`
 
 ### Resultado de producto
 
@@ -270,7 +276,7 @@ Modelar documentos/open items, fecha de vencimiento, saldo pendiente, aplicacion
 
 ### Criterio de aceptación
 
-Aqorath puede responder de forma reproducible cuánto debe cada cliente, cuánto se debe a cada proveedor, qué partidas integran el saldo y cómo se liquidaron.
+Aqorath puede responder de forma reproducible cuánto debe cada cliente, cuánto se debe a cada proveedor, qué partidas integran el saldo y cómo se liquidaron. Todo saldo CxC/CxP debe ser explicable y reconciliable con el ledger canónico; una divergencia no puede quedar silenciosa.
 
 ### Dependencia
 
@@ -533,4 +539,4 @@ Al completar una tarea:
 
 ## SIGUIENTE ACTUAL
 
-`AQR-005 — Superficie de presentación V1: vista común + vista profesional`.
+`AQR-006 — Cuentas por cobrar y pagar como submayores operativos`.

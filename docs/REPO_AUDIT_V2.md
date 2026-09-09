@@ -3,7 +3,7 @@
 **Fecha de corte:** 2026-09-09  
 **Rama de continuidad:** `main`  
 **Baseline histórico de runtime:** `7623e4eb0636064cdab0582ce3c98e7b9c844e93` (PR #30)  
-**Runtime material vigente:** AQR-002 + AQR-003 + AQR-004  
+**Runtime material vigente:** AQR-002 + AQR-003 + AQR-004 + AQR-005  
 **Esquema vigente:** 6
 
 > Este documento sustituye a `REPO_AUDIT_V1.md` como descripción del estado actual. V1 queda únicamente como referencia histórica. Los apartados del baseline PR #30 conservan valor de evidencia; las actualizaciones AQR posteriores prevalecen cuando amplían el estado material.
@@ -14,14 +14,14 @@
 
 Aqorath dispone de un núcleo contable local ampliamente endurecido y probado: SQLite como autoridad, dinero exacto, partida doble, catálogo gobernado, resolución de hechos económicos, reporting, fiscalidad versionada, trazabilidad, fundamentos OSC y activos fijos.
 
-AQR-002 añadió la autoridad explícita de período y ejercicio. AQR-003 consolidó inmutabilidad append-only y corrección por reversión con auditoría. AQR-004 compuso las autoridades existentes en un caso de uso Application ordinario completo: **hecho → decisión → consentimiento → posting → auditoría**, sin crear un segundo motor ni una persistencia paralela.
+AQR-002 añadió la autoridad explícita de período y ejercicio. AQR-003 consolidó inmutabilidad append-only y corrección por reversión con auditoría. AQR-004 compuso las autoridades existentes en un caso de uso Application ordinario completo: **hecho → decisión → consentimiento → posting → auditoría**, sin crear un segundo motor ni una persistencia paralela. AQR-005 añadió una superficie local común + profesional sobre esas mismas autoridades, estrictamente loopback y sin trasladar reglas contables a presentación.
 
 ### Resultado del corte
 
-- **P0 de integridad contable conocidos:** ninguno abierto después de PR #36/#37.
+- **P0 de integridad contable conocidos:** ninguno abierto después de PR #36/#37/#39.
 - **Estado de producción:** **NO declarado listo para producción**; una suite verde no sustituye aceptación profesional/humana ni cobertura fiscal declarada.
-- **Gap de producto principal inmediato:** no existe una superficie de presentación productiva vigente.
-- **Continuidad:** `PRODUCT_BACKLOG_V1.md` contiene exactamente un `NEXT`: AQR-005.
+- **Gap de producto principal inmediato:** los flujos de crédito/cobro/pago contabilizan, pero todavía no constituyen submayores operativos CxC/CxP por tercero y partida abierta.
+- **Continuidad:** `PRODUCT_BACKLOG_V1.md` contiene exactamente un `NEXT`: AQR-006.
 
 ---
 
@@ -62,6 +62,17 @@ La decisión `AQR_003_CLOSED_YEAR_DECISION.md` aprobó bloquear preventivamente 
 - ocho pruebas AQR-004 nuevas, además de la regresión completa ejecutada por CI.
 
 AQR-004 añade únicamente composición: `AccountingDecision` inmutable, preparación mediante provenance + bindings + resolución + explicación + snapshot, consentimiento por la autoridad existente, posting por `PostingInstruction` y staging canónico, y `AuditEvent entry_posted` en la misma transacción. La fiscalidad ya confirmada delega a `fiscalized_posting_persistence.py`.
+
+### AQR-005 — superficie local común + profesional
+
+- decisión: `AQR_005_SURFACE_DECISION.md`;
+- operación: `AQR_005_LOCAL_SURFACE.md`;
+- PR #39, merge `97604e1e887129cd4ded484f1e170c10396ea980`;
+- head revisado `d0c10b4003c23c63be223752f3db4dea8da5cba2`;
+- CI verde run 34397980985;
+- tree de head y merge idéntico: `d9d41cd0989f588256b46d1b1f40d1b9a0a3545e`.
+
+AQR-005 deriva del repositorio una superficie web local estrictamente `127.0.0.1`. `web_surface.py` es un adaptador FastAPI delgado; `presentation_controller.py` conserva únicamente decisiones preparadas efímeras; `surface_application.py` delega en AQR-004/Application; `accounting_operation_read.py` consulta las autoridades persistidas existentes. La vista común no solicita Debe/Haber ni códigos; la profesional inspecciona la misma `JournalEntry`, período, líneas, documentos, reversión y auditorías. La lista de pólizas recientes consulta directamente `JournalEntry`: no existe índice profesional paralelo.
 
 ---
 
@@ -141,6 +152,8 @@ La decisión no constituye un segundo ledger. La evidencia durable se divide por
 - JournalEntry/JournalLine: cuentas, importes, fecha y estado efectivamente consolidados;
 - AuditEvent `entry_posted`: hecho, fecha solicitada, rule_id/version, consentimiento y explicación estructurada;
 - auditoría fiscal: provenance fiscal cuando aplica.
+
+AQR-005 consume estas fronteras; no añade una segunda ruta de posting.
 
 ---
 
@@ -238,7 +251,7 @@ Estado: **FUNDACIÓN IMPLEMENTADA / INTEGRACIÓN DE PRODUCTO PARCIAL**
 
 Existen ExplanationData, formatting/presentation/delivery, explicación bajo demanda, progresividad, topic learning y UserKnowledgeState.
 
-AQR-004 ya incorpora `ExplanationData` a la misma decisión y conserva evidencia estructurada en auditoría. AQR-005 deberá presentarla sin crear una segunda fuente narrativa.
+AQR-004 incorpora `ExplanationData` a la misma decisión y conserva evidencia estructurada en auditoría. AQR-005 presenta esa explicación desde la misma decisión; no crea una fuente narrativa independiente.
 
 ---
 
@@ -268,7 +281,7 @@ AQR-004 ya incorpora `ExplanationData` a la misma decisión y conserva evidencia
 | InKindDonation | **Pendiente** |
 | BankAccount | **Pendiente** |
 | FiscalRuleSet | Implementado |
-| ExplanationData | Implementado e integrado en AQR-004 |
+| ExplanationData | Implementado e integrado en AQR-004/AQR-005 |
 | UserKnowledgeState | Implementado |
 | ReportDefinition | Fundación implementada |
 | ReportRequest | Fundación implementada |
@@ -281,13 +294,20 @@ AQR-004 ya incorpora `ExplanationData` a la misma decisión y conserva evidencia
 
 ## 14. Superficie de presentación
 
-Estado: **GAP DE PRODUCTO CRÍTICO, NO P0 DE INTEGRIDAD**
+Estado: **IMPLEMENTADA AQR-005 / EMPAQUETADO FINAL PENDIENTE**
 
-No se localiza en `main` una UI productiva vigente (`aqorath/ui`, `desktop.py` o equivalente actual).
+Existe una superficie V1 nueva, local y estrictamente loopback:
 
-Los PR históricos de PySide #18/#19 pertenecen a una arquitectura supersedida: pedían códigos contables al usuario y no deben revivirse por inercia.
+- `aqorath/web_surface.py`: adaptador HTTP FastAPI delgado, sin autoridad contable/persistente;
+- `aqorath/local_server.py`: Uvicorn fijado a `127.0.0.1`;
+- `aqorath/presentation_controller.py`: estado efímero de preview/consentimiento;
+- `aqorath/surface_application.py`: puente a Application/AQR-004 y read-models;
+- `aqorath/accounting_operation_read.py`: proyección profesional desde autoridades existentes;
+- `aqorath/web_assets.py`: vista común + profesional sin framework frontend.
 
-AQR-005 es el único `NEXT`. Debe consumir `application.py`/casos de uso canónicos y ofrecer vista común + profesional sobre la misma verdad.
+La vista común solicita hechos, importe y fecha; nunca exige Debe/Haber ni códigos contables. La vista profesional presenta pólizas, cuentas, cargos/abonos, períodos, documentos y trazabilidad a partir del mismo ledger. Los PR históricos PySide #18/#19 y los recursos raíz `templates/`/`static/` permanecen supersedidos y no se usan.
+
+AQR-015 conserva la responsabilidad del empaquetado/instalación final y de la aceptación humana completa del producto.
 
 ---
 
@@ -329,7 +349,7 @@ Todas están registradas y ordenadas en `PRODUCT_BACKLOG_V1.md`.
 
 ### P1 — completitud/seguridad de producto
 
-- ausencia de superficie productiva;
+- submayores CxC/CxP operativos pendientes;
 - bancos/conciliación pendientes;
 - OSC incompleto en fondos/fuentes/restricciones;
 - CFDI/cobertura fiscal V1 incompletos;
@@ -339,7 +359,7 @@ Todas están registradas y ordenadas en `PRODUCT_BACKLOG_V1.md`.
 
 - documentación y nombres históricos que deben permanecer marcados;
 - scripts/assets/templates antiguos que deberán evaluarse antes de release;
-- prueba humana pendiente de AQR-005.
+- prueba humana final pendiente de AQR-015.
 
 ---
 
@@ -349,9 +369,9 @@ La continuidad **NO** se deriva de numeración histórica ni de PR antiguos.
 
 Leer `INSTRUCCIONES.md` y ejecutar la única tarea `NEXT` de `PRODUCT_BACKLOG_V1.md`:
 
-> **AQR-005 — Superficie de presentación V1: vista común + vista profesional**
+> **AQR-006 — Cuentas por cobrar y pagar como submayores operativos**
 
-Antes de seleccionar tecnología de presentación debe verificarse si el repositorio ya fijó esa elección. Si no la fijó y existen arquitecturas legítimas incompatibles, la autorización operativa exige una decisión humana real; no debe disfrazarse esa elección como refactor técnico.
+Antes de modelar partidas abiertas, inspeccionar las identidades y relaciones ya persistidas por los flujos de crédito/cobro/pago. El submayor debe ser una proyección operacional explicable del ledger: distinguir origen, aplicaciones y saldo abierto; reutilizar ThirdParty, documentos, posting, períodos, reversión y auditoría; y detectar cualquier diferencia en vez de mantener un balance paralelo mutable.
 
 ---
 
