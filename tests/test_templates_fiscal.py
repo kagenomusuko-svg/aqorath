@@ -6,7 +6,9 @@ import os
 
 def test_ingreso_gross_with_vat(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
-    init_db()
+    engine = init_db()
+    from period_fixtures import seed_engine_calendar
+    seed_engine_calendar(engine)
     with get_session() as s:
         # BLOCKED_NON_CATALOG_INSERT: removed insert of Account(code='1000')
 # \n#         s.add(Account(code="1000", name="Bancos", nature="DEBIT"))
@@ -28,7 +30,9 @@ def test_ingreso_gross_with_vat(tmp_path, monkeypatch):
 
 def test_honorarios_with_isr_and_post(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
-    init_db()
+    engine = init_db()
+    from period_fixtures import seed_engine_calendar
+    seed_engine_calendar(engine)
     # Phase 1B.2: Use real canonical accounts from catalogo_base.json:
     # - 1101: Bancos (Deudora/debit)
     # - 5303: Servicios profesionales (Deudora/debit)

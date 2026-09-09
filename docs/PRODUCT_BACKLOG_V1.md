@@ -113,9 +113,9 @@ Ninguna. Es el próximo paso porque gobierna el alcance de todas las tareas post
 
 **Estado:** `NEXT`
 
-### Decisión de producto pendiente
+### Decisión de producto aprobada
 
-Inspección y casos de aceptación preparados en [AQR_002_PERIOD_DECISION.md](AQR_002_PERIOD_DECISION.md). El baseline mantiene abiertas periodicidad, calendario del ejercicio y solapamiento; la matriz V1-10 no selecciona una política. Las alternativas y la recomendación están documentadas, sin cambio de runtime ni decisión tomada. Se conserva AQR-002 como único NEXT; no iniciar AQR-003.
+Alternativa A aprobada el 2026-09-09: ejercicio enero–diciembre, meses calendario exclusivos, primer ejercicio corto desde inicio efectivo, períodos cerrados bloqueantes y rangos arbitrarios sólo para reportes. Una sola autoridad temporal; sin calendarios personalizados V1 ni reinterpretación histórica. Contrato y evidencia: [AQR_002_PERIOD_DECISION.md](AQR_002_PERIOD_DECISION.md). Implementación y pruebas en PR #33; permanece NEXT hasta su incorporación verificada a main.
 
 ### Resultado de producto
 

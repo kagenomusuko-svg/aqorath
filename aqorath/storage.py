@@ -200,7 +200,16 @@ def _register_journal_invariant_listener():
 
         for obj in list(session.new):
             if isinstance(obj, JournalEntry) and obj not in new_entries:
+                from aqorath.accounting_period_repository import require_open_period
+                obj.period_id = require_open_period(session, obj.date, obj.period_id).id
                 new_entries.append(obj)
+
+        for obj in list(session.dirty):
+            if isinstance(obj, JournalEntry) and obj.id is not None:
+                from aqorath.accounting_period_repository import validate_persisted_period, require_open_period
+                validate_persisted_period(session, obj.id)
+                obj.period_id = require_open_period(session, obj.date, obj.period_id).id
+                affected_ids.add(int(obj.id))
 
         for obj in list(session.deleted):
             if isinstance(obj, JournalEntry) and obj.id is not None:
@@ -271,8 +280,11 @@ def _register_journal_invariant_listener():
     def _validate_ids(session: SASession, entry_ids: set[int]) -> None:
         for entry_id in sorted(entry_ids):
             validate_journal_lines(_load_persisted_lines(session, entry_id))
+            from aqorath.accounting_period_repository import validate_persisted_period
+            validate_persisted_period(session, entry_id)
 
     def _clear_tracking(session: SASession) -> None:
+        session.info.pop("_aqorath_annual_closing", None)
         session.info.pop(new_entries_key, None)
         session.info.pop(affected_entries_key, None)
         session.info.pop(deleted_entries_key, None)

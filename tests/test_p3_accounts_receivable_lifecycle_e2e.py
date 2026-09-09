@@ -18,6 +18,8 @@ def test_accounts_receivable_lifecycle_sale_then_collection_returns_receivable_t
     db_path = tmp_path / "accounts-receivable-lifecycle-e2e.db"
     engine = create_engine(f"sqlite:///{db_path}")
     SQLModel.metadata.create_all(engine)
+    from period_fixtures import seed_engine_calendar
+    seed_engine_calendar(engine)
 
     with Session(engine) as session:
         receivable = Account(code="1103", name="Clientes", nature="DEBIT")

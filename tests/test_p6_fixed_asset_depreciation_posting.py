@@ -504,7 +504,9 @@ def test_real_sqlite_round_trip_persists_exact_recognition_date_and_two_exact_li
 
     db_file = tmp_path / "dated_depreciation.db"
     monkeypatch.setenv("AQORATH_DB", str(db_file))
-    storage.init_db(str(db_file), create_tables=True)
+    engine = storage.init_db(str(db_file), create_tables=True)
+    from period_fixtures import seed_engine_calendar
+    seed_engine_calendar(engine)
     recognition_date = date(2026, 2, 28)
     accounting_resolution = _accounting_resolution(
         recognition_date=recognition_date,

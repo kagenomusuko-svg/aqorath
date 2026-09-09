@@ -166,7 +166,7 @@ En cada ficha, **E** identifica pruebas existentes en `tests/` y su alcance; **F
 - **Hecho:** «Abrir el período; cerrar este mes; cerrar el ejercicio terminado».
 - **Resultado profesional:** sólo períodos abiertos admiten posting; cierre anual cancela cuentas de resultados y traspasa su saldo conforme catálogo, conserva balance e historia y respaldo previo. Fixture con ingreso 200/gasto 150: resultado 50.
 - **Evidencia y explicación:** fechas, estado, póliza de cierre y backup; explicar resultado transferido y qué fechas quedan bloqueadas.
-- **E:** `aqorath/exercise.py`, `test_p6bp_persistence_hardening.py::test_close_exercise_delegates_accounting_write_to_post_entry` prueban delegación canónica, no ciclo íntegro de períodos. **F:** AQR-002: FiscalYear/AccountingPeriod, rechazo de posting fechado en cerrado, cierre repetido, consultas antes/después y fixture 50.
+- **E:** `aqorath/exercise.py`, `test_p6bp_persistence_hardening.py::test_close_exercise_delegates_accounting_write_to_canonical_staging` prueban delegación canónica, no ciclo íntegro de períodos. **F:** AQR-002: FiscalYear/AccountingPeriod, rechazo de posting fechado en cerrado, cierre repetido, consultas antes/después y fixture 50.
 - **Prueba humana:** cerrar período, intentar operación dentro de él y recibir rechazo claro; consultar póliza y respaldo del cierre anual.
 - **Límite:** no editar estados con SQL ni reabrir silenciosamente; reglas de corrección se coordinan con V1-18.
 

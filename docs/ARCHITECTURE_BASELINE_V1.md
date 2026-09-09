@@ -681,8 +681,8 @@ class ReportRenderer:
 | Entity | Domain | Aggregate Root | Requerida | Singleton enforced en qué capa |
 | EntityProfile | Domain | Value Object | Requerida | Cambiar perfil = historial versionado |
 | FiscalProfile | Domain | Value Object | Requerida | ¿Versionado separado de entidad? |
-| AccountingPeriod | Domain | Entity | Requerida | ¿Períodos solapables o exclusivos? |
-| FiscalYear | Domain | Value Object | Requerida | ¿Coincide con año calendario o fiscal? |
+| AccountingPeriod | Domain | Entity | Requerida | Resuelto AQR-002: meses calendario exclusivos |
+| FiscalYear | Domain | Value Object | Requerida | Resuelto AQR-002: enero–diciembre, primer ejercicio corto |
 | Account | Domain | Entity | Requerida | is_canonical marca, no bloquea extensión |
 | AccountExtension | Domain | Entity | Requerida | Usuario define, validación no bloqueo |
 | EconomicEvent | Domain | Entity | Requerida | ¿Versionable o inmutable? |
@@ -712,9 +712,9 @@ class ReportRenderer:
 
 **FiscalProfile versionado:** ¿Cada cambio en perfil fiscal crea histórico? ¿O es reemplazable? Depende de requisitos normativos mexicanos.
 
-**AccountingPeriod:** ¿Períodos mensuales fijos o definibles? ¿Solapables para comparativas?
+**AccountingPeriod:** resuelto por [AQR-002](AQR_002_PERIOD_DECISION.md): meses calendario sin solapamiento; comparativas por rangos de reporte, sin crear períodos.
 
-**FiscalYear:** ¿Sistema sigue año civil (Ene-Dic) o fiscal personalizado?
+**FiscalYear:** resuelto por [AQR-002](AQR_002_PERIOD_DECISION.md): enero–diciembre; primer ejercicio desde inicio efectivo hasta 31 de diciembre. Sin calendarios personalizados V1.
 
 **AccountExtension:** Permite crear cuentas que extienden estructura canónica. Validación asegura coherencia pero NO bloquea creación.
 

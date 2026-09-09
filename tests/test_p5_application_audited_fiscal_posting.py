@@ -94,6 +94,8 @@ def _canonical_db(tmp_path, monkeypatch):
     db = tmp_path / "application-audited-posting.db"
     monkeypatch.setenv("AQORATH_DB", str(db))
     engine = storage.init_db(str(db), create_tables=True)
+    from period_fixtures import seed_engine_calendar
+    seed_engine_calendar(engine)
     with Session(engine) as session:
         accounts = (
             Account(code="1102", name="Caja chica", nature="DEBIT"),

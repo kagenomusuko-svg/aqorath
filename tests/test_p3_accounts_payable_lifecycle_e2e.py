@@ -18,6 +18,8 @@ def test_accounts_payable_lifecycle_incurred_then_paid_returns_payable_to_zero(
     db_path = tmp_path / "accounts-payable-lifecycle-e2e.db"
     engine = create_engine(f"sqlite:///{db_path}")
     SQLModel.metadata.create_all(engine)
+    from period_fixtures import seed_engine_calendar
+    seed_engine_calendar(engine)
 
     with Session(engine) as session:
         expense = Account(code="5102", name="Servicios básicos", nature="DEBIT")

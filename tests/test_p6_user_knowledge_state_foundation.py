@@ -245,7 +245,7 @@ def test_frozen_v4_additively_creates_exact_singleton_user_knowledge_schema():
     from aqorath import migrations
     from aqorath.models import UserKnowledgeStateRecord
 
-    assert migrations.CURRENT_SCHEMA_VERSION == 4
+    assert migrations.CURRENT_SCHEMA_VERSION == 5
     assert UserKnowledgeStateRecord.__tablename__ == "userknowledgestate"
     assert set(UserKnowledgeStateRecord.__table__.columns.keys()) == MODEL_COLUMNS
 
@@ -304,7 +304,7 @@ def test_current_v4_additive_ensure_adds_user_state_without_rewriting_existing_t
             datetime(2026, 8, 4, 10, 0).isoformat(),
         ))
         conn.commit()
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 5
     finally:
         conn.close()
 
@@ -319,7 +319,7 @@ def test_current_v4_additive_ensure_adds_user_state_without_rewriting_existing_t
         assert conn.execute(
             "SELECT value FROM appconfig WHERE key='sentinel_preference_test'"
         ).fetchone() == ("preserve-me",)
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 5
     finally:
         conn.close()
 

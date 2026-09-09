@@ -1,188 +1,91 @@
 from __future__ import annotations
-"""Canonical year-end closing workflow.
-
-The closing keeps its historical backup and result-calculation behavior, but it no
-longer owns an accounting persistence path. JournalEntry/JournalLine construction and
-commit authority belong exclusively to ``aqorath.core.post_entry``.
-"""
-
-import logging
-import shutil
-from datetime import datetime, timezone
+"""Canonical, atomic year-end closing over the existing ledger authorities."""
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from sqlmodel import select
-
-from aqorath.accounting_rules import compute_resultado_ejercicio, load_catalog
-from aqorath.core import post_entry, trial_balance
-from aqorath.models import Account
+from aqorath.accounting_rules import compute_resultado_ejercicio, load_catalog, resolve_catalog_entry_for_account_code
 from aqorath.storage import get_db_path, get_session
 
-
-LOG = logging.getLogger(__name__)
-LOG.addHandler(logging.NullHandler())
-
 OUT_ROOT_DEFAULT = Path.home() / ".local" / "share" / "aqorath" / "ejercicios"
-
-
-def _copy_files(dest: Path, db_path: Path) -> None:
-    """Create the non-destructive closing backup before any carry-over posting."""
-    dest.mkdir(parents=True, exist_ok=True)
-    if db_path.exists():
-        shutil.copy2(db_path, dest / db_path.name)
-
-    catalog_path = Path(__file__).resolve().parent / "data" / "catalogo_base.json"
-    if catalog_path.exists():
-        shutil.copy2(catalog_path, dest / catalog_path.name)
-
-
-def _resolve_closing_accounts() -> tuple[Account | None, Account | None]:
-    """Resolve the two governed accounts without creating or mutating catalog rows."""
-    with get_session() as session:
-        account_3103 = session.exec(
-            select(Account).where(Account.code == "3103")
-        ).one_or_none()
-        account_3104 = session.exec(
-            select(Account).where(Account.code == "3104")
-        ).one_or_none()
-        return account_3103, account_3104
-
-
-def _closing_lines(
-    resultado: Decimal,
-    account_3103: Account,
-    account_3104: Account,
-) -> list[dict[str, Any]]:
-    """Build an exact, balanced proposal; persistence remains owned by post_entry."""
-    if resultado > 0:
-        amount = str(resultado)
-        return [
-            {
-                "account_id": account_3103.id,
-                "account_code": account_3103.code,
-                "debit": amount,
-                "credit": "0",
-                "description": "Cierre: traslado a 3104",
-            },
-            {
-                "account_id": account_3104.id,
-                "account_code": account_3104.code,
-                "debit": "0",
-                "credit": amount,
-                "description": "Cierre: contrapartida desde 3103",
-            },
-        ]
-
-    amount = str(abs(resultado))
-    return [
-        {
-            "account_id": account_3104.id,
-            "account_code": account_3104.code,
-            "debit": amount,
-            "credit": "0",
-            "description": "Cierre pérdida: traslado a 3104",
-        },
-        {
-            "account_id": account_3103.id,
-            "account_code": account_3103.code,
-            "debit": "0",
-            "credit": amount,
-            "description": "Cierre pérdida: contrapartida desde 3104",
-        },
-    ]
 
 
 def close_exercise(
     carry_over: bool = True,
     out_root: Optional[Path] = None,
+    *,
+    year: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Backup the database and optionally post the 3103→3104 year-end transfer.
+    """Close an explicit fiscal year atomically through canonical staging.
 
-    The function never creates accounts and never writes JournalEntry/JournalLine by
-    direct ORM or sqlite. A carry-over can become durable only through ``post_entry``
-    and therefore through the canonical persistence invariants.
+    December must remain open until annual closing. Closed months never receive
+    new postings, including closing adjustments. No implicit reopening occurs.
     """
+    from datetime import date, timedelta
+    from sqlalchemy import text
+    from .accounting_period_repository import load_fiscal_year, load_periods, require_open_period
+    from .accounting_period import PeriodError
+    from .account_balance import _exact_decimal_sum
+    from .core import _stage_entry_in_session, _balances_from_sqlite
+    from .migrations import create_database_backup
+
     root = out_root or OUT_ROOT_DEFAULT
-    dest = root / datetime.now().strftime("%Y%m%d_%H%M%S")
     db_path = Path(get_db_path())
-
     try:
-        _copy_files(dest, db_path)
+        backup = create_database_backup(str(db_path), backup_dir=str(root))
     except Exception as exc:
-        LOG.exception("Error creando backup: %s", exc)
         return {"ok": False, "error": f"Error creando backup: {exc}"}
-
+    backup_path = backup["backup_path"]
     if not carry_over:
-        return {
-            "ok": True,
-            "path": str(dest),
-            "note": "Backup creado, no se realizó traslado de saldos.",
-        }
-
+        return {"ok": True, "path": backup_path, "note": "Backup creado, sin cierre contable."}
+    if type(year) is not int:
+        return {"ok": False, "path": backup_path, "error": "Seleccione explícitamente el ejercicio a cerrar."}
     try:
-        balances = trial_balance()
-        catalog = load_catalog()
-        resultado, _totals = compute_resultado_ejercicio(balances, catalog)
-        resultado = Decimal(str(resultado))
+        with get_session() as session:
+            # Acquire SQLite's writer reservation before reading closing balances.
+            session.execute(text('UPDATE fiscalyear SET state=state WHERE year=:year'), {'year': year})
+            fy = load_fiscal_year(session, year)
+            stored = session.execute(text('SELECT closing_entry_id FROM fiscalyear WHERE year=:y'), {'y': year}).scalar()
+            if fy.state == 'closed':
+                return {"ok": True, "path": backup_path, "entry_id": stored, "already_closed": True}
+            periods = load_periods(session, fy)
+            if len(periods) != len(fy.periods()):
+                raise PeriodError('Fiscal year has missing periods')
+            require_open_period(session, fy.end)
+            after = _balances_from_sqlite(db_path, fy.end.isoformat())
+            before = {} if fy.start == date.min else _balances_from_sqlite(db_path, (fy.start - timedelta(days=1)).isoformat())
+            movement = {code: _exact_decimal_sum([after.get(code, Decimal(0)), before.get(code, Decimal(0)).copy_negate()]) for code in after.keys() | before.keys()}
+            from .catalog import get_catalog_path
+            catalog = load_catalog(get_catalog_path())
+            if not catalog:
+                raise PeriodError("Canonical catalog is unavailable")
+            resultado, _ = compute_resultado_ejercicio(movement, catalog)
+            lines = []
+            for code, balance in movement.items():
+                if (resolve_catalog_entry_for_account_code(code, catalog) or {}).get('tipo') not in ('Ingreso', 'Gasto', 'Costo') or not balance:
+                    continue
+                lines.append({'account_code': code, 'debit': str(balance.copy_negate() if balance < 0 else Decimal(0)),
+                              'credit': str(balance if balance > 0 else Decimal(0))})
+            net = _exact_decimal_sum([value for line in lines for value in (Decimal(line['debit']), Decimal(line['credit']).copy_negate())])
+            if net != resultado:
+                raise PeriodError('Closing result contradicts canonical financial result')
+            if net:
+                lines.append({'account_code': '3104', 'debit': str(net.copy_negate() if net < 0 else Decimal(0)),
+                              'credit': str(net if net > 0 else Decimal(0))})
+            entry_id = None
+            if lines:
+                entry, error = _stage_entry_in_session(session, {
+                    'date': fy.end, 'description': f'Cierre del ejercicio {year}',
+                    'state': 'posted', 'lines': lines,
+                })
+                if error:
+                    raise PeriodError(error)
+                session.flush()
+                entry_id = entry.id
+                session.info["_aqorath_annual_closing"] = entry_id
+            session.execute(text("UPDATE fiscalyear SET state='closed',closing_entry_id=:id WHERE year=:y"), {'id': entry_id, 'y': year})
+            session.execute(text("UPDATE accountingperiod SET state='closed' WHERE year=:y"), {'y': year})
+            session.commit()
+            return {'ok': True, 'path': backup_path, 'entry_id': entry_id, 'transferred': str(resultado)}
     except Exception as exc:
-        LOG.exception("Error calculando resultado del ejercicio: %s", exc)
-        return {
-            "ok": False,
-            "path": str(dest),
-            "error": f"No se pudo calcular resultado: {exc}",
-        }
-
-    try:
-        account_3103, account_3104 = _resolve_closing_accounts()
-    except Exception as exc:
-        return {
-            "ok": False,
-            "path": str(dest),
-            "error": f"Error verificando cuentas de cierre: {exc}",
-        }
-
-    missing = []
-    if account_3103 is None:
-        missing.append("3103")
-    if account_3104 is None:
-        missing.append("3104")
-    if missing:
-        return {
-            "ok": False,
-            "path": str(dest),
-            "error": (
-                "Cuentas necesarias para cierre faltan en DB: "
-                f"{', '.join(missing)}. El sistema no creará cuentas automáticamente."
-            ),
-        }
-
-    if resultado == Decimal("0"):
-        return {
-            "ok": True,
-            "path": str(dest),
-            "note": "No hay resultado del ejercicio para trasladar.",
-        }
-
-    payload = {
-        "description": f"Cierre ejercicio: traslado {resultado}",
-        "date": datetime.now(timezone.utc),
-        "state": "posted",
-        "lines": _closing_lines(resultado, account_3103, account_3104),
-    }
-    result = post_entry(payload)
-    if not isinstance(result, dict) or not result.get("ok"):
-        error = result.get("error") if isinstance(result, dict) else result
-        return {
-            "ok": False,
-            "path": str(dest),
-            "error": f"No se pudo insertar asiento de cierre: {error}",
-        }
-
-    return {
-        "ok": True,
-        "path": str(dest),
-        "transferred": str(resultado),
-        "entry_id": result.get("entry_id"),
-    }
+        return {'ok': False, 'path': backup_path, 'error': str(exc)}

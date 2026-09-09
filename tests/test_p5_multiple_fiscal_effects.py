@@ -374,8 +374,8 @@ def test_schema_additively_ensures_ordered_additional_effect_records_without_bum
 
     db = tmp_path / "multi-effects-additive.db"
     migrations.migrate_database(db)
-    assert migrations.CURRENT_SCHEMA_VERSION == 4
-    assert migrations.get_schema_version(db) == 4
+    assert migrations.CURRENT_SCHEMA_VERSION == 5
+    assert migrations.get_schema_version(db) == 5
 
     conn = sqlite3.connect(str(db))
     try:
@@ -388,8 +388,8 @@ def test_schema_additively_ensures_ordered_additional_effect_records_without_bum
         conn.close()
 
     result = migrations.migrate_database(db)
-    assert result["to_version"] == 4
-    assert migrations.get_schema_version(db) == 4
+    assert result["to_version"] == 5
+    assert migrations.get_schema_version(db) == 5
 
     conn = sqlite3.connect(str(db))
     try:
@@ -439,6 +439,8 @@ def test_atomic_persistence_and_read_round_trip_three_effects_exactly_without_re
     db = tmp_path / "multi-effects-round-trip.db"
     monkeypatch.setenv("AQORATH_DB", str(db))
     engine = storage.init_db(str(db), create_tables=True)
+    from period_fixtures import seed_engine_calendar
+    seed_engine_calendar(engine)
     try:
         with Session(engine) as session:
             accounts = (

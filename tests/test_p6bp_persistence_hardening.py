@@ -27,6 +27,8 @@ def _canonical_db(tmp_path, monkeypatch):
     db = tmp_path / "p6bp-ledger-invariants.db"
     monkeypatch.setenv("AQORATH_DB", str(db))
     engine = storage.init_db(str(db), create_tables=True)
+    from period_fixtures import seed_engine_calendar
+    seed_engine_calendar(engine)
 
     with Session(engine) as session:
         accounts = (
@@ -238,42 +240,27 @@ def test_public_post_entry_balanced_payload_still_persists(tmp_path, monkeypatch
         assert len(session.exec(select(JournalLine)).all()) == 2
 
 
-def test_close_exercise_delegates_accounting_write_to_post_entry(monkeypatch, tmp_path):
+def test_close_exercise_delegates_accounting_write_to_canonical_staging(monkeypatch, tmp_path):
+    import aqorath.core as core
     import aqorath.exercise as exercise
-
-    account_3103 = SimpleNamespace(id=31, code="3103")
-    account_3104 = SimpleNamespace(id=32, code="3104")
-    captured = {}
-
-    monkeypatch.setattr(exercise, "get_db_path", lambda: str(tmp_path / "aqorath.db"))
-    monkeypatch.setattr(exercise, "_copy_files", lambda dest, db_path: dest.mkdir(parents=True))
-    monkeypatch.setattr(exercise, "trial_balance", lambda: {"4101": Decimal("-150"), "5101": Decimal("50")})
-    monkeypatch.setattr(exercise, "load_catalog", lambda: {})
-    monkeypatch.setattr(
-        exercise,
-        "compute_resultado_ejercicio",
-        lambda balances, catalog: (Decimal("100.00"), {}),
-    )
-    monkeypatch.setattr(
-        exercise,
-        "_resolve_closing_accounts",
-        lambda: (account_3103, account_3104),
-    )
-
-    def fake_post_entry(payload):
-        captured["payload"] = payload
-        return {"ok": True, "entry_id": 77}
-
-    monkeypatch.setattr(exercise, "post_entry", fake_post_entry)
-
-    result = exercise.close_exercise(out_root=tmp_path / "backups")
-    assert result["ok"] is True
-    assert result["entry_id"] == 77
-    assert result["transferred"] == "100.00"
-
-    payload = captured["payload"]
-    assert payload["state"] == "posted"
-    assert [(line["account_code"], line["debit"], line["credit"]) for line in payload["lines"]] == [
-        ("3103", "100.00", "0"),
-        ("3104", "0", "100.00"),
-    ]
+    from aqorath.models import Account
+    engine, _ = _canonical_db(tmp_path, monkeypatch)
+    with Session(engine) as session:
+        session.add(Account(code="3104",name="Resultado acumulado",nature="CREDIT"))
+        session.commit()
+    assert core.post_entry({"date":"2026-05-01","state":"posted","lines":[
+        {"account_code":"1102","debit":"100","credit":"0"},
+        {"account_code":"4201","debit":"0","credit":"100"},
+    ]})["ok"]
+    calls=[]
+    real_stage=core._stage_entry_in_session
+    def tracked_stage(session,payload):
+        calls.append(payload)
+        return real_stage(session,payload)
+    monkeypatch.setattr(core,"_stage_entry_in_session",tracked_stage)
+    result=exercise.close_exercise(year=2026,out_root=tmp_path/"backups")
+    assert result["ok"],result
+    assert len(calls)==1
+    assert calls[0]["state"]=="posted"
+    assert [(l["account_code"],l["debit"],l["credit"]) for l in calls[0]["lines"]]==[
+        ("4201","100","0"),("3104","0","100")]

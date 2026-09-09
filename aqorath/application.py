@@ -886,3 +886,34 @@ def get_audit_event(session, entity_id, event_id):
 
 def list_audit_events(session, entity_id):
     return _audit_event_repository.list_audit_events(session, entity_id)
+
+
+# AQR-002: no calendar arithmetic in the application/presentation adapters.
+def configure_accounting_calendar(session, entity_id, activity_start, historical_states=None, legacy_period_assignments=None, historical_year_states=None):
+    from .accounting_period_repository import configure_calendar
+    return configure_calendar(session, entity_id, activity_start, historical_states, legacy_period_assignments, historical_year_states)
+
+
+def open_accounting_year(session, year):
+    from .accounting_period_repository import open_fiscal_year
+    return open_fiscal_year(session, year)
+
+
+def close_accounting_period(session, period_id):
+    from .accounting_period_repository import close_period
+    return close_period(session, period_id)
+
+
+def get_accounting_period_balances(session, period_id):
+    from .accounting_period_repository import get_period_balances
+    return get_period_balances(session, period_id)
+
+
+def close_accounting_year(year, out_root=None):
+    from .exercise import close_exercise
+    return close_exercise(year=year, out_root=out_root)
+
+
+def get_accounting_range_balances(session, start, end):
+    from .accounting_period_repository import get_date_range_balances
+    return get_date_range_balances(session, start, end)

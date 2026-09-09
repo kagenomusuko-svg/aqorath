@@ -271,8 +271,8 @@ Integrarlo en los flujos de producto y en la vista común/profesional, no crear 
 | Entity | Fundación implementada |
 | EntityProfile | Fundación implementada |
 | FiscalProfile | Fundación implementada |
-| AccountingPeriod | **No localizado como implementación actual** |
-| FiscalYear | **No localizado como aggregate/VO explícito**; existe cierre en `exercise.py` |
+| AccountingPeriod | Implementado AQR-002: meses calendario exclusivos, bloqueo y resolvedor puro único |
+| FiscalYear | Implementado AQR-002: año calendario, primer ejercicio corto y cierre atómico por staging canónico |
 | Account | Implementado |
 | AccountExtension | Implementado |
 | EconomicEvent | Implementado |
@@ -316,7 +316,6 @@ AQR-005 define la nueva superficie, una vez establecida la orquestación de AQR-
 
 No se localizaron como capacidades completas actuales:
 
-- períodos contables bloqueables y FiscalYear explícito;
 - reversión/corrección formal de pólizas posted como contrato integral;
 - BankAccount y conciliación bancaria;
 - Fund/FundingSource/restricciones OSC;
@@ -369,7 +368,6 @@ Esto significa “no identificado por la suite y revisión actual”, no “impo
 
 ### P1 — completitud/seguridad de producto
 
-- ausencia de períodos contables como autoridad;
 - ausencia de workflow de reversión plenamente cerrado;
 - ausencia de superficie de usuario actual;
 - ausencia de bancos/conciliación;
@@ -382,7 +380,7 @@ Esto significa “no identificado por la suite y revisión actual”, no “impo
 - documentación histórica que debe permanecer claramente marcada;
 - scripts/assets/templates antiguos en raíz que deben evaluarse antes de release, no borrar por intuición;
 - nombres históricos de fases en tests/commits que pueden confundir si se usan como roadmap;
-- cobertura profesional/humana todavía no expresada como matriz de aceptación única.
+- prueba humana de la matriz AQR-001 pendiente de la superficie AQR-005.
 
 ---
 
@@ -392,11 +390,7 @@ La continuidad **NO** se deriva de la numeración histórica de fases.
 
 Leer `INSTRUCCIONES.md` y ejecutar la única tarea `NEXT` de `PRODUCT_BACKLOG_V1.md`:
 
-> **AQR-001 — Matriz de aceptación del producto V1**
-
-Su objetivo es congelar qué operaciones concretas forman Aqorath V1 y qué evidencia técnica, profesional y humana demuestra que cada una está terminada.
-
-A partir de ahí, el resto del backlog convierte las capacidades faltantes en trabajo finito y secuencial.
+La matriz AQR-001 fue incorporada por PR #31. El backlog vigente determina el siguiente trabajo; este corte no sustituye su único NEXT.
 
 ---
 
@@ -411,3 +405,13 @@ Esta auditoría combina estructura del repositorio, código vigente, pruebas y C
 - garantía de ausencia absoluta de defectos.
 
 Es el **corte técnico y arquitectónico de autoridad para continuar el desarrollo** a partir del 2026-09-09.
+
+## 18. Actualización material AQR-002 — PR #33
+
+Contrato aprobado: [AQR_002_PERIOD_DECISION.md](AQR_002_PERIOD_DECISION.md). Se añaden autoridad temporal pura, persistencia de calendario/ejercicio/mes, migración 4→5 explícita, comprobación común en posting ordinario/fiscalizado/activos y cierre anual atómico. Las consultas por período/rango componen el motor de saldos existente. Los apartados que describen PR #30 permanecen como evidencia del corte histórico, no como ausencia de estas nuevas capacidades.
+
+El cierre ahora cancela ingresos/costos/gastos del ejercicio y acumula el resultado en 3104, conservando el staging canónico y un respaldo validado. Requiere diciembre abierto y año explícito. No reabre períodos ni duplica un cierre anterior.
+
+El calendario de bases legadas requiere declaración explícita del inicio, estados históricos y correspondencias incompatibles; no se infieren con la migración de esquema. AQR-003 sigue siendo la tarea de inmutabilidad/reversión formal. No se amplía el alcance fiscal V1 ni se declara una UI productiva.
+
+Evidencia nueva: 24 casos en `tests/test_aqr002_accounting_periods.py` y regresión completa. La incorporación y CI del main resultante se registran en el cierre del backlog.

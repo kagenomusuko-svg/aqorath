@@ -15,6 +15,8 @@ def test_receivable_collection_confirmed_truth_persists_to_sqlite(tmp_path, monk
     db_path = tmp_path / "receivable-collection-e2e.db"
     engine = create_engine(f"sqlite:///{db_path}")
     SQLModel.metadata.create_all(engine)
+    from period_fixtures import seed_engine_calendar
+    seed_engine_calendar(engine)
 
     with Session(engine) as session:
         bank = Account(code="1101", name="Bancos", nature="DEBIT")

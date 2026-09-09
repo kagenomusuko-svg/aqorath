@@ -352,12 +352,9 @@ def _balances_from_sqlite(db_path: Optional[Path], as_of: Optional[str] = None) 
                 else:
                     as_of_date = as_of if isinstance(as_of, __import__('datetime').date) else as_of.date()
                 
-                # Next day for exclusive boundary
-                next_day = as_of_date + __import__('datetime').timedelta(days=1)
-                
-                # Use DATE(je.date) < DATE(next_day) for robust date comparison
-                where_clause = " WHERE DATE(je.date) < ?"
-                params.append(str(next_day))
+                # Inclusive civil-day cutoff also supports date.max without overflow.
+                where_clause = " WHERE DATE(SUBSTR(je.date, 1, 10)) <= ?"
+                params.append(str(as_of_date))
             except ValueError as e:
                 # Explicit failure: as_of must be ISO YYYY-MM-DD
                 raise ValueError(
@@ -674,11 +671,17 @@ def _stage_entry_in_session(session, entry):
             tzinfo=datetime.timezone.utc,
         )
 
+    from aqorath.accounting_period_repository import require_open_period
+    try:
+        period = require_open_period(session, resolved_date, entry.get("period_id"))
+    except ValueError as exc:
+        return None, str(exc)
+
     je = JournalEntry(
         date=resolved_date,
         concept=desc,
         doc_ref=entry.get("doc_ref"),
-        period_id=entry.get("period_id"),
+        period_id=period.id,
         posted_by=entry.get("posted_by"),
         state=entry.get("state", "draft"),
     )

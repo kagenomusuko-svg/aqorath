@@ -56,7 +56,7 @@ def _fresh_db(tmp_path, filename="audit-event.db"):
 
     db_path = tmp_path / filename
     result = migrate_database(str(db_path))
-    assert result["to_version"] == 4
+    assert result["to_version"] == 5
     return db_path, create_engine(f"sqlite:///{db_path}")
 
 
@@ -216,7 +216,7 @@ def test_frozen_v4_additively_creates_exact_audit_event_schema_with_entity_fk_an
     from aqorath.migrations import CURRENT_SCHEMA_VERSION
     from aqorath.models import AuditEventRecord
 
-    assert CURRENT_SCHEMA_VERSION == 4
+    assert CURRENT_SCHEMA_VERSION == 5
     assert AuditEventRecord.__tablename__ == "auditevent"
 
     db_path, engine = _fresh_db(tmp_path, "schema.db")
@@ -269,11 +269,12 @@ def test_current_v4_additive_ensure_adds_audit_event_without_rewriting_existing_
     result = migrate_database(str(db_path))
     assert result == {
         "from_version": 4,
-        "to_version": 4,
-        "migrated": False,
-        "backup_path": None,
+        "to_version": 5,
+        "migrated": True,
+        "backup_path": result["backup_path"],
     }
-    assert get_schema_version(str(db_path)) == 4
+    assert __import__("pathlib").Path(result["backup_path"]).is_file()
+    assert get_schema_version(str(db_path)) == 5
 
     conn = sqlite3.connect(str(db_path))
     try:

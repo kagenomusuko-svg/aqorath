@@ -59,6 +59,8 @@ def isolated_catalog_engine(tmp_path, monkeypatch):
     db_url = f"sqlite:///{db_file}"
     engine = create_engine(db_url, echo=False)
     SQLModel.metadata.create_all(engine)
+    from period_fixtures import seed_engine_calendar
+    seed_engine_calendar(engine)
 
     # Seed canonical accounts (1101, 4101) from JSON catalog
     canonical_codes = ["1101", "4101"]
