@@ -42,7 +42,7 @@ La vista común y la vista profesional son dos superficies sobre el **mismo moto
 
 ## 4. Corte técnico validado
 
-### Baseline de runtime revisado
+### Baseline de runtime histórico — PR #30
 
 - `main` incorporó PR #30 — **Phase 6BP persistence hardening**.
 - Merge de runtime revisado: `7623e4eb0636064cdab0582ce3c98e7b9c844e93`.
@@ -50,7 +50,11 @@ La vista común y la vista profesional son dos superficies sobre el **mismo moto
 - Última suite completa asociada a ese corte: **1912 passed, 0 failed**.
 - No existe, al cierre de la auditoría del 2026-09-09, un P0 conocido que obligue a reabrir los fundamentos ya validados.
 
-Los commits exclusivamente documentales posteriores pueden hacer avanzar `main` sin cambiar este baseline de runtime.
+### Runtime vigente — AQR-002
+
+PR #33 incorporó el calendario aprobado, períodos y cierre anual atómico en `bc41cffcbc192bbf179e7eb28ea137521f079526`. Head revisado `f0f55d9bcd6d40112dea395e896d4f3cc5554326`, CI verde (run 34385801594), **1936 passed, 8 warnings** local. El árbol de main resultante coincide con ese head. Esquema actual 5; la migración no infiere estados ni calendarios históricos. Contrato: `docs/AQR_002_PERIOD_DECISION.md`.
+
+Los commits exclusivamente documentales posteriores pueden avanzar main sin cambiar este corte de runtime.
 
 ### Fundamentos que NO deben reconstruirse sin evidencia de defecto
 
@@ -167,7 +171,7 @@ Una tarea sólo pasa de `NEXT` a `DONE` cuando:
 
 ## 11. SIGUIENTE
 
-**`AQR-002 — Períodos contables y ejercicio fiscal como autoridades de dominio`**
+**`AQR-003 — Inmutabilidad de pólizas consolidadas y correcciones por reversión`**
 
 AQR-001 fue incorporada mediante PR #31 (`bff58de7cad11de6c2ab37c0d3e0b7b6c20ae003`). Su matriz única es `docs/PRODUCT_ACCEPTANCE_V1.md`. Consultar siempre el único `NEXT` del backlog antes de comenzar trabajo.
 

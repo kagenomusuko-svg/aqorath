@@ -111,11 +111,11 @@ Ninguna. Es el próximo paso porque gobierna el alcance de todas las tareas post
 
 ## AQR-002 — Períodos contables y ejercicio fiscal como autoridades de dominio
 
-**Estado:** `NEXT`
+**Estado:** `DONE`
 
 ### Decisión de producto aprobada
 
-Alternativa A aprobada el 2026-09-09: ejercicio enero–diciembre, meses calendario exclusivos, primer ejercicio corto desde inicio efectivo, períodos cerrados bloqueantes y rangos arbitrarios sólo para reportes. Una sola autoridad temporal; sin calendarios personalizados V1 ni reinterpretación histórica. Contrato y evidencia: [AQR_002_PERIOD_DECISION.md](AQR_002_PERIOD_DECISION.md). Implementación y pruebas en PR #33; permanece NEXT hasta su incorporación verificada a main.
+Alternativa A aprobada el 2026-09-09: ejercicio enero–diciembre, meses calendario exclusivos, primer ejercicio corto desde inicio efectivo, períodos cerrados bloqueantes y rangos arbitrarios sólo para reportes. Una sola autoridad temporal; sin calendarios personalizados V1 ni reinterpretación histórica. Contrato y evidencia: [AQR_002_PERIOD_DECISION.md](AQR_002_PERIOD_DECISION.md). Incorporada mediante [PR #33](https://github.com/kagenomusuko-svg/aqorath/pull/33), merge `bc41cffcbc192bbf179e7eb28ea137521f079526`. Árbol de main idéntico al head revisado `f0f55d9bcd6d40112dea395e896d4f3cc5554326`; suite completa local: **1936 passed, 8 warnings**. [CI del PR](https://github.com/kagenomusuko-svg/aqorath/actions/runs/34385801594) verde. Diff completo revisado, 24 casos nuevos, sin regresión conocida ni modificación constitucional. Auditoría V2 actualizada por el cambio material.
 
 ### Resultado de producto
 
@@ -145,7 +145,7 @@ AQR-001.
 
 ## AQR-003 — Inmutabilidad de pólizas consolidadas y correcciones por reversión
 
-**Estado:** `TODO`
+**Estado:** `NEXT`
 
 ### Resultado de producto
 
