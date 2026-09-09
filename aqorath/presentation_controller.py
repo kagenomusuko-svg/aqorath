@@ -57,6 +57,9 @@ class LocalPresentationController:
         del self._pending[token]
         return {"cancelled": True}
 
+    def recent_professional_operations(self, limit=50):
+        return _application.list_professional_operations(limit)
+
     def professional_operation(self, entry_id):
         return _application.load_professional_operation(entry_id)
 
