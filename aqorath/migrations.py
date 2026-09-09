@@ -477,7 +477,6 @@ def _validate_subledger_schema(db_path):
         def unique_column_sets(table):
             result = set()
             for row in conn.execute(f'PRAGMA index_list({table})'):
-                # row[2] is SQLite's unique flag.
                 if row[2] != 1:
                     continue
                 index_name = row[1]
@@ -522,8 +521,8 @@ def _migrate_6_to_7(db_path):
     engine = create_engine(f"sqlite:///{db_path}")
     try:
         with engine.begin() as conn:
-            OpenItemRecord.__table__.create(conn, checkfirst=False)
-            OpenItemApplicationRecord.__table__.create(conn, checkfirst=False)
+            OpenItemRecord.__table__.create(conn, checkfirst=True)
+            OpenItemApplicationRecord.__table__.create(conn, checkfirst=True)
     finally:
         engine.dispose()
 
