@@ -922,3 +922,8 @@ def get_accounting_range_balances(session, start, end):
 def reverse_posted_journal_entry(session, entry_id, reason, reversal_date=None):
     from .reversal import reverse_posted_entry
     return reverse_posted_entry(session, entry_id, reason, reversal_date)
+
+
+def correct_posted_journal_entry(session, entry_id, reason, instruction, correction_date):
+    from .reversal import correct_posted_entry
+    return correct_posted_entry(session, entry_id, reason, instruction, correction_date)

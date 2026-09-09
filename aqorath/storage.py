@@ -200,6 +200,8 @@ def _register_journal_invariant_listener():
 
         for obj in list(session.new):
             if isinstance(obj, JournalEntry) and obj not in new_entries:
+                if obj.state not in ('draft', 'posted'):
+                    raise LedgerInvariantError('New JournalEntry state must be draft or posted')
                 from aqorath.accounting_period_repository import require_open_period
                 obj.period_id = require_open_period(session, obj.date, obj.period_id).id
                 new_entries.append(obj)
@@ -208,20 +210,23 @@ def _register_journal_invariant_listener():
             if isinstance(obj, JournalEntry) and obj.id is not None:
                 from aqorath.accounting_period_repository import validate_persisted_period, require_open_period
                 state = sa_inspect(obj)
-                original = state.attrs.state.history.deleted
-                persisted_state = original[0] if original else obj.state
-                changed = any(getattr(state.attrs, name).history.has_changes() for name in ("date", "concept", "doc_ref", "period_id", "posted_by", "state"))
+                persisted_id = state.identity[0]
+                persisted_state = session.connection().execute(text('SELECT state FROM journalentry WHERE id=:id'), {'id': persisted_id}).scalar()
+                changed = any(attr.history.has_changes() for attr in state.attrs)
                 if persisted_state == "posted" and state.attrs.date.history.has_changes():
                     validate_persisted_period(session, obj.id)
-                if persisted_state == "posted" and changed:
+                if persisted_state in ("posted", "reversed") and changed:
                     raise LedgerInvariantError("Posted JournalEntry is immutable; use reversal")
+                if obj.state not in ('draft', 'posted'):
+                    raise LedgerInvariantError('Use canonical reversal for reversed state')
                 validate_persisted_period(session, obj.id)
                 obj.period_id = require_open_period(session, obj.date, obj.period_id).id
                 affected_ids.add(int(obj.id))
 
         for obj in list(session.deleted):
             if isinstance(obj, JournalEntry) and obj.id is not None:
-                if obj.state == "posted":
+                persisted_state = session.connection().execute(text('SELECT state FROM journalentry WHERE id=:id'), {'id': sa_inspect(obj).identity[0]}).scalar()
+                if persisted_state in ("posted", "reversed"):
                     raise LedgerInvariantError("Posted JournalEntry cannot be deleted; use reversal")
                 deleted_ids.add(int(obj.id))
 
@@ -241,6 +246,15 @@ def _register_journal_invariant_listener():
             current_entry_id = getattr(obj, "entry_id", None)
             if current_entry_id is not None:
                 affected_ids.add(int(current_entry_id))
+            owners = set(history.deleted)
+            owners.add(current_entry_id)
+            if state.identity is not None:
+                owners.add(session.connection().execute(text('SELECT entry_id FROM journalline WHERE id=:id'), {'id': state.identity[0]}).scalar())
+            staged_ids = {e.id for e in new_entries}
+            for owner_id in owners - staged_ids - {None}:
+                owner_state = session.connection().execute(text('SELECT state FROM journalentry WHERE id=:id'), {'id': owner_id}).scalar()
+                if owner_state in ('posted', 'reversed'):
+                    raise LedgerInvariantError('Consolidated JournalLine is immutable; use reversal')
 
     def _tracked_entry_ids(session: SASession) -> set[int]:
         ids = set(session.info.get(affected_entries_key, set()))

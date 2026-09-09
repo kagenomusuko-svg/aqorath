@@ -52,7 +52,7 @@ La vista común y la vista profesional son dos superficies sobre el **mismo moto
 
 ### Runtime vigente — AQR-002
 
-PR #33 incorporó el calendario aprobado, períodos y cierre anual atómico en `bc41cffcbc192bbf179e7eb28ea137521f079526`. Head revisado `f0f55d9bcd6d40112dea395e896d4f3cc5554326`, CI verde (run 34385801594), **1936 passed, 8 warnings** local. El árbol de main resultante coincide con ese head. Esquema actual 5; la migración no infiere estados ni calendarios históricos. Contrato: `docs/AQR_002_PERIOD_DECISION.md`.
+PR #33 y PR #35 incorporaron el calendario aprobado, períodos y cierre anual atómico en `5f881d64350e43844fa744b15b003683c66b5414`. Head revisado `7ede8f26c988c6ed57dbc5e94fc5114e435e6da9`, CI verde (run 34387491439), **1938 passed, 8 warnings** local. El árbol de main resultante coincide con ese head. Esquema actual 6; la migración no infiere estados ni calendarios históricos. Contrato: `docs/AQR_002_PERIOD_DECISION.md`.
 
 Los commits exclusivamente documentales posteriores pueden avanzar main sin cambiar este corte de runtime.
 
@@ -172,6 +172,8 @@ Una tarea sólo pasa de `NEXT` a `DONE` cuando:
 ## 11. SIGUIENTE
 
 **`AQR-003 — Inmutabilidad de pólizas consolidadas y correcciones por reversión`**
+
+La comprobación de PR #36 encontró defectos reproducibles del cierre AQR-003 y una decisión no resuelta sobre correcciones de ejercicios cerrados. Correcciones técnicas y prueba de bloqueo preparadas en ese PR; contrato pendiente en `docs/AQR_003_CLOSED_YEAR_DECISION.md`. No declarar DONE ni iniciar AQR-004 hasta completar esta aceptación. El verde histórico no acredita casos que no se probaron.
 
 AQR-001 fue incorporada mediante PR #31 (`bff58de7cad11de6c2ab37c0d3e0b7b6c20ae003`). Su matriz única es `docs/PRODUCT_ACCEPTANCE_V1.md`. Consultar siempre el único `NEXT` del backlog antes de comenzar trabajo.
 

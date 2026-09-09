@@ -59,8 +59,8 @@ def _load_owned_record(session, entity_id, event_id):
     return rows[0]
 
 
-def create_audit_event(session, event):
-    """Append one explicit AuditEvent for an existing active Entity."""
+def stage_audit_event(session, event):
+    """Stage validated evidence in the caller's transaction without committing."""
     if not isinstance(event, AuditEvent):
         raise TypeError("event must be AuditEvent")
     if event.id is not None:
@@ -78,17 +78,22 @@ def create_audit_event(session, event):
         timestamp=event.timestamp.isoformat(),
         details_json=_canonical_details(event.details),
     )
+    session.add(record)
+    session.flush()
+    if record.id is None:
+        raise RuntimeError("AuditEvent identity was not assigned")
+    return replace(event, id=record.id)
+
+
+def create_audit_event(session, event):
+    """Append one explicit AuditEvent for an existing active Entity."""
     try:
-        session.add(record)
-        session.flush()
-        if record.id is None:
-            raise RuntimeError("AuditEvent identity was not assigned")
-        persisted_id = record.id
+        result = stage_audit_event(session, event)
         session.commit()
     except Exception:
         session.rollback()
         raise
-    return replace(event, id=persisted_id)
+    return result
 
 
 def get_audit_event(session, entity_id, event_id):
