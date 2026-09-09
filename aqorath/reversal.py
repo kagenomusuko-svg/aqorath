@@ -8,6 +8,16 @@ from .accounting_period import PeriodError
 
 def correct_posted_entry(session, entry_id, reason, instruction, correction_date):
     """Compose reversal and an already confirmed replacement in one transaction."""
+    # A generic replacement cannot manufacture the open-item/application metadata
+    # required by AQR-006. Those entries must be reversed and re-entered through
+    # their dedicated use case so ledger and subledger remain one transaction.
+    try:
+        from .open_item_repository import assert_entry_correctable
+        assert_entry_correctable(session, entry_id)
+    except ImportError:
+        # Schema/module may be absent only while migrating from a pre-AQR-006 build.
+        pass
+
     from .posting_execution import build_posting_payload
     from .audit_event import AuditEvent
     from .audit_event_repository import stage_audit_event
@@ -32,6 +42,12 @@ def correct_posted_entry(session, entry_id, reason, instruction, correction_date
 
 def reverse_posted_entry(session, entry_id, reason, reversal_date=None):
     """Keep the caller's commit authority; roll back the whole operation on error."""
+    try:
+        from .open_item_repository import assert_entry_reversible
+        assert_entry_reversible(session, entry_id)
+    except ImportError:
+        pass
+
     keys = ('_aqorath_new_journal_entries', '_aqorath_affected_journal_entry_ids', '_aqorath_deleted_journal_entry_ids')
     saved = None
     try:
