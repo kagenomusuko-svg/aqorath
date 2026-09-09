@@ -145,15 +145,15 @@ AQR-001.
 
 ## AQR-003 — Inmutabilidad de pólizas consolidadas y correcciones por reversión
 
-**Estado:** `NEXT`
+**Estado:** `DONE`
 
-### Aceptación y correcciones verificadas
+### Aceptación
 
-La autoridad de persistencia rechaza modificar o borrar una póliza `posted`. La corrección usa staging canónico para crear una reversión balanceada, conserva el asiento original en estado `reversed`, exige motivo y registra la relación uno-a-uno en `journalentryreversal`. La migración 5→6 es aditiva y fail-closed. Incorporada mediante [PR #35](https://github.com/kagenomusuko-svg/aqorath/pull/35), merge `5f881d64350e43844fa744b15b003683c66b5414`. CI verde (run 34387491439); suite completa local: **1938 passed, 8 warnings**. Diff completo revisado y sin regresión conocida.
+PR #35 incorporó la base de estados `draft / posted / reversed`, reversión balanceada y relación uno-a-uno. La revisión de cierre reprodujo dos omisiones: edición balanceada de líneas `posted` y reversión sin `AuditEvent`. PR #36 las corrigió sobre los listeners, staging y repositorio de auditoría existentes; protege cabecera, líneas, identidad y estado `reversed`, exige motivo, prueba rollback aun si el llamador captura el error y compone la corrección 150→120 como original + reversión + sustituto + dos eventos.
 
-La comprobación de cierre de PR #36 reprodujo dos omisiones del PR #35: edición balanceada de líneas posted y ausencia de AuditEvent al revertir. PR #36 las corrige sobre los mismos listeners/staging y repositorio de auditoría; además protege reversed/identidades y prueba rollback incluso ante error capturado, así como corrección 150→120 con tres pólizas y dos eventos. La afirmación de aceptación previa al PR #36 fue prematura; el CI del PR #35 no cubría estos casos.
+La decisión [AQR_003_CLOSED_YEAR_DECISION.md](AQR_003_CLOSED_YEAR_DECISION.md) aprobó la alternativa 2: una operación perteneciente a un ejercicio cerrado no se revierte y sustituye automáticamente usando las cuentas originales en un ejercicio posterior. Esas correcciones quedan bloqueadas preventivamente; en ejercicios abiertos siguen disponibles mediante la misma autoridad de período. La futura política de errores de ejercicios anteriores es una decisión contable separada, no se convirtió en `NEXT` y no bloquea AQR-004.
 
-Decisión material pendiente: [correcciones de ejercicios cerrados](AQR_003_CLOSED_YEAR_DECISION.md). El PR #36 permanece borrador con trabajo técnico preparado; no corresponde cerrar AQR-003 ni adelantar AQR-004 mientras se elige ese efecto contable.
+PR #36 fue incorporado en `63e321fececb301eaa1337baff7ebe4acb07682a`; su head revisado `84cbc947259da62c03c5c5546d6699d542e2a479` tuvo CI verde en run 34393029104. La suite completa local registrada por la rama fue **1944 passed, 8 warnings**. La comparación del head con el merge mostró cero diferencias de archivos.
 
 ### Resultado de producto
 
@@ -178,7 +178,17 @@ AQR-002.
 
 ## AQR-004 — Caso de uso unificado: hecho económico → decisión → consentimiento → posting → auditoría
 
-**Estado:** `TODO`
+**Estado:** `DONE`
+
+### Aceptación
+
+Contrato: [AQR_004_UNIFIED_USE_CASE.md](AQR_004_UNIFIED_USE_CASE.md). PR #37 incorporó un caso de uso Application que compone, sin reescribir, provenance del hecho, bindings persistidos, resolución de cuentas, explicación estructurada, confirmación, `PostingInstruction`, staging canónico, autoridad de período e `AuditEvent`.
+
+La operación ordinaria recibe `EconomicFact` + fecha; la presentación no suministra Debe/Haber, códigos ni SQLModel. Preparar no escribe; confirmar conserva exactamente el snapshot presentado; ejecutar revalida período dentro del staging y confirma una póliza `posted` y un `entry_posted` en una sola transacción. El evento conserva hecho, fecha, `rule_id`, `rule_version`, consentimiento y explicación estructurada; las cuentas/importes efectivamente consolidados permanecen en el ledger, evitando un shadow ledger. La póliza resultante hereda las invariantes de AQR-003.
+
+La fiscalidad no se infiere silenciosamente: una verdad fiscalizada ya confirmada delega en `fiscalized_posting_persistence.py` y su auditoría vigente. La selección de cobertura/aplicabilidad V1 continúa en AQR-010/AQR-011.
+
+PR #37 fue incorporado en `fe99ce06f334f8a12d37146f4504e78f497b18ca`; head revisado `f6a268b43dd7b600201a7dfe5501ee804a8d8926`, CI verde run 34394126158. La comparación del head con el merge mostró cero diferencias de archivos. Ocho pruebas AQR-004 nuevas cubren preparación sin códigos, consentimiento exacto, posting+audit recuperable, revalidación de período, rollback ante fallo de auditoría, inmutabilidad AQR-003, ausencia de escritura durante preparación y delegación fiscalizada.
 
 ### Resultado de producto
 
@@ -213,7 +223,7 @@ AQR-002 y AQR-003.
 
 ## AQR-005 — Superficie de presentación V1: vista común + vista profesional
 
-**Estado:** `TODO`
+**Estado:** `NEXT`
 
 ### Resultado de producto
 
@@ -376,7 +386,7 @@ Aqorath declara exactamente qué casos fiscales mexicanos soporta y puede defend
 
 ### Fundación existente
 
-FiscalRuleSet, registry, datos versionados, aplicabilidad, cálculo, redondeo, confirmación, efectos y auditoría ya existen.
+FiscalRuleSet, registry, datos versionados, aplicabilidad, cálculo, confirmación, efectos y auditoría ya existen.
 
 ### Trabajo
 
@@ -506,6 +516,7 @@ Estas materias no deben aparecer como “siguiente paso” sin decisión nueva:
 - **Licencia definitiva / modelo de licencia social:** `DEFERRED`, conforme a R28.
 - **Multiusuario / RBAC empresarial:** no es backlog; está fuera de arquitectura mientras R8 permanezca vigente.
 - **Multiempresa simultánea:** no es backlog; está prohibida por R9 mientras la Constitución no cambie.
+- **Errores de ejercicios anteriores ya cerrados:** la corrección automática sobre cuentas originales está bloqueada por AQR-003. La política sustitutiva permanece pendiente de una decisión contable futura y no desplaza el `NEXT` mientras el backlog pueda continuar con casos válidos definidos.
 
 ---
 
@@ -522,4 +533,4 @@ Al completar una tarea:
 
 ## SIGUIENTE ACTUAL
 
-`AQR-003 — Inmutabilidad de pólizas consolidadas y correcciones por reversión`.
+`AQR-005 — Superficie de presentación V1: vista común + vista profesional`.
