@@ -420,3 +420,5 @@ Evidencia nueva: 24 casos en `tests/test_aqr002_accounting_periods.py` y regresi
 ## 19. Actualización material AQR-003
 
 PR #35 incorporó la inmutabilidad de pólizas posted en la frontera de persistencia y el flujo canónico de reversión. La migración 5→6 añade `journalentryreversal` de manera aditiva. La reversión invierte líneas exactas, conserva el original como `reversed`, exige motivo y bloquea duplicados y destinos cerrados. La suite completa del PR quedó verde.
+
+Corrección de ese corte en PR #36: faltaban protección de líneas/identidad y estados reversed, y AuditEvent transaccional. Se reprodujo la modificación de dos líneas posted de 150 a 120 y una reversión con cero eventos. El cierre incorpora esas protecciones, auditoría mediante el repositorio existente y corrección compuesta sobre staging. No implica invalidar los fundamentos anteriores ni ampliar cobertura fiscal.

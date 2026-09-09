@@ -12,8 +12,8 @@ from . import posting as _posting
 __all__ = ["execute_posting_instruction"]
 
 
-def execute_posting_instruction(instruction):
-    """Persist exactly one PostingInstruction through the canonical core authority."""
+def build_posting_payload(instruction):
+    """Adapt confirmed instructions without performing a transaction."""
     if not isinstance(instruction, _posting.PostingInstruction):
         raise TypeError("execute_posting_instruction requires PostingInstruction")
 
@@ -30,4 +30,9 @@ def execute_posting_instruction(instruction):
         ],
     }
 
-    return _core.post_entry(payload)
+    return payload
+
+
+def execute_posting_instruction(instruction):
+    """Persist exactly one PostingInstruction through the canonical core authority."""
+    return _core.post_entry(build_posting_payload(instruction))
