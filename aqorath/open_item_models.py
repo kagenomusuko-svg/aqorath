@@ -1,8 +1,13 @@
 """Normalized persistence metadata for AQR-006 operational subledgers.
 
 These tables deliberately store no authoritative monetary amount or mutable open
-balance.  Money remains exclusively in JournalLine; these records only identify
+balance. Money remains exclusively in JournalLine; these records only identify
 which canonical ledger lines represent an obligation and its applications.
+
+A single JournalEntry or DocumentReference may legitimately participate in several
+open-item relationships. The invariant is therefore line-granular: one source
+control line identifies at most one OpenItem, and one application control line
+identifies at most one OpenItemApplication.
 """
 
 from datetime import date, datetime, timezone
@@ -16,12 +21,7 @@ class OpenItemRecord(SQLModel, table=True):
     __tablename__ = "openitem"
     __table_args__ = (
         CheckConstraint("kind IN ('receivable','payable')", name="ck_open_item_kind"),
-        UniqueConstraint("source_entry_id", name="uq_open_item_source_entry"),
         UniqueConstraint("source_line_id", name="uq_open_item_source_line"),
-        UniqueConstraint(
-            "source_document_reference_id",
-            name="uq_open_item_source_document",
-        ),
     )
 
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -76,10 +76,6 @@ class OpenItemApplicationRecord(SQLModel, table=True):
         UniqueConstraint(
             "application_line_id",
             name="uq_open_item_application_line",
-        ),
-        UniqueConstraint(
-            "application_document_reference_id",
-            name="uq_open_item_application_document",
         ),
     )
 
