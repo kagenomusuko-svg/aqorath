@@ -43,6 +43,15 @@ class ProfessionalLineView:
 
 
 @dataclass(frozen=True)
+class ProfessionalEntrySummary:
+    entry_id: int
+    posting_date: date
+    concept: str | None
+    state: str
+    period_id: int | None
+
+
+@dataclass(frozen=True)
 class ReversalView:
     original_entry_id: int
     reversal_entry_id: int
@@ -183,6 +192,31 @@ def _load_fiscal_audit(session, entry_id):
         return None
 
 
+def list_professional_accounting_operations(session, limit=50):
+    """List recent JournalEntry identities directly from the canonical ledger."""
+    if type(limit) is not int or not 1 <= limit <= 200:
+        raise ValueError("limit must be an integer between 1 and 200")
+    rows = session.exec(
+        select(_models.JournalEntry)
+        .order_by(_models.JournalEntry.id.desc())
+        .limit(limit)
+    ).all()
+    result = []
+    for row in rows:
+        if type(row.id) is not int:
+            raise ValueError("persisted JournalEntry has no identity")
+        result.append(
+            ProfessionalEntrySummary(
+                entry_id=row.id,
+                posting_date=accounting_date(row.date),
+                concept=row.concept,
+                state=row.state,
+                period_id=row.period_id,
+            )
+        )
+    return tuple(result)
+
+
 def load_professional_accounting_operation(session, entry_id):
     """Return one professional read model from existing persisted authorities."""
     if type(entry_id) is not int or entry_id <= 0:
@@ -214,8 +248,10 @@ def load_professional_accounting_operation(session, entry_id):
 __all__ = [
     "ProfessionalPeriodView",
     "ProfessionalLineView",
+    "ProfessionalEntrySummary",
     "ReversalView",
     "GeneralAuditView",
     "ProfessionalAccountingOperationView",
+    "list_professional_accounting_operations",
     "load_professional_accounting_operation",
 ]
