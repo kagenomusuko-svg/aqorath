@@ -69,7 +69,7 @@ def _fresh_db(tmp_path, filename="entity-foundation.db"):
 
     db_path = tmp_path / filename
     result = migrate_database(str(db_path))
-    assert result["to_version"] == 4
+    assert result["to_version"] == 5
     engine = create_engine(f"sqlite:///{db_path}")
     return db_path, engine
 
@@ -239,9 +239,9 @@ def test_frozen_v4_additively_creates_canonical_entity_profile_tables_foreign_ke
     from aqorath.migrations import CURRENT_SCHEMA_VERSION, MIGRATIONS
 
     # Phase 5AE/5AK froze v4. Phase 6A is additive and must not reinterpret it.
-    assert CURRENT_SCHEMA_VERSION == 4
+    assert CURRENT_SCHEMA_VERSION == 5
     assert 4 in MIGRATIONS
-    assert 5 not in MIGRATIONS
+    assert 5 in MIGRATIONS
 
     db_path, engine = _fresh_db(tmp_path, "fresh-v4-entity-additive.db")
     engine.dispose()
@@ -324,9 +324,9 @@ def test_current_v4_additive_ensure_adds_entity_schema_without_rewriting_existin
 
     result = migrate_database(str(db_path))
     assert result["from_version"] == 4
-    assert result["to_version"] == 4
-    assert result["migrated"] is False
-    assert get_schema_version(str(db_path)) == 4
+    assert result["to_version"] == 5
+    assert result["migrated"] is True
+    assert get_schema_version(str(db_path)) == 5
 
     conn = sqlite3.connect(str(db_path))
     try:

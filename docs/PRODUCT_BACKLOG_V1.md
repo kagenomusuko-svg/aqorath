@@ -113,6 +113,10 @@ Ninguna. Es el próximo paso porque gobierna el alcance de todas las tareas post
 
 **Estado:** `NEXT`
 
+### Decisión de producto aprobada
+
+Alternativa A aprobada el 2026-09-09: ejercicio enero–diciembre, meses calendario exclusivos, primer ejercicio corto desde inicio efectivo, períodos cerrados bloqueantes y rangos arbitrarios sólo para reportes. Una sola autoridad temporal; sin calendarios personalizados V1 ni reinterpretación histórica. Contrato y evidencia: [AQR_002_PERIOD_DECISION.md](AQR_002_PERIOD_DECISION.md). Implementación y pruebas en PR #33; permanece NEXT hasta su incorporación verificada a main.
+
 ### Resultado de producto
 
 Aqorath sabe a qué período pertenece cada operación y puede impedir contabilizar en períodos cerrados.

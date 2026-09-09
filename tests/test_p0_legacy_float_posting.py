@@ -24,6 +24,8 @@ def test_legacy_float_entry_dict_exact(tmp_path, monkeypatch):
     db_url = f"sqlite:///{db_file}"
     engine = create_engine(db_url, echo=False)
     SQLModel.metadata.create_all(engine)
+    from period_fixtures import seed_engine_calendar
+    seed_engine_calendar(engine)
     
     # Create accounts
     with Session(engine) as session:

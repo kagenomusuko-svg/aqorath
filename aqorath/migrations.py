@@ -24,8 +24,8 @@ from aqorath.money import to_decimal_exact
 # Version Control
 # ============================================================
 
-CURRENT_SCHEMA_VERSION = 4
-"""Current schema version. Additive 5AK metadata does not reinterpret v4 truth."""
+CURRENT_SCHEMA_VERSION = 5
+"""Schema 5 adds explicit calendar metadata; v4 ledger truth remains intact."""
 
 # ============================================================
 # Migration Registry
@@ -436,11 +436,38 @@ def _migrate_3_to_4(db_path):
         conn.close()
 
 
+def _validate_calendar_schema(db_path):
+    required = {
+        'accountingcalendar': {'id', 'entity_id', 'activity_start', 'declaration_json'},
+        'fiscalyear': {'year', 'calendar_id', 'start_date', 'end_date', 'state', 'closing_entry_id'},
+        'accountingperiod': {'id', 'year', 'month', 'start_date', 'end_date', 'state'},
+    }
+    with sqlite3.connect(str(db_path)) as conn:
+        for table, columns in required.items():
+            found = {r[1] for r in conn.execute(f'PRAGMA table_info({table})')}
+            if found != columns:
+                raise RuntimeError(f'Invalid schema 5 calendar table: {table}')
+
+
+def _migrate_4_to_5(db_path):
+    """Add explicit calendar metadata; preserve all historical dates/states/IDs."""
+    from aqorath.models import AccountingCalendarRecord, FiscalYearRecord, AccountingPeriodRecord
+    from sqlalchemy import create_engine
+    engine = create_engine(f"sqlite:///{db_path}")
+    try:
+        with engine.begin() as conn:
+            for model in (AccountingCalendarRecord, FiscalYearRecord, AccountingPeriodRecord):
+                model.__table__.create(conn, checkfirst=True)
+    finally:
+        engine.dispose()
+
+
 MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
     3: _migrate_2_to_3,
     4: _migrate_3_to_4,
+    5: _migrate_4_to_5,
 }
 """Registry of migration callables. Key: target version."""
 
@@ -568,7 +595,7 @@ def restore_database_backup(backup_path, target_path) -> None:
 
 
 def migrate_database(db_path) -> dict:
-    """Migrate one SQLite database sequentially and ensure additive v4 metadata."""
+    """Migrate SQLite sequentially and validate current calendar metadata."""
     db_path = Path(db_path)
     current_version = get_schema_version(str(db_path))
 
@@ -582,6 +609,7 @@ def migrate_database(db_path) -> dict:
     if current_version == CURRENT_SCHEMA_VERSION:
         if db_path.exists() and not validate_sqlite_integrity(str(db_path)):
             raise RuntimeError(f"Database {db_path} is corrupt")
+        _validate_calendar_schema(db_path)
         _ensure_additive_current_schema(str(db_path))
         return {
             "from_version": current_version,
@@ -611,6 +639,7 @@ def migrate_database(db_path) -> dict:
             )
 
     _ensure_additive_current_schema(str(db_path))
+    _validate_calendar_schema(db_path)
     return {
         "from_version": current_version,
         "to_version": CURRENT_SCHEMA_VERSION,

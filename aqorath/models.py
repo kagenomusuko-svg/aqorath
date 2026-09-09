@@ -689,3 +689,37 @@ class AuditEventRecord(SQLModel, table=True):
     timestamp: str = Field(sa_column=Column(Text, nullable=False, index=True))
     details_json: str = Field(sa_column=Column(Text, nullable=False))
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class AccountingCalendarRecord(SQLModel, table=True):
+    __tablename__ = 'accountingcalendar'
+    __table_args__ = (CheckConstraint('id = 1', name='ck_calendar_singleton'),)
+    id: int = Field(default=1, primary_key=True)
+    entity_id: int = Field(foreign_key='entity.id', unique=True)
+    activity_start: str
+    declaration_json: str = "{}"
+
+
+class FiscalYearRecord(SQLModel, table=True):
+    __tablename__ = 'fiscalyear'
+    __table_args__ = (CheckConstraint("state IN ('open', 'closed')", name='ck_year_state'),)
+    year: int = Field(primary_key=True)
+    calendar_id: int = Field(default=1, foreign_key='accountingcalendar.id')
+    start_date: str
+    end_date: str
+    state: str = 'open'
+    closing_entry_id: Optional[int] = Field(default=None, foreign_key='journalentry.id')
+
+
+class AccountingPeriodRecord(SQLModel, table=True):
+    __tablename__ = 'accountingperiod'
+    __table_args__ = (
+        UniqueConstraint('year', 'month', name='uq_period_month'),
+        CheckConstraint("state IN ('open', 'closed')", name='ck_period_state'),
+    )
+    id: int = Field(primary_key=True)
+    year: int = Field(foreign_key='fiscalyear.year')
+    month: int
+    start_date: str
+    end_date: str
+    state: str = 'open'

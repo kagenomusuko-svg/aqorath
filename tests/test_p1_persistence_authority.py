@@ -33,6 +33,8 @@ def test_persist_entry_works_through_orm_without_raw_sqlite_fallback(tmp_path, m
     db_url = f"sqlite:///{db_file}"
     engine = create_engine(db_url, echo=False)
     SQLModel.metadata.create_all(engine)
+    from period_fixtures import seed_engine_calendar
+    seed_engine_calendar(engine)
 
     # Create canonical accounts via ORM and store their IDs
     with Session(engine) as session:
@@ -122,6 +124,8 @@ def test_orm_persistence_rolls_back_header_if_line_creation_fails(tmp_path, monk
     db_url = f"sqlite:///{db_file}"
     engine = create_engine(db_url, echo=False)
     SQLModel.metadata.create_all(engine)
+    from period_fixtures import seed_engine_calendar
+    seed_engine_calendar(engine)
 
     # Create accounts and get their IDs
     with Session(engine) as session:

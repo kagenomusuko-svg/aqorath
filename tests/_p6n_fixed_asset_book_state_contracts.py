@@ -75,6 +75,8 @@ def _initialize_canonical_db(tmp_path, monkeypatch):
         entity_id = entity.id
         fixed_asset_id = asset_record.id
 
+    from period_fixtures import seed_engine_calendar
+    seed_engine_calendar(engine)
     return engine, entity_id, fixed_asset_id
 
 

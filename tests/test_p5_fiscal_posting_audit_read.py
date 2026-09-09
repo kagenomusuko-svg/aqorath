@@ -116,6 +116,8 @@ def _session(tmp_path, monkeypatch, name="audit-read.db"):
     db = tmp_path / name
     monkeypatch.setenv("AQORATH_DB", str(db))
     engine = storage.init_db(str(db), create_tables=True)
+    from period_fixtures import seed_engine_calendar
+    seed_engine_calendar(engine)
     return engine, Session(engine)
 
 

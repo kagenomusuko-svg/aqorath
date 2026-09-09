@@ -67,6 +67,8 @@ def _initialize_canonical_db(tmp_path, monkeypatch):
         entity_id = entity.id
         fixed_asset_id = asset_record.id
 
+    from period_fixtures import seed_engine_calendar
+    seed_engine_calendar(engine)
     return engine, db_path, entity_id, fixed_asset_id
 
 
@@ -221,7 +223,7 @@ def test_frozen_v4_additively_ensures_acquisition_registry_without_schema_bump(t
     from aqorath import migrations
 
     engine, db_path, _, _ = _initialize_canonical_db(tmp_path, monkeypatch)
-    assert migrations.CURRENT_SCHEMA_VERSION == 4
+    assert migrations.CURRENT_SCHEMA_VERSION == 5
     assert "fixedassetacquisitionpostingrecord" in sa_inspect(engine).get_table_names()
 
     with engine.begin() as connection:
@@ -240,7 +242,7 @@ def test_frozen_v4_additively_ensures_acquisition_registry_without_schema_bump(t
         ).get_table_names()
         with verification_engine.connect() as connection:
             version = connection.exec_driver_sql("PRAGMA user_version").scalar_one()
-        assert version == 4
+        assert version == 5
     finally:
         verification_engine.dispose()
 

@@ -35,6 +35,10 @@ def test_money_round_trip_current_path_preserves_tested_values(env_with_temp_db)
     SIN: pytest.approx, math.isclose, epsilon, ni str(float) realizado por test.
     """
     
+    from aqorath.storage import get_engine
+    from period_fixtures import seed_engine_calendar
+    seed_engine_calendar(get_engine())
+
     # Asiento A: Debe 1000 = 0.10, Haber 3000 = 0.10
     entry_a = {
         "description": "Asiento A: 0.10",

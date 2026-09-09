@@ -15,6 +15,8 @@ def test_utility_expense_confirmed_truth_persists_to_sqlite(tmp_path, monkeypatc
     db_path = tmp_path / "utility-expense-e2e.db"
     engine = create_engine(f"sqlite:///{db_path}")
     SQLModel.metadata.create_all(engine)
+    from period_fixtures import seed_engine_calendar
+    seed_engine_calendar(engine)
 
     with Session(engine) as session:
         utilities = Account(code="5102", name="Servicios básicos", nature="DEBIT")

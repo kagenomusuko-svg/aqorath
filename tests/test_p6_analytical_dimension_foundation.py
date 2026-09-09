@@ -39,7 +39,7 @@ def _fresh_db(tmp_path, filename="analytics.db"):
 
     db_path = tmp_path / filename
     result = migrate_database(str(db_path))
-    assert result["to_version"] == 4
+    assert result["to_version"] == 5
     return db_path, create_engine(f"sqlite:///{db_path}")
 
 
@@ -342,7 +342,7 @@ def test_frozen_v4_additively_creates_normalized_analytical_schema_and_constrain
         JournalLineAnalyticalDimensionRecord,
     )
 
-    assert CURRENT_SCHEMA_VERSION == 4
+    assert CURRENT_SCHEMA_VERSION == 5
     assert AnalyticalDimensionRecord.__tablename__ == "analyticaldimension"
     assert AnalyticalDimensionValueRecord.__tablename__ == "analyticaldimensionvalue"
     assert JournalLineAnalyticalDimensionRecord.__tablename__ == (
@@ -492,11 +492,12 @@ def test_current_v4_additive_ensure_adds_analytics_without_rewriting_existing_tr
     result = migrate_database(str(db_path))
     assert result == {
         "from_version": 4,
-        "to_version": 4,
-        "migrated": False,
-        "backup_path": None,
+        "to_version": 5,
+        "migrated": True,
+        "backup_path": result["backup_path"],
     }
-    assert get_schema_version(str(db_path)) == 4
+    assert __import__("pathlib").Path(result["backup_path"]).is_file()
+    assert get_schema_version(str(db_path)) == 5
 
     conn = sqlite3.connect(str(db_path))
     try:

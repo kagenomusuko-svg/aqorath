@@ -7,7 +7,9 @@ import os
 def test_generate_preview_and_post(tmp_path, monkeypatch):
     # ensure DB is in the XDG test folder
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
-    init_db()
+    engine = init_db()
+    from period_fixtures import seed_engine_calendar
+    seed_engine_calendar(engine)
     # Phase 1B.1: P0-4 now validates account_code existence.
     # Use canonical accounts from aqorath/data/catalogo_base.json:
     # - 1101: Bancos (Deudora/debit)

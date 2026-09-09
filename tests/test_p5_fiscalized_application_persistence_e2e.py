@@ -13,6 +13,8 @@ def _initialize_canonical_db(tmp_path, monkeypatch, filename):
     db_path = tmp_path / filename
     monkeypatch.setenv("AQORATH_DB", str(db_path))
     engine = storage.init_db(str(db_path), create_tables=True)
+    from period_fixtures import seed_engine_calendar
+    seed_engine_calendar(engine)
 
     with Session(engine) as session:
         accounts = (

@@ -15,6 +15,8 @@ def test_supplier_payment_confirmed_truth_persists_to_sqlite(tmp_path, monkeypat
     db_path = tmp_path / "supplier-payment-e2e.db"
     engine = create_engine(f"sqlite:///{db_path}")
     SQLModel.metadata.create_all(engine)
+    from period_fixtures import seed_engine_calendar
+    seed_engine_calendar(engine)
 
     with Session(engine) as session:
         payable = Account(code="2101", name="Proveedores", nature="CREDIT")
