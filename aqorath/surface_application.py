@@ -1,9 +1,12 @@
-"""Application-facing service for the AQR-005 local presentation.
+"""Application-facing service for the local presentation.
 
-This module is the only local-runtime bridge needed by presentation. It opens the
-canonical SQLite session, delegates accounting to AQR-004 and projects immutable
-application/read values to JSON-compatible data. It contains no debit/credit rule,
-period rule, fiscal calculation, reversal policy or audit persistence.
+Presentation receives JSON-compatible projections and delegates all accounting to
+existing Application authorities. AQR-006 adds operational CxC/CxP workflows here
+without moving account, period, reversal, fiscal or persistence rules into UI code.
+
+Generic AQR-004 credit/collection/payment facts remain valid internal foundations,
+but the common surface no longer exposes them directly: new CxC/CxP movements must
+carry ThirdParty/document/open-item provenance through the AQR-006 use cases.
 """
 
 from dataclasses import dataclass
@@ -14,7 +17,9 @@ from . import accounting_operation as _operations
 from . import accounting_operation_read as _operation_read
 from . import application as _application
 from . import economic_facts as _facts
+from . import open_item_repository as _open_items
 from . import storage as _storage
+from . import subledger_operations as _subledger
 
 
 @dataclass(frozen=True)
@@ -31,19 +36,23 @@ class PreparedSurfaceOperation:
     decision: object
 
 
+@dataclass(frozen=True)
+class PreparedSurfaceSubledgerAction:
+    action: str
+    prepared: object
+    summary: dict
+
+
+# Only immediate operations may use the generic surface path. Credit origins and
+# settlements require the dedicated AQR-006 provenance workflow below.
 _OPERATION_KINDS = (
     CommonOperationKind("sale_cash", "Venta cobrada en efectivo", "sale", "cash"),
-    CommonOperationKind("sale_credit", "Venta a crédito", "sale", "credit"),
     CommonOperationKind("utility_bank", "Pago de servicios desde banco", "utility_expense", "bank"),
-    CommonOperationKind("utility_credit", "Servicio recibido a crédito", "utility_expense_incurred", "credit"),
-    CommonOperationKind("receivable_collection", "Cobro a cliente en banco", "receivable_collection", "bank"),
-    CommonOperationKind("supplier_payment", "Pago a proveedor desde banco", "supplier_payment", "bank"),
 )
 _OPERATION_BY_KEY = {item.key: item for item in _OPERATION_KINDS}
 
 
 def list_common_operation_kinds():
-    """Return only economic-fact inputs actually supported by the current domain."""
     return _OPERATION_KINDS
 
 
@@ -62,19 +71,19 @@ def _amount(value):
     return result
 
 
-def _date(value):
+def _date(value, field_name="posting_date"):
     if type(value) is date:
         return value
     if type(value) is not str:
-        raise TypeError("posting_date must be ISO date text")
+        raise TypeError(f"{field_name} must be ISO date text")
     try:
         return date.fromisoformat(value)
     except ValueError as exc:
-        raise ValueError("posting_date must be YYYY-MM-DD") from exc
+        raise ValueError(f"{field_name} must be YYYY-MM-DD") from exc
 
 
 def prepare_common_operation(operation_key, amount, posting_date):
-    """Prepare one AQR-004 decision without exposing persistence to presentation."""
+    """Prepare one immediate AQR-004 decision without persistence knowledge."""
     if type(operation_key) is not str or operation_key not in _OPERATION_BY_KEY:
         raise ValueError("unsupported operation_key")
     kind = _OPERATION_BY_KEY[operation_key]
@@ -93,7 +102,6 @@ def prepare_common_operation(operation_key, amount, posting_date):
 
 
 def common_preview(prepared):
-    """Project a prepared decision without account codes or debit/credit inputs."""
     if not isinstance(prepared, PreparedSurfaceOperation):
         raise TypeError("prepared must be PreparedSurfaceOperation")
     decision = prepared.decision
@@ -108,14 +116,14 @@ def common_preview(prepared):
     }
 
 
-def professional_preview(prepared):
-    """Project the exact same prepared decision for professional inspection."""
-    if not isinstance(prepared, PreparedSurfaceOperation):
-        raise TypeError("prepared must be PreparedSurfaceOperation")
-    decision = prepared.decision
-    lines = []
-    for line in decision.resolved_proposal.lines:
-        lines.append(
+def _decision_professional_preview(operation_key, decision):
+    return {
+        "operation_key": operation_key,
+        "posting_date": decision.posting_date.isoformat(),
+        "rule_id": decision.rule_id,
+        "rule_version": decision.rule_version,
+        "explanation": decision.explanation.professional_summary,
+        "lines": [
             {
                 "account_id": line.account_id,
                 "account_code": line.account_code,
@@ -123,23 +131,209 @@ def professional_preview(prepared):
                 "side": line.side,
                 "amount": str(line.amount),
             }
-        )
-    return {
-        "operation_key": prepared.kind.key,
-        "posting_date": decision.posting_date.isoformat(),
-        "rule_id": decision.rule_id,
-        "rule_version": decision.rule_version,
-        "explanation": decision.explanation.professional_summary,
-        "lines": lines,
+            for line in decision.resolved_proposal.lines
+        ],
     }
 
 
+def professional_preview(prepared):
+    if not isinstance(prepared, PreparedSurfaceOperation):
+        raise TypeError("prepared must be PreparedSurfaceOperation")
+    return _decision_professional_preview(prepared.kind.key, prepared.decision)
+
+
 def confirm_and_post(prepared):
-    """Confirm exactly the prepared snapshot and execute AQR-004 once."""
     if not isinstance(prepared, PreparedSurfaceOperation):
         raise TypeError("prepared must be PreparedSurfaceOperation")
     confirmed = _operations.confirm_accounting_operation(prepared.decision)
     return _operations.execute_accounting_operation(confirmed)
+
+
+def _party_dict(party):
+    return {
+        "id": party.id,
+        "name": party.name,
+        "rfc": party.rfc,
+        "party_type": party.party_type,
+        "is_active": party.is_active,
+    }
+
+
+def list_surface_third_parties():
+    with _storage.get_session() as session:
+        entity = _application.get_active_entity(session)
+        if entity is None or type(entity.id) is not int:
+            raise LookupError("active Entity is required")
+        parties = _application.list_third_parties(session, entity.id)
+    return [_party_dict(party) for party in parties]
+
+
+def _party_name(session, third_party_id):
+    entity = _application.get_active_entity(session)
+    if entity is None or type(entity.id) is not int:
+        raise LookupError("active Entity is required")
+    return _application.get_third_party(session, entity.id, third_party_id).name
+
+
+def prepare_surface_open_item_origin(
+    operation_key,
+    amount,
+    posting_date,
+    third_party_id,
+    due_date,
+    document_type,
+    document_number,
+    document_date,
+):
+    with _storage.get_session() as session:
+        prepared = _subledger.prepare_open_item_origin(
+            session,
+            operation_key,
+            _amount(amount),
+            _date(posting_date),
+            third_party_id,
+            _date(due_date, "due_date"),
+            document_type,
+            document_number,
+            _date(document_date, "document_date"),
+        )
+        party_name = _party_name(session, third_party_id)
+    label = "Venta a crédito" if prepared.kind == "receivable" else "Compra/gasto a crédito"
+    return PreparedSurfaceSubledgerAction(
+        action="origin",
+        prepared=prepared,
+        summary={
+            "operation": label,
+            "kind": prepared.kind,
+            "third_party_id": third_party_id,
+            "third_party_name": party_name,
+            "amount": str(prepared.decision.fact.amount),
+            "posting_date": prepared.decision.posting_date.isoformat(),
+            "due_date": prepared.due_date.isoformat(),
+            "document_type": prepared.document.document_type,
+            "document_number": prepared.document.document_number,
+        },
+    )
+
+
+def prepare_surface_open_item_application(
+    open_item_id,
+    amount,
+    posting_date,
+    document_type,
+    document_number,
+    document_date,
+):
+    with _storage.get_session() as session:
+        item = _open_items.load_open_item(session, open_item_id, as_of=_date(posting_date))
+        prepared = _subledger.prepare_open_item_application(
+            session,
+            open_item_id,
+            _amount(amount),
+            _date(posting_date),
+            document_type,
+            document_number,
+            _date(document_date, "document_date"),
+        )
+    return PreparedSurfaceSubledgerAction(
+        action="application",
+        prepared=prepared,
+        summary={
+            "operation": "Cobro" if item.kind == "receivable" else "Pago",
+            "kind": item.kind,
+            "third_party_id": item.third_party_id,
+            "third_party_name": item.third_party_name,
+            "open_item_id": item.id,
+            "document_origin": f"{item.document_type} {item.document_number}",
+            "amount": str(prepared.decision.fact.amount),
+            "open_balance_before": str(item.open_balance),
+            "posting_date": prepared.decision.posting_date.isoformat(),
+            "document_type": prepared.document.document_type,
+            "document_number": prepared.document.document_number,
+        },
+    )
+
+
+def prepare_surface_open_item_application_batch(
+    allocations,
+    posting_date,
+    document_type,
+    document_number,
+    document_date,
+):
+    with _storage.get_session() as session:
+        prepared = _subledger.prepare_open_item_application_batch(
+            session,
+            allocations,
+            _date(posting_date),
+            document_type,
+            document_number,
+            _date(document_date, "document_date"),
+        )
+        party_name = _party_name(session, prepared.third_party_id)
+        item_summaries = []
+        for allocation in prepared.allocations:
+            item = _open_items.load_open_item(
+                session,
+                allocation.open_item_id,
+                as_of=prepared.decision.posting_date,
+            )
+            item_summaries.append(
+                {
+                    "open_item_id": item.id,
+                    "document_origin": f"{item.document_type} {item.document_number}",
+                    "amount": str(allocation.amount),
+                    "open_balance_before": str(item.open_balance),
+                }
+            )
+    return PreparedSurfaceSubledgerAction(
+        action="application_batch",
+        prepared=prepared,
+        summary={
+            "operation": "Cobro aplicado a varias obligaciones" if prepared.kind == "receivable" else "Pago aplicado a varias obligaciones",
+            "kind": prepared.kind,
+            "third_party_id": prepared.third_party_id,
+            "third_party_name": party_name,
+            "amount": str(prepared.decision.fact.amount),
+            "posting_date": prepared.decision.posting_date.isoformat(),
+            "document_type": prepared.document.document_type,
+            "document_number": prepared.document.document_number,
+            "allocations": item_summaries,
+        },
+    )
+
+
+def subledger_common_preview(value):
+    if not isinstance(value, PreparedSurfaceSubledgerAction):
+        raise TypeError("value must be PreparedSurfaceSubledgerAction")
+    return {
+        **value.summary,
+        "explanation": value.prepared.decision.explanation.professional_summary,
+        "requires_confirmation": True,
+    }
+
+
+def subledger_professional_preview(value):
+    if not isinstance(value, PreparedSurfaceSubledgerAction):
+        raise TypeError("value must be PreparedSurfaceSubledgerAction")
+    result = _decision_professional_preview(value.action, value.prepared.decision)
+    result["subledger"] = value.summary
+    return result
+
+
+def confirm_and_post_subledger(value):
+    if not isinstance(value, PreparedSurfaceSubledgerAction):
+        raise TypeError("value must be PreparedSurfaceSubledgerAction")
+    if value.action == "origin":
+        confirmed = _subledger.confirm_open_item_origin(value.prepared)
+        return _json_value(_subledger.execute_open_item_origin(confirmed))
+    if value.action == "application":
+        confirmed = _subledger.confirm_open_item_application(value.prepared)
+        return _json_value(_subledger.execute_open_item_application(confirmed))
+    if value.action == "application_batch":
+        confirmed = _subledger.confirm_open_item_application_batch(value.prepared)
+        return _json_value(_subledger.execute_open_item_application_batch(confirmed))
+    raise ValueError("unsupported subledger action")
 
 
 def _document_dict(document):
@@ -208,7 +402,6 @@ def _fiscal_dict(snapshot):
 
 
 def list_professional_operations(limit=50):
-    """List recent persisted policy identities without creating a shadow index."""
     with _storage.get_session() as session:
         rows = _operation_read.list_professional_accounting_operations(session, limit)
     return [
@@ -224,7 +417,6 @@ def list_professional_operations(limit=50):
 
 
 def load_professional_operation(entry_id):
-    """Load one persisted professional projection through the read authorities."""
     with _storage.get_session() as session:
         view = _operation_read.load_professional_accounting_operation(session, entry_id)
     return {
@@ -269,6 +461,85 @@ def load_professional_operation(entry_id):
     }
 
 
+def _application_view_dict(application):
+    return {
+        "id": application.id,
+        "entry_id": application.entry_id,
+        "line_id": application.line_id,
+        "document_reference_id": application.document_reference_id,
+        "posting_date": application.posting_date.isoformat(),
+        "amount": str(application.amount),
+        "is_effective": application.is_effective,
+    }
+
+
+def _open_item_dict(item):
+    return {
+        "id": item.id,
+        "third_party_id": item.third_party_id,
+        "third_party_name": item.third_party_name,
+        "kind": item.kind,
+        "source_entry_id": item.source_entry_id,
+        "source_line_id": item.source_line_id,
+        "source_document_reference_id": item.source_document_reference_id,
+        "document_type": item.document_type,
+        "document_number": item.document_number,
+        "posting_date": item.posting_date.isoformat(),
+        "due_date": item.due_date.isoformat(),
+        "original_amount": str(item.original_amount),
+        "applied_amount": str(item.applied_amount),
+        "open_balance": str(item.open_balance),
+        "status": item.status,
+        "aging_bucket": item.aging_bucket,
+        "applications": [_application_view_dict(app) for app in item.applications],
+    }
+
+
+def list_surface_open_items(kind=None, as_of=None, include_settled=True):
+    value = None if as_of in (None, "") else _date(as_of, "as_of")
+    with _storage.get_session() as session:
+        items = _open_items.list_open_items(
+            session,
+            kind=kind,
+            as_of=value,
+            include_settled=include_settled,
+        )
+    return [_open_item_dict(item) for item in items]
+
+
+def load_surface_open_item(open_item_id, as_of=None):
+    value = None if as_of in (None, "") else _date(as_of, "as_of")
+    with _storage.get_session() as session:
+        item = _open_items.load_open_item(session, open_item_id, as_of=value)
+    return _open_item_dict(item)
+
+
+def get_surface_subledger_reconciliation(kind, as_of=None):
+    value = None if as_of in (None, "") else _date(as_of, "as_of")
+    with _storage.get_session() as session:
+        result = _open_items.reconcile_subledger(session, kind, as_of=value)
+    return _json_value(result.__dict__ | {"is_reconciled": result.is_reconciled})
+
+
+def load_professional_open_item(open_item_id, as_of=None):
+    item = load_surface_open_item(open_item_id, as_of=as_of)
+    source = load_professional_operation(item["source_entry_id"])
+    applications = [
+        {
+            "application": application,
+            "operation": load_professional_operation(application["entry_id"]),
+        }
+        for application in item["applications"]
+    ]
+    reconciliation = get_surface_subledger_reconciliation(item["kind"], as_of=as_of)
+    return {
+        "open_item": item,
+        "source_operation": source,
+        "application_operations": applications,
+        "reconciliation": reconciliation,
+    }
+
+
 def _json_value(value):
     if isinstance(value, Decimal):
         return str(value)
@@ -282,13 +553,11 @@ def _json_value(value):
 
 
 def get_professional_trial_balance(as_of=None):
-    """Expose the existing ledger balance projection without recomputing it."""
-    value = None if as_of in (None, "") else _date(as_of)
+    value = None if as_of in (None, "") else _date(as_of, "as_of")
     return _json_value(_application.get_trial_balance(as_of=value))
 
 
 def get_surface_entity():
-    """Return the active monoentity identity for the local shell."""
     with _storage.get_session() as session:
         entity = _application.get_active_entity(session)
     if entity is None:
@@ -307,11 +576,23 @@ def get_surface_entity():
 __all__ = [
     "CommonOperationKind",
     "PreparedSurfaceOperation",
+    "PreparedSurfaceSubledgerAction",
     "list_common_operation_kinds",
     "prepare_common_operation",
     "common_preview",
     "professional_preview",
     "confirm_and_post",
+    "list_surface_third_parties",
+    "prepare_surface_open_item_origin",
+    "prepare_surface_open_item_application",
+    "prepare_surface_open_item_application_batch",
+    "subledger_common_preview",
+    "subledger_professional_preview",
+    "confirm_and_post_subledger",
+    "list_surface_open_items",
+    "load_surface_open_item",
+    "load_professional_open_item",
+    "get_surface_subledger_reconciliation",
     "list_professional_operations",
     "load_professional_operation",
     "get_professional_trial_balance",
