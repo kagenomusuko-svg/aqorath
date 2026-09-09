@@ -95,6 +95,14 @@ def cancel_operation(token: str):
         raise _error(exc) from exc
 
 
+@app.get("/api/professional/operations")
+def recent_professional_operations(limit: int = 50):
+    try:
+        return controller.recent_professional_operations(limit)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
 @app.get("/api/operations/{entry_id}/professional")
 def professional_operation(entry_id: int):
     try:
