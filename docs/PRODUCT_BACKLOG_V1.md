@@ -145,11 +145,11 @@ AQR-001.
 
 ## AQR-003 — Inmutabilidad de pólizas consolidadas y correcciones por reversión
 
-**Estado:** `NEXT`
+**Estado:** `DONE`
 
 ### Implementación en curso
 
-La autoridad de persistencia rechaza modificar o borrar una póliza `posted`. La corrección usa staging canónico para crear una reversión balanceada, conserva el asiento original en estado `reversed`, exige motivo y registra la relación uno-a-uno en `journalentryreversal`. La migración 5→6 es aditiva y fail-closed. La tarea permanece `NEXT` hasta fusionar y verificar CI.
+La autoridad de persistencia rechaza modificar o borrar una póliza `posted`. La corrección usa staging canónico para crear una reversión balanceada, conserva el asiento original en estado `reversed`, exige motivo y registra la relación uno-a-uno en `journalentryreversal`. La migración 5→6 es aditiva y fail-closed. Incorporada mediante [PR #35](https://github.com/kagenomusuko-svg/aqorath/pull/35), merge `5f881d64350e43844fa744b15b003683c66b5414`. CI verde (run 34387491439); suite completa local: **1938 passed, 8 warnings**. Diff completo revisado y sin regresión conocida.
 
 ### Resultado de producto
 
@@ -174,7 +174,7 @@ AQR-002.
 
 ## AQR-004 — Caso de uso unificado: hecho económico → decisión → consentimiento → posting → auditoría
 
-**Estado:** `TODO`
+**Estado:** `NEXT`
 
 ### Resultado de producto
 

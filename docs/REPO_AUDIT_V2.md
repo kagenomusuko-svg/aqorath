@@ -316,7 +316,7 @@ AQR-005 define la nueva superficie, una vez establecida la orquestación de AQR-
 
 No se localizaron como capacidades completas actuales:
 
-- reversión/corrección formal de pólizas posted como contrato integral;
+
 - BankAccount y conciliación bancaria;
 - Fund/FundingSource/restricciones OSC;
 - InKindDonation;
@@ -368,7 +368,7 @@ Esto significa “no identificado por la suite y revisión actual”, no “impo
 
 ### P1 — completitud/seguridad de producto
 
-- ausencia de workflow de reversión plenamente cerrado;
+
 - ausencia de superficie de usuario actual;
 - ausencia de bancos/conciliación;
 - OSC incompleto en fondos/fuentes/restricciones;
@@ -412,6 +412,11 @@ Contrato aprobado: [AQR_002_PERIOD_DECISION.md](AQR_002_PERIOD_DECISION.md). Se 
 
 El cierre ahora cancela ingresos/costos/gastos del ejercicio y acumula el resultado en 3104, conservando el staging canónico y un respaldo validado. Requiere diciembre abierto y año explícito. No reabre períodos ni duplica un cierre anterior.
 
-El calendario de bases legadas requiere declaración explícita del inicio, estados históricos y correspondencias incompatibles; no se infieren con la migración de esquema. AQR-003 sigue siendo la tarea de inmutabilidad/reversión formal. No se amplía el alcance fiscal V1 ni se declara una UI productiva.
+El calendario de bases legadas requiere declaración explícita del inicio, estados históricos y correspondencias incompatibles; no se infieren con la migración de esquema. AQR-003 ya incorpora inmutabilidad y reversión canónica; AQR-004 sigue la orquestación. No se amplía el alcance fiscal V1 ni se declara una UI productiva.
 
 Evidencia nueva: 24 casos en `tests/test_aqr002_accounting_periods.py` y regresión completa. La incorporación y CI del main resultante se registran en el cierre del backlog.
+
+
+## 19. Actualización material AQR-003
+
+PR #35 incorporó la inmutabilidad de pólizas posted en la frontera de persistencia y el flujo canónico de reversión. La migración 5→6 añade `journalentryreversal` de manera aditiva. La reversión invierte líneas exactas, conserva el original como `reversed`, exige motivo y bloquea duplicados y destinos cerrados. La suite completa del PR quedó verde.
