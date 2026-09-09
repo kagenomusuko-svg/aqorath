@@ -90,11 +90,11 @@ def _document(
 
 
 def _fresh_db(tmp_path, filename="document-reference.db"):
-    from aqorath.migrations import migrate_database
+    from aqorath.migrations import CURRENT_SCHEMA_VERSION, migrate_database
 
     db_path = tmp_path / filename
     result = migrate_database(str(db_path))
-    assert result["to_version"] == 6
+    assert result["to_version"] == CURRENT_SCHEMA_VERSION
     return db_path, create_engine(f"sqlite:///{db_path}")
 
 
@@ -345,7 +345,7 @@ def test_frozen_v4_additively_creates_document_reference_schema_with_entry_and_o
     from aqorath.migrations import CURRENT_SCHEMA_VERSION
     from aqorath.models import DocumentReferenceRecord
 
-    assert CURRENT_SCHEMA_VERSION == 6
+    assert CURRENT_SCHEMA_VERSION >= 4
     assert DocumentReferenceRecord.__tablename__ == "documentreference"
 
     db_path, engine = _fresh_db(tmp_path, "schema.db")
@@ -427,7 +427,7 @@ def test_frozen_v4_additively_creates_document_reference_schema_with_entry_and_o
 
 
 def test_current_v4_additive_ensure_adds_document_reference_without_rewriting_existing_truth(tmp_path):
-    from aqorath.migrations import get_schema_version, migrate_database
+    from aqorath.migrations import CURRENT_SCHEMA_VERSION, get_schema_version, migrate_database
 
     db_path = tmp_path / "existing-v4.db"
     conn = sqlite3.connect(str(db_path))
@@ -447,12 +447,12 @@ def test_current_v4_additive_ensure_adds_document_reference_without_rewriting_ex
     result = migrate_database(str(db_path))
     assert result == {
         "from_version": 4,
-        "to_version": 6,
+        "to_version": CURRENT_SCHEMA_VERSION,
         "migrated": True,
         "backup_path": result["backup_path"],
     }
     assert __import__("pathlib").Path(result["backup_path"]).is_file()
-    assert get_schema_version(str(db_path)) == 6
+    assert get_schema_version(str(db_path)) == CURRENT_SCHEMA_VERSION
 
     conn = sqlite3.connect(str(db_path))
     try:
