@@ -873,6 +873,14 @@ def list_donations(session, entity_id):
     return _donation_repository.list_donations(session, entity_id)
 
 
+from . import inkind_donation_repository as _inkind_donation_repository
+
+
+def create_inkind_donation(session, donation):
+    """Persist non-cash evidence through its authority; does not post or alter the ledger."""
+    return _inkind_donation_repository.create_inkind_donation(session, donation)
+
+
 from . import audit_event_repository as _audit_event_repository
 
 
