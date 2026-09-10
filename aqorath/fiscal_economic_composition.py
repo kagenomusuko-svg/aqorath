@@ -118,12 +118,11 @@ class FiscalEconomicCompositionDeclaration:
             if first_snapshot is None:
                 first_snapshot = snapshot
             else:
-                for name in (
-                    "effective_date",
-                    "jurisdiction",
-                    "regime",
-                    "entity_type",
-                ):
+                # Effective date and jurisdiction describe the one economic event.
+                # Regime/entity_type remain per-rule registry scope: AQR-011 can
+                # legitimately compose a recipient-PM VAT rule with a supplier-PF
+                # ISR rule without falsifying either rule's provenance.
+                for name in ("effective_date", "jurisdiction"):
                     if getattr(snapshot, name) != getattr(first_snapshot, name):
                         raise ValueError(
                             f"all fiscal effects must share {name} for one composition"
