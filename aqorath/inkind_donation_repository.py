@@ -4,6 +4,7 @@ from .inkind_donation import InKindDonation
 from .models import (InKindDonationRecord, EntityRecord, EntityProfileRecord,
                      ThirdPartyRecord, DocumentReferenceRecord, JournalLine,
                      JournalEntry, JournalEntryReversalRecord, ProgramRecord)
+from .models import FixedAssetRecord
 from .fund_models import FundRecord
 from .fund_repository import _posting_context
 from sqlmodel import select
@@ -39,8 +40,11 @@ def create_inkind_donation(session, donation):
         if entry.state != "posted": raise ValueError("JournalLine is not effective")
         if session.exec(select(InKindDonationRecord).where(InKindDonationRecord.journal_line_id == line.id)).first(): raise ValueError("JournalLine already attributes an in-kind donation")
         if entry.date != donation.received_at.isoformat(): raise ValueError("donation date must equal canonical posting date")
+    if donation.fixed_asset_id is not None:
+        asset = session.get(FixedAssetRecord, donation.fixed_asset_id)
+        if asset is None or asset.entity_id != donation.entity_id: raise ValueError("fixed asset must belong to the same Entity")
     if session.exec(select(InKindDonationRecord).where(InKindDonationRecord.entity_id == donation.entity_id, InKindDonationRecord.external_reference == donation.external_reference)).first(): raise ValueError("external_reference already exists")
-    record = InKindDonationRecord(entity_id=donation.entity_id, donor_third_party_id=donation.donor_third_party_id, document_reference_id=donation.document_reference_id, fund_id=donation.fund_id, program_id=donation.program_id, journal_line_id=donation.journal_line_id, received_at=donation.received_at.isoformat(), description=donation.description, quantity=None if donation.quantity is None else str(donation.quantity), valuation_amount=str(donation.valuation_amount), valuation_currency=donation.valuation_currency, valuation_method=donation.valuation_method, valuation_evidence=donation.valuation_evidence, external_reference=donation.external_reference)
+    record = InKindDonationRecord(entity_id=donation.entity_id, donor_third_party_id=donation.donor_third_party_id, document_reference_id=donation.document_reference_id, fund_id=donation.fund_id, program_id=donation.program_id, journal_line_id=donation.journal_line_id, fixed_asset_id=donation.fixed_asset_id, received_at=donation.received_at.isoformat(), description=donation.description, quantity=None if donation.quantity is None else str(donation.quantity), valuation_amount=str(donation.valuation_amount), valuation_currency=donation.valuation_currency, valuation_method=donation.valuation_method, valuation_evidence=donation.valuation_evidence, external_reference=donation.external_reference)
     try:
         session.add(record); session.flush()
         if record.id is None: raise RuntimeError("InKindDonation identity was not assigned")
