@@ -3,8 +3,8 @@
 **Fecha de corte:** 2026-09-10
 **Rama de continuidad:** `main`  
 **Baseline histórico de runtime:** `7623e4eb0636064cdab0582ce3c98e7b9c844e93` (PR #30)  
-**Runtime material vigente:** AQR-002 a AQR-009
-**Esquema vigente:** 10
+**Runtime material vigente:** AQR-002 a AQR-010
+**Esquema vigente:** 11
 
 > Este documento sustituye a `REPO_AUDIT_V1.md` como descripción del estado actual. V1 queda únicamente como referencia histórica. Los apartados del baseline PR #30 conservan valor de evidencia; las actualizaciones AQR posteriores prevalecen cuando amplían el estado material.
 
@@ -14,14 +14,14 @@
 
 Aqorath dispone de un núcleo contable local ampliamente endurecido y probado: SQLite como autoridad, dinero exacto, partida doble, catálogo gobernado, resolución de hechos económicos, reporting, fiscalidad versionada, trazabilidad, fundamentos OSC y activos fijos.
 
-AQR-002 añadió la autoridad explícita de período y ejercicio. AQR-003 consolidó inmutabilidad append-only y corrección por reversión con auditoría. AQR-004 compuso las autoridades existentes en un caso de uso Application ordinario completo: **hecho → decisión → consentimiento → posting → auditoría**, sin crear un segundo motor ni una persistencia paralela. AQR-005 añadió una superficie local común + profesional sobre esas mismas autoridades. AQR-006 a AQR-009 completaron submayores, conciliación bancaria, trazabilidad OSC y donativos monetarios/en especie manteniendo `JournalLine` como única autoridad contable.
+AQR-002 añadió la autoridad explícita de período y ejercicio. AQR-003 consolidó inmutabilidad append-only y corrección por reversión con auditoría. AQR-004 compuso las autoridades existentes en un caso de uso Application ordinario completo: **hecho → decisión → consentimiento → posting → auditoría**, sin crear un segundo motor ni una persistencia paralela. AQR-005 añadió una superficie local común + profesional sobre esas mismas autoridades. AQR-006 a AQR-009 completaron submayores, conciliación bancaria, trazabilidad OSC y donativos monetarios/en especie manteniendo `JournalLine` como única autoridad contable. AQR-010 incorporó CFDI XML como evidencia externa verificable y lo vinculó a esas autoridades sin convertirlo en ledger ni regla fiscal.
 
 ### Resultado del corte
 
 - **P0 de integridad contable conocidos:** ninguno abierto después de PR #36/#37/#39.
 - **Estado de producción:** **NO declarado listo para producción**; una suite verde no sustituye aceptación profesional/humana ni cobertura fiscal declarada.
-- **Gap de producto principal inmediato:** el CFDI XML todavía no se ingiere como evidencia documental verificable y deduplicada.
-- **Continuidad:** `PRODUCT_BACKLOG_V1.md` contiene exactamente un `NEXT`: AQR-010.
+- **Gap de producto principal inmediato:** la cobertura fiscal mexicana V1 todavía debe delimitarse por aplicabilidad, vigencia y fuente normativa revisada.
+- **Continuidad:** `PRODUCT_BACKLOG_V1.md` contiene exactamente un `NEXT`: AQR-011.
 
 ---
 
@@ -80,6 +80,18 @@ AQR-005 deriva del repositorio una superficie web local estrictamente `127.0.0.1
 - AQR-007, PR #42, separó evidencia bancaria y ledger, con conciliación, pendientes y diferencias reproducibles.
 - AQR-008, PR #43, incorporó fondos, fuentes y aplicaciones derivados de líneas efectivas, con schema 9 aditivo.
 - AQR-009, PR #44, merge `e3c8cd1f76ec2157c752a245efa74f3711526ffa`, head revisado `1f209cd6b1f56e74f57a325942078491c0a4de31`, tree idéntico `40c1f81749d7ad6689e53564f851acb2c76ef152`, CI verde y suite completa **2022 passed, 8 warnings**. Integra donativos monetarios y en especie con posting, documentos, fondos, activos, auditoría, reversión, idempotencia y superficies común/profesional; no crea efectivo ficticio ni autoridad monetaria o fiscal paralela.
+
+### AQR-010 — CFDI como evidencia documental verificable
+
+- PR #45, merge `6517b303c48d7d38eef01003dad487f676c5c2e7`;
+- head revisado `83c0a058337b2345a7134a9a72a8472e980abb52`, tree idéntico `54afbbe94bf577749ac5dfadbc956e448c0463de`;
+- CI verde run 458 y suite completa Python 3.12: **2060 passed, 8 warnings**;
+- schema 11 aditivo desde snapshot histórico real 10, sin backfill;
+- ingestión offline y exacta de CFDI 4.0 ingreso/MXN, XML/hash/UUID/RFC/fechas/importes/impuestos y deduplicación;
+- posición documental `issuer/receiver` separada de venta/compra/donativo, que permanece clasificación factual explícita;
+- importación independiente del posting y vínculo atómico a un único `DocumentReference`, `CfdiImportMetadata` y ledger canónico;
+- donativo CFDI compuesto sobre AQR-009 con una sola póliza, Donation, FundReceipt, documento y auditoría, incluido rollback e idempotencia transversal;
+- impuestos del XML presentados sólo como evidencia; no se declara aplicabilidad fiscal ni consulta SAT.
 
 ---
 
@@ -187,7 +199,7 @@ AQR-004 no infiere silenciosamente una regla fiscal desde un hecho ordinario. `e
 
 ### Pendiente real
 
-AQR-010/AQR-011 deben cerrar documento fuente, aplicabilidad y cobertura fiscal V1. Lo no soportado debe fallar explícitamente.
+AQR-011 debe cerrar aplicabilidad y cobertura fiscal V1. Lo no soportado debe fallar explícitamente.
 
 ---
 
@@ -222,11 +234,12 @@ Existen:
 - ThirdParty;
 - DocumentReference;
 - CfdiImportMetadata;
+- CfdiSource/CfdiTaxEvidence/CfdiSourceLink con XML exacto y deduplicación;
 - AuditEvent.
 
 La identidad de entidad no se reduce a un selector “Comercial / OSC”.
 
-Pendiente: CFDI XML real AQR-010.
+Pendiente: aplicabilidad y cobertura fiscal declarada AQR-011; la evidencia CFDI no determina por sí sola tratamiento fiscal.
 
 ---
 
@@ -236,7 +249,7 @@ Estado: **FLUJOS OSC DE RECURSOS Y DONATIVOS IMPLEMENTADOS**
 
 Existen Program, Donation, InKindDonation, Fund, FundingSource y AnalyticalDimension/valores/asignaciones. AQR-008 trazó recepción/aplicación sobre `JournalLine`; AQR-009 completó los flujos monetario y en especie, incluida evidencia, activo durable, reversión y superficie humana/profesional.
 
-La fiscalidad específica de donativos permanece deliberadamente limitada a reglas versionadas existentes; AQR-010/AQR-011 son las autoridades siguientes para CFDI y cobertura fiscal.
+La fiscalidad específica de donativos permanece deliberadamente limitada a reglas versionadas existentes; AQR-011 es la autoridad siguiente para cobertura fiscal.
 
 ---
 
@@ -371,9 +384,9 @@ La continuidad **NO** se deriva de numeración histórica ni de PR antiguos.
 
 Leer `INSTRUCCIONES.md` y ejecutar la única tarea `NEXT` de `PRODUCT_BACKLOG_V1.md`:
 
-> **AQR-010 — CFDI como documento fuente verificable**
+> **AQR-011 — Cobertura fiscal V1 declarada y versionada**
 
-Inspeccionar y reutilizar `DocumentReference`, `CfdiImportMetadata`, autoridades de archivo/hash/importación, terceros, hechos, decisiones y fiscalidad versionada. La tarea debe ingerir XML de forma determinística, deduplicar por identidad documental verificable y contrastar sus importes sin convertir el CFDI en ledger ni ampliar silenciosamente la cobertura fiscal.
+Inspeccionar y reutilizar `FiscalRuleSet`, registry, fuentes/versiones, aplicabilidad, cálculo, redondeo, confirmación, efectos, posting y auditoría fiscal existentes, además de la evidencia CFDI AQR-010. La tarea debe declarar sólo los tratamientos V1 autorizados, probarlos por fecha/contexto y rechazar explícitamente lo desconocido sin convertir impuestos documentales en aplicabilidad automática.
 
 ---
 

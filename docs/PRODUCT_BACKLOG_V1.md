@@ -376,7 +376,7 @@ Implementado y fusionado mediante PR #44, merge `e3c8cd1f76ec2157c752a245efa74f3
 
 ## AQR-010 — CFDI como documento fuente verificable
 
-**Estado:** `NEXT`
+**Estado:** `DONE`
 
 ### Resultado de producto
 
@@ -400,11 +400,15 @@ Importar dos veces el mismo UUID no duplica verdad; los datos extraídos son rep
 
 AQR-004.
 
+### Cierre de aceptación
+
+Implementado y fusionado mediante PR #45, merge `6517b303c48d7d38eef01003dad487f676c5c2e7`, head validado `83c0a058337b2345a7134a9a72a8472e980abb52`. El tree fusionado coincide exactamente con el revisado (`54afbbe94bf577749ac5dfadbc956e448c0463de`); CI remoto run 458 quedó verde y la suite completa Python 3.12 registró **2060 passed, 8 warnings**. Schema 11 incorpora evidencia CFDI aditiva sin backfill; XML, hash, UUID, RFC, fechas, importes e impuestos se preservan exactamente. La posición documental no se confunde con la clasificación económica, importar no contabiliza y el enlace confirmado reutiliza `JournalEntry`/`JournalLine`, `ThirdParty`, un único `DocumentReference` y auditoría. El donativo monetario respaldado por CFDI compone AQR-009 en un solo commit, con rollback e idempotencia cruzada, sin duplicar póliza/documento ni inferir tratamiento fiscal.
+
 ---
 
 ## AQR-011 — Cobertura fiscal V1 declarada y versionada
 
-**Estado:** `TODO`
+**Estado:** `NEXT`
 
 ### Resultado de producto
 
@@ -559,4 +563,4 @@ Al completar una tarea:
 
 ## SIGUIENTE ACTUAL
 
-`AQR-010 — CFDI como documento fuente verificable`.
+`AQR-011 — Cobertura fiscal V1 declarada y versionada`.

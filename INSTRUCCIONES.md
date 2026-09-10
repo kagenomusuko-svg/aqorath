@@ -50,7 +50,7 @@ La vista común y la vista profesional son dos superficies sobre el **mismo moto
 - Última suite completa asociada a ese corte: **1912 passed, 0 failed**.
 - No existe, al cierre de la auditoría del 2026-09-09, un P0 conocido que obligue a reabrir los fundamentos ya validados.
 
-### Runtime vigente — AQR-002 / AQR-003 / AQR-004 / AQR-005
+### Runtime vigente — AQR-002 a AQR-010
 
 AQR-002 quedó incorporada por PR #33 y establece la única autoridad de período/calendario; contrato `docs/AQR_002_PERIOD_DECISION.md`.
 
@@ -182,7 +182,7 @@ Una tarea sólo pasa de `NEXT` a `DONE` cuando:
 
 ## 11. SIGUIENTE
 
-**`AQR-010 — CFDI como documento fuente verificable`**
+**`AQR-011 — Cobertura fiscal V1 declarada y versionada`**
 
 AQR-006 quedó incorporada mediante PR #41, merge `6617896f1bfe56093697be08f1a996db55930ab6`, con CI verde y suite completa Python 3.12 de **1993 passed, 8 warnings**. Sus submayores operativos conservan `JournalLine` como única autoridad monetaria, sin backfill histórico, y su fixture schema 6 es independiente del metadata runtime.
 
@@ -192,7 +192,9 @@ AQR-008 quedó incorporada mediante PR #43, merge `13133edfd9ed5015f6cb7bfdccbd8
 
 AQR-009 quedó incorporada mediante PR #44, merge `e3c8cd1f76ec2157c752a245efa74f3711526ffa`, con CI verde sobre el head revisado `1f209cd6b1f56e74f57a325942078491c0a4de31` y suite completa Python 3.12 de **2022 passed, 8 warnings**. Sus donativos monetarios y en especie componen posting, evidencia, fondos, activos y auditoría en una sola transacción; conservan `JournalLine` como autoridad contable, derivan reversión e idempotencia y exponen recorridos común/profesional sin efectivo ficticio ni tratamiento fiscal inventado. El tree fusionado coincide exactamente con el revisado en `40c1f81749d7ad6689e53564f851acb2c76ef152`.
 
-AQR-010 debe convertir el CFDI XML en evidencia documental verificable: ingestión determinística, UUID/RFC/fecha/importes/impuestos, deduplicación y vínculo con las autoridades existentes. No incluye timbrado/emisión ni autoriza inferir cobertura fiscal no declarada.
+AQR-010 quedó incorporada mediante PR #45, merge `6517b303c48d7d38eef01003dad487f676c5c2e7`, head revisado `83c0a058337b2345a7134a9a72a8472e980abb52`, CI verde run 458 y suite completa Python 3.12 de **2060 passed, 8 warnings**. El tree fusionado coincide exactamente con el revisado en `54afbbe94bf577749ac5dfadbc956e448c0463de`. El CFDI XML se conserva como evidencia externa exacta y deduplicada; posición documental y clasificación económica son dimensiones separadas. Los vínculos a ledger/documento y el recorrido de donativo AQR-009 son atómicos e idempotentes, con un solo `DocumentReference`, sin ledger ni fiscalidad paralelos.
+
+AQR-011 debe declarar y versionar exactamente la cobertura fiscal mexicana V1, con vigencias, fuentes, aplicabilidad, pruebas fechadas y rechazo explícito de casos fuera de soporte. No debe inferir tratamiento fiscal únicamente desde los impuestos declarados por un CFDI.
 
 AQR-001 fue incorporada mediante PR #31 (`bff58de7cad11de6c2ab37c0d3e0b7b6c20ae003`). Su matriz única es `docs/PRODUCT_ACCEPTANCE_V1.md`. Consultar siempre el único `NEXT` del backlog antes de comenzar trabajo.
 
