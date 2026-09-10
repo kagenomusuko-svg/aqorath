@@ -19,8 +19,6 @@ def _session(tmp_path):
 
     engine = create_engine(f"sqlite:///{tmp_path / 'aqr011-operation.db'}")
     SQLModel.metadata.create_all(engine)
-    from period_fixtures import seed_engine_calendar
-    seed_engine_calendar(engine)
     session = Session(engine)
 
     entity = create_entity(
@@ -40,6 +38,9 @@ def _session(tmp_path):
             is_active=True,
         ),
     )
+    from period_fixtures import seed_engine_calendar
+    seed_engine_calendar(engine)
+
     register_fiscal_profile(
         session,
         FiscalProfile(
