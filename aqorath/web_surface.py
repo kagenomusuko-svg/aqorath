@@ -283,6 +283,38 @@ def create_funding_source(payload: dict):
         raise _error(exc) from exc
 
 
+@app.get("/api/osc/funding-sources")
+def funding_sources():
+    try:
+        return controller.funding_sources()
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.get("/api/osc/fund-candidates")
+def fund_candidates(kind: str):
+    try:
+        return controller.fund_candidates(kind)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/osc/fund-receipts")
+def record_fund_receipt(payload: dict):
+    try:
+        return controller.record_fund_receipt(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/osc/fund-applications")
+def record_fund_application(payload: dict):
+    try:
+        return controller.record_fund_application(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
 @app.get("/api/osc/funds/{fund_id}/balance")
 def fund_balance(fund_id: int, as_of: str):
     try:
