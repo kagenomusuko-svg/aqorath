@@ -25,8 +25,9 @@ from . import reconciliation_repository as _reconciliations
 from .banking import BankAccount
 from . import bank_transfer as _bank_transfer
 from . import fund_repository as _funds
-from .fund import Fund, FundingSource
+from .fund import Fund, FundingSource, FundReceipt, FundApplication
 from .fund_models import FundRecord, FundingSourceRecord
+from .models import JournalEntry, JournalLine, AuditEventRecord, DonationRecord, ProgramRecord
 from .models import AccountRoleBinding
 from sqlmodel import select
 
@@ -695,6 +696,61 @@ def create_surface_funding_source(payload):
     return _json_value(source)
 
 
+def list_surface_funding_sources():
+    with _storage.get_session() as session:
+        rows = session.exec(select(FundingSourceRecord).order_by(FundingSourceRecord.id)).all()
+    return [_json_value(row.__dict__) for row in rows]
+
+
+def list_surface_fund_candidates(kind):
+    if kind not in ("receipt", "application"): raise ValueError("kind must be receipt or application")
+    with _storage.get_session() as session:
+        entity = _application.get_active_entity(session)
+        if entity is None or entity.id is None: raise LookupError("active Entity is required")
+        result = []
+        for entry in session.exec(select(JournalEntry).where(JournalEntry.state == "posted").order_by(JournalEntry.date, JournalEntry.id)).all():
+            context = _funds._posting_context(session, entry.id)
+            if context[0] != "active": continue
+            if kind == "receipt" and context[1] != "donation": continue
+            if kind == "application" and context[1] not in {"utility_expense", "utility_expense_incurred", "supplier_payment"}: continue
+            for line in session.exec(select(JournalLine).where(JournalLine.entry_id == entry.id).order_by(JournalLine.id)).all():
+                if kind == "receipt" and Decimal(line.credit) <= 0: continue
+                if kind == "application" and Decimal(line.debit) <= 0: continue
+                amount = Decimal(line.debit) if Decimal(line.debit) else Decimal(line.credit)
+                if amount <= 0: continue
+                donation = session.exec(select(DonationRecord).where(DonationRecord.entity_id == entity.id, DonationRecord.date == entry.date.isoformat(), DonationRecord.amount == str(amount))).first() if kind == "receipt" else None
+                result.append({"entry_id": entry.id, "journal_line_id": line.id, "date": entry.date.date().isoformat(), "concept": entry.concept, "amount": str(amount), "donation_id": None if donation is None else donation.id})
+    return result
+
+
+def record_surface_fund_receipt(payload):
+    with _storage.get_session() as session:
+        entity = _application.get_active_entity(session)
+        if entity is None or entity.id is None: raise LookupError("active Entity is required")
+        line = session.get(JournalLine, payload.get("journal_line_id"))
+        if line is None: raise LookupError("selected receipt is not available")
+        entry = session.get(JournalEntry, line.entry_id)
+        amount = Decimal(line.credit) if Decimal(line.credit) else Decimal(line.debit)
+        receipt = _funds.record_fund_receipt(session, FundReceipt(None, entity.id, payload.get("fund_id"), payload.get("funding_source_id"), line.id, amount, entry.date, payload.get("donation_id")))
+    return _json_value(receipt)
+
+
+def record_surface_fund_application(payload):
+    with _storage.get_session() as session:
+        entity = _application.get_active_entity(session)
+        if entity is None or entity.id is None: raise LookupError("active Entity is required")
+        line = session.get(JournalLine, payload.get("journal_line_id"))
+        if line is None: raise LookupError("selected application is not available")
+        entry = session.get(JournalEntry, line.entry_id)
+        program_id = payload.get("program_id")
+        if program_id is None and payload.get("program_name"):
+            programs = session.exec(select(ProgramRecord).where(ProgramRecord.entity_id == entity.id, ProgramRecord.name == payload["program_name"])).all()
+            if len(programs) != 1: raise LookupError("program name must identify exactly one Program")
+            program_id = programs[0].id
+        application = _funds.record_fund_application(session, FundApplication(None, entity.id, payload.get("fund_id"), program_id, line.id, _amount(payload.get("amount")), entry.date, payload.get("receipt_id"), payload.get("purpose")))
+    return _json_value(application)
+
+
 def get_surface_fund_balance(fund_id, as_of=None):
     with _storage.get_session() as session:
         entity = _application.get_active_entity(session)
@@ -744,6 +800,10 @@ __all__ = [
     "list_surface_funds",
     "create_surface_fund",
     "create_surface_funding_source",
+    "list_surface_funding_sources",
+    "list_surface_fund_candidates",
+    "record_surface_fund_receipt",
+    "record_surface_fund_application",
     "get_surface_fund_balance",
     "get_surface_fund_traceability",
 ]
