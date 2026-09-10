@@ -174,6 +174,18 @@ class LocalPresentationController:
     def reconciliation(self, reconciliation_id):
         return _application.load_surface_reconciliation(reconciliation_id)
 
+    def funds(self):
+        return _application.list_surface_funds()
+
+    def create_fund(self, payload):
+        return _application.create_surface_fund(payload)
+
+    def create_funding_source(self, payload):
+        return _application.create_surface_funding_source(payload)
+
+    def fund_balance(self, fund_id, as_of=None):
+        return _application.get_surface_fund_balance(fund_id, as_of)
+
     def bank_transfer(self, payload):
         return _application.execute_surface_bank_transfer(
             payload.get("source_bank_account_id"), payload.get("destination_bank_account_id"),
