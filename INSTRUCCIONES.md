@@ -182,9 +182,11 @@ Una tarea sólo pasa de `NEXT` a `DONE` cuando:
 
 ## 11. SIGUIENTE
 
-**`AQR-006 — Cuentas por cobrar y pagar como submayores operativos`**
+**`AQR-007 — Bancos y conciliación`**
 
-AQR-005 ya está incorporada en `main`. AQR-006 debe convertir los flujos contables existentes de crédito/cobro/pago y `ThirdParty` en submayores operativos sin crear una segunda contabilidad. Antes de añadir persistencia, inspeccionar exhaustivamente qué identidad representa hoy cada obligación y cómo se relacionan EconomicFact/EconomicEvent, AccountingDecision, JournalEntry, ThirdParty y DocumentReference. El origen de la obligación, cada aplicación y el saldo abierto deben distinguirse explícitamente; todo saldo CxC/CxP debe ser reproducible y reconciliable con el ledger canónico. Reutilizar posting AQR-004, período AQR-002, reversión AQR-003 y auditoría; una divergencia debe detectarse y detener/supervisar la operación, nunca quedar silenciosa.
+AQR-006 quedó incorporada mediante PR #41, merge `6617896f1bfe56093697be08f1a996db55930ab6`, con CI verde y suite completa Python 3.12 de **1993 passed, 8 warnings**. Sus submayores operativos conservan `JournalLine` como única autoridad monetaria, sin backfill histórico, y su fixture schema 6 es independiente del metadata runtime.
+
+AQR-007 debe implementar bancos y conciliación sobre las autoridades existentes: `BankAccount`, relación con cuenta contable, importación de estados/movimientos, matching, partidas en tránsito y cierre de conciliación. No debe crear una segunda fuente contable; toda diferencia debe permanecer explícita y reconciliable contra el ledger.
 
 AQR-001 fue incorporada mediante PR #31 (`bff58de7cad11de6c2ab37c0d3e0b7b6c20ae003`). Su matriz única es `docs/PRODUCT_ACCEPTANCE_V1.md`. Consultar siempre el único `NEXT` del backlog antes de comenzar trabajo.
 

@@ -260,7 +260,15 @@ AQR-004.
 
 ## AQR-006 — Cuentas por cobrar y pagar como submayores operativos
 
-**Estado:** `NEXT`
+**Estado:** `DONE`
+
+### Aceptación
+
+Incorporada mediante PR #41, merge `6617896f1bfe56093697be08f1a996db55930ab6`, tras CI verde sobre el head revisado `5291c63636e0eb3a97581f0048073c6f7e1a739c`.
+
+La implementación conserva `JournalLine` como única autoridad monetaria y añade sólo relaciones line-granulares `OpenItem`/`OpenItemApplication`. Schema 7 crea ambas tablas sin backfill; la fixture histórica schema 6 está congelada en DDL independiente del metadata runtime. Las pruebas cubren origen, aplicaciones parciales/totales, batch multiobligación, vencimiento/aging derivado, reversión temporal, reconciliación fail-closed, divergencias históricas y atomicidad en todas las fronteras.
+
+Verificación: suite específica AQR-002–006 con **80 passed**; suite completa Python 3.12 con **1993 passed, 8 warnings**.
 
 ### Resultado de producto
 
@@ -286,7 +294,7 @@ AQR-004.
 
 ## AQR-007 — Bancos y conciliación
 
-**Estado:** `TODO`
+**Estado:** `NEXT`
 
 ### Resultado de producto
 
@@ -539,4 +547,4 @@ Al completar una tarea:
 
 ## SIGUIENTE ACTUAL
 
-`AQR-006 — Cuentas por cobrar y pagar como submayores operativos`.
+`AQR-007 — Bancos y conciliación`.
