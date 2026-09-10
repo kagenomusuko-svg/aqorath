@@ -1,15 +1,13 @@
 """Aqorath Economic Fact Application Layer.
 
-Supported deterministic verticals:
-- cash sale: debit ``cash``, credit ``sales_revenue``;
-- credit sale: debit ``accounts_receivable``, credit ``sales_revenue``;
-- utility expense paid by bank: debit ``utilities_expense``, credit ``bank``;
-- utility expense incurred on credit: debit ``utilities_expense``, credit ``accounts_payable``;
-- receivable collection by bank: debit ``bank``, credit ``accounts_receivable``;
-- supplier payment by bank: debit ``accounts_payable``, credit ``bank``.
+Supported deterministic verticals include ordinary sales/collections, utilities,
+donations and the AQR-011 paid professional-services and land-freight facts.
+Specific expense facts are deliberately distinct: a professional service or land
+transport service is not re-labelled as a utility merely to reach fiscal logic.
 
-This module is pure domain logic: no catalog, storage, SQLite, journal execution, or external
-services. It describes WHAT happened using semantic account roles only.
+This module is pure domain logic: no catalog, storage, SQLite, journal execution,
+fiscal rule selection, or external services. It describes WHAT happened using
+semantic account roles only.
 """
 
 from dataclasses import dataclass
@@ -34,6 +32,8 @@ class EconomicFact:
             "sale": ("cash", "credit"),
             "utility_expense": ("bank",),
             "utility_expense_incurred": ("credit",),
+            "professional_services_expense": ("bank",),
+            "freight_expense": ("bank",),
             "receivable_collection": ("bank",),
             "supplier_payment": ("bank",),
         }
@@ -41,8 +41,9 @@ class EconomicFact:
         if self.type not in valid_payment_methods:
             raise ValueError(
                 "type must be one of: 'sale', 'utility_expense', "
-                "'utility_expense_incurred', 'receivable_collection', "
-                "'supplier_payment', 'donation', 'inkind_donation'. "
+                "'utility_expense_incurred', 'professional_services_expense', "
+                "'freight_expense', 'receivable_collection', 'supplier_payment', "
+                "'donation', 'inkind_donation'. "
                 f"Got: {self.type}"
             )
 
@@ -82,8 +83,6 @@ class EconomicFact:
 
 @dataclass(frozen=True)
 class ProposalLine:
-    """Semantic double-entry line before concrete account resolution."""
-
     account_role: str
     side: str
     amount: Decimal
@@ -105,8 +104,6 @@ class ProposalLine:
 
 @dataclass(frozen=True)
 class AccountingProposal:
-    """Balanced in-memory semantic proposal; never a persisted journal entry."""
-
     lines: List[ProposalLine]
     explanation: str
 
@@ -183,6 +180,22 @@ def resolve_economic_fact(fact: EconomicFact) -> AccountingProposal:
         explanation = (
             f"Utility expense: {fact.amount} incurred on credit. "
             "Utilities expense recognized (debit), accounts payable obligation increased (credit)."
+        )
+    elif fact.type == "professional_services_expense" and fact.payment_method == "bank":
+        debit_role = "professional_services_expense"
+        credit_role = "bank"
+        explanation = (
+            f"Professional services expense: {fact.amount} paid by bank. "
+            "The professional service expense is recognized independently of any fiscal effects; "
+            "the bank line may later be adjusted only by confirmed fiscalized composition."
+        )
+    elif fact.type == "freight_expense" and fact.payment_method == "bank":
+        debit_role = "freight_expense"
+        credit_role = "bank"
+        explanation = (
+            f"Land freight expense: {fact.amount} paid by bank. "
+            "The transport service expense is recognized independently of any fiscal effects; "
+            "the bank line may later be adjusted only by confirmed fiscalized composition."
         )
     elif fact.type == "receivable_collection" and fact.payment_method == "bank":
         debit_role = "bank"
