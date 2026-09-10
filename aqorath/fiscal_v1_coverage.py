@@ -1,13 +1,13 @@
 """AQR-011 factual applicability authority for the declared Mexican V1 coverage.
 
 This module is deliberately upstream of the existing fiscal calculation,
-confirmation, composition and posting authorities.  Common-surface callers
+confirmation, composition and posting authorities. Common-surface callers
 provide recognizable business facts; they never provide ``rule_key`` or a tax
-rate.  The module selects only treatments declared by
+rate. The module selects only treatments declared by
 ``docs/AQR_011_FISCAL_COVERAGE_V1.md`` and resolves their already-versioned rule
 records for the operation date.
 
-CFDI values are documentary evidence only.  They can be contrasted with a
+CFDI values are documentary evidence only. They can be contrasted with a
 supported calculation after applicability has been established, but they never
 select a treatment.
 """
@@ -15,7 +15,7 @@ select a treatment.
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, localcontext
-from typing import Optional, Tuple
+from typing import Optional
 
 from . import fiscal_calculation as _calculation
 from . import fiscal_rule_data_mx as _data
@@ -30,14 +30,16 @@ UNSUPPORTED_MESSAGE = "Aqorath no tiene una regla fiscal V1 declarada para este 
 
 _ACTIVITY_ORDINARY_TAXABLE_SALE = "ordinary_taxable_sale"
 _ACTIVITY_OWN_EDITED_PUBLICATION_SALE = "own_edited_publication_sale"
-_ACTIVITY_PROFESSIONAL_SERVICE = "professional_service"
+_ACTIVITY_BUSINESS_CONSULTING_PROFESSIONAL_SERVICE = (
+    "business_consulting_professional_service"
+)
 _ACTIVITY_LAND_FREIGHT_GOODS = "land_freight_goods"
 
 _ALLOWED_ACTIVITIES = frozenset(
     {
         _ACTIVITY_ORDINARY_TAXABLE_SALE,
         _ACTIVITY_OWN_EDITED_PUBLICATION_SALE,
-        _ACTIVITY_PROFESSIONAL_SERVICE,
+        _ACTIVITY_BUSINESS_CONSULTING_PROFESSIONAL_SERVICE,
         _ACTIVITY_LAND_FREIGHT_GOODS,
     }
 )
@@ -73,7 +75,8 @@ class FiscalV1Facts:
     """Recognizable facts required to decide the limited AQR-011 coverage.
 
     ``entity_role`` is the active Entity's role in the taxable act, not its
-    documentary issuer/receiver position in a CFDI.
+    documentary issuer/receiver position in a CFDI. ``activity`` is a business
+    classification declared by AQR-011, never a user-supplied tax conclusion.
     """
 
     fact: EconomicFact
@@ -96,18 +99,25 @@ class FiscalV1Facts:
         if self.entity_role not in _ALLOWED_ROLES:
             raise ValueError("entity_role must be 'provider' or 'recipient'")
         if self.entity_legal_personality not in _ALLOWED_PERSONALITIES:
-            raise ValueError("entity_legal_personality must be persona_fisica or persona_moral")
+            raise ValueError(
+                "entity_legal_personality must be persona_fisica or persona_moral"
+            )
         if (
             self.counterparty_legal_personality is not None
             and self.counterparty_legal_personality not in _ALLOWED_PERSONALITIES
         ):
             raise ValueError(
-                "counterparty_legal_personality must be persona_fisica, persona_moral or None"
+                "counterparty_legal_personality must be persona_fisica, "
+                "persona_moral or None"
             )
         if self.activity not in _ALLOWED_ACTIVITIES:
-            _unsupported("La naturaleza de la operación no está dentro de la matriz AQR-011.")
+            _unsupported(
+                "La naturaleza de la operación no está dentro de la matriz AQR-011."
+            )
         if self.territory != "MX":
-            _unsupported("La cobertura V1 sólo declara estos tratamientos para territorio MX.")
+            _unsupported(
+                "La cobertura V1 sólo declara estos tratamientos para territorio MX."
+            )
         if type(self.effectively_paid) is not bool:
             raise TypeError("effectively_paid must be bool")
         _require_decimal(self.base, "base", positive=True)
@@ -120,6 +130,8 @@ class FiscalV1ResolvedTreatment:
     coverage_version: str
     treatment_key: str
     calculation_kind: str
+    rule_set_key: str
+    rule_set_version: str
     rule: _rules.ResolvedFiscalRule
     base: Decimal
     exact_amount: Decimal
@@ -137,7 +149,14 @@ class FiscalV1ResolvedTreatment:
         _require_decimal(self.exact_amount, "exact_amount")
         if self.fiscal_side not in {"debit", "credit"}:
             raise ValueError("fiscal_side must be debit or credit")
-        for name in ("treatment_key", "formula", "fiscal_role", "explanation"):
+        for name in (
+            "treatment_key",
+            "rule_set_key",
+            "rule_set_version",
+            "formula",
+            "fiscal_role",
+            "explanation",
+        ):
             value = getattr(self, name)
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{name} must be non-empty text")
@@ -147,17 +166,34 @@ def _require_coverage_date(operation_date):
     if not (COVERAGE_EFFECTIVE_FROM <= operation_date <= COVERAGE_REVIEWED_THROUGH):
         _unsupported(
             "La fecha está fuera de la ventana normativa revisada "
-            f"{COVERAGE_EFFECTIVE_FROM.isoformat()}..{COVERAGE_REVIEWED_THROUGH.isoformat()}."
+            f"{COVERAGE_EFFECTIVE_FROM.isoformat()}.."
+            f"{COVERAGE_REVIEWED_THROUGH.isoformat()}."
         )
 
 
-def _resolved_rate(session, rule_key, context, operation_date, base, role, side, explanation):
-    rule = _rules.resolve_fiscal_rule(session, rule_key, operation_date, context)
+def _resolved_rate(
+    session,
+    rule_key,
+    manifest,
+    operation_date,
+    base,
+    role,
+    side,
+    explanation,
+):
+    rule = _rules.resolve_fiscal_rule(
+        session,
+        rule_key,
+        operation_date,
+        manifest.context,
+    )
     calculation = _calculation.calculate_fiscal_rate_amount(base, rule)
     return FiscalV1ResolvedTreatment(
         coverage_version=COVERAGE_VERSION,
         treatment_key=rule_key,
         calculation_kind="rate",
+        rule_set_key=manifest.set_key,
+        rule_set_version=manifest.version,
         rule=rule,
         base=base,
         exact_amount=calculation.amount,
@@ -170,25 +206,30 @@ def _resolved_rate(session, rule_key, context, operation_date, base, role, side,
 
 def _resolved_two_thirds(session, operation_date, transferred_vat):
     rule_key = "iva.professional_services_retention_fraction"
+    manifest = _data.MX_GENERAL_PERSONA_FISICA_PROFESSIONAL_IVA_RETENTION
     rule = _rules.resolve_fiscal_rule(
         session,
         rule_key,
         operation_date,
-        _data.MX_GENERAL_PERSONA_FISICA_PROFESSIONAL_IVA_RETENTION.context,
+        manifest.context,
     )
     if rule.unit != "fraction_2_3_of_transferred_vat" or rule.value != Decimal("2"):
         raise ValueError("authoritative two-thirds VAT rule is malformed")
-    # Decimal is the money authority.  The legal fraction remains represented by
-    # numerator/denominator semantics in the rule unit instead of a truncated
-    # repeating decimal rate.  Extra precision keeps the pre-rounding amount
-    # deterministic until FiscalRoundingPolicy applies the monetary quantizer.
+
+    # Decimal remains the monetary authority. The legal fraction is represented
+    # by numerator/denominator semantics instead of a truncated repeating rate.
+    # Extra precision preserves deterministic pre-rounding truth until the
+    # existing FiscalRoundingPolicy authority quantizes the monetary result.
     with localcontext() as context:
         context.prec = 50
         amount = transferred_vat * rule.value / Decimal("3")
+
     return FiscalV1ResolvedTreatment(
         coverage_version=COVERAGE_VERSION,
         treatment_key=rule_key,
         calculation_kind="fraction",
+        rule_set_key=manifest.set_key,
+        rule_set_version=manifest.version,
         rule=rule,
         base=transferred_vat,
         exact_amount=amount,
@@ -207,15 +248,21 @@ def _general_iva(session, facts, *, input_tax):
     return _resolved_rate(
         session,
         "iva.general_rate",
-        _data.MX_GENERAL_COMMERCIAL_IVA.context,
+        _data.MX_GENERAL_COMMERCIAL_IVA,
         facts.operation_date,
         facts.base,
-        "tax_input" if input_tax else "tax_payable",
+        "vat_pending_credit" if input_tax else "tax_payable",
         "debit" if input_tax else "credit",
         (
             "IVA general V1: acto gravado identificado por hechos, en territorio MX, "
             "con contraprestación efectivamente cobrada/pagada; la tasa proviene de "
-            "la regla versionada, no del CFDI."
+            "la regla versionada, no del CFDI. En una erogación, el IVA se reconoce "
+            "como pendiente de acreditar; AQR-011 no certifica su acreditamiento."
+            if input_tax
+            else
+            "IVA general V1: acto gravado identificado por hechos, en territorio MX, "
+            "con contraprestación efectivamente cobrada; la tasa proviene de la regla "
+            "versionada, no del CFDI."
         ),
     )
 
@@ -252,7 +299,7 @@ def _resolve_provider_sale(session, facts):
         zero = _resolved_rate(
             session,
             "iva.zero_rate",
-            _data.MX_GENERAL_COMMERCIAL_IVA_ZERO.context,
+            _data.MX_GENERAL_COMMERCIAL_IVA_ZERO,
             facts.operation_date,
             facts.base,
             "tax_payable",
@@ -278,7 +325,14 @@ def _require_pm_recipient_with_counterparty(facts):
 
 
 def _resolve_professional_service(session, facts):
-    if facts.fact.type not in {"professional_services_expense", "professional_services_expense_incurred"}:
+    if facts.activity != _ACTIVITY_BUSINESS_CONSULTING_PROFESSIONAL_SERVICE:
+        _unsupported(
+            "AQR-011 sólo ha revisado la subcategoría de consultoría profesional de negocios."
+        )
+    if facts.fact.type not in {
+        "professional_services_expense",
+        "professional_services_expense_incurred",
+    }:
         _unsupported("El hecho económico no identifica un servicio profesional V1.")
     _require_paid(facts)
     _require_pm_recipient_with_counterparty(facts)
@@ -286,7 +340,8 @@ def _resolve_professional_service(session, facts):
         _unsupported("El prestador de la vertical de honorarios V1 debe ser persona física.")
     if facts.counterparty_fiscal_regime not in {"general", "resico"}:
         _unsupported(
-            "Falta acreditar si la persona física prestadora está en el supuesto general o RESICO."
+            "Falta acreditar si la persona física prestadora está en el supuesto "
+            "general o RESICO."
         )
 
     iva = _general_iva(session, facts, input_tax=True)
@@ -296,7 +351,7 @@ def _resolve_professional_service(session, facts):
         isr = _resolved_rate(
             session,
             "isr.resico_retention_rate",
-            _data.MX_RESICO_PERSONA_FISICA_ISR_RETENTION.context,
+            _data.MX_RESICO_PERSONA_FISICA_ISR_RETENTION,
             facts.operation_date,
             facts.base,
             "isr_withholding_payable",
@@ -311,14 +366,15 @@ def _resolve_professional_service(session, facts):
         isr = _resolved_rate(
             session,
             "isr.professional_services_retention_rate",
-            _data.MX_GENERAL_PERSONA_FISICA_PROFESSIONAL_ISR_RETENTION.context,
+            _data.MX_GENERAL_PERSONA_FISICA_PROFESSIONAL_ISR_RETENTION,
             facts.operation_date,
             facts.base,
             "isr_withholding_payable",
             "credit",
             (
-                "Retención ISR por servicios profesionales V1: persona física presta un "
-                "servicio profesional a persona moral; 10% sobre el pago conforme a LISR 106."
+                "Retención ISR por servicios profesionales V1: persona física presta "
+                "consultoría profesional de negocios a persona moral; 10% sobre el pago "
+                "conforme a LISR 106."
             ),
         )
 
@@ -333,13 +389,21 @@ def _resolve_freight(session, facts):
     _require_pm_recipient_with_counterparty(facts)
     if facts.counterparty_legal_personality not in {"persona_fisica", "persona_moral"}:
         _unsupported("El prestador de autotransporte V1 debe ser PF o PM acreditada.")
+    if (
+        facts.counterparty_legal_personality == "persona_fisica"
+        and facts.counterparty_fiscal_regime not in {"general", "resico"}
+    ):
+        _unsupported(
+            "Falta acreditar el régimen de la persona física transportista; no puede "
+            "descartarse silenciosamente la retención RESICO del artículo 113-J."
+        )
 
     iva = _general_iva(session, facts, input_tax=True)
     _validate_documentary_vat(facts, iva.exact_amount)
     freight_retention = _resolved_rate(
         session,
         "iva.freight_transport_retention_rate",
-        _data.MX_GENERAL_PERSONA_MORAL_IVA_FREIGHT_RETENTION.context,
+        _data.MX_GENERAL_PERSONA_MORAL_IVA_FREIGHT_RETENTION,
         facts.operation_date,
         facts.base,
         "vat_withholding_payable",
@@ -360,7 +424,7 @@ def _resolve_freight(session, facts):
             _resolved_rate(
                 session,
                 "isr.resico_retention_rate",
-                _data.MX_RESICO_PERSONA_FISICA_ISR_RETENTION.context,
+                _data.MX_RESICO_PERSONA_FISICA_ISR_RETENTION,
                 facts.operation_date,
                 facts.base,
                 "isr_withholding_payable",
@@ -379,7 +443,7 @@ def resolve_fiscal_v1_treatments(session, facts):
     """Resolve all and only supported V1 fiscal effects from recognizable facts.
 
     No rule key, rate, account code or debit/credit instruction is accepted from
-    the caller.  Unsupported or incomplete contexts fail closed.
+    the caller. Unsupported or incomplete contexts fail closed.
     """
     if not isinstance(facts, FiscalV1Facts):
         raise TypeError("facts must be FiscalV1Facts")
@@ -388,7 +452,7 @@ def resolve_fiscal_v1_treatments(session, facts):
     if facts.entity_role == "provider":
         return _resolve_provider_sale(session, facts)
 
-    if facts.activity == _ACTIVITY_PROFESSIONAL_SERVICE:
+    if facts.activity == _ACTIVITY_BUSINESS_CONSULTING_PROFESSIONAL_SERVICE:
         return _resolve_professional_service(session, facts)
     if facts.activity == _ACTIVITY_LAND_FREIGHT_GOODS:
         return _resolve_freight(session, facts)
