@@ -251,6 +251,14 @@ def match_bank_transaction(payload: dict):
         raise _error(exc) from exc
 
 
+@app.post("/api/banking/transfers")
+def bank_transfer(payload: dict):
+    try:
+        return controller.bank_transfer(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
 @app.post("/api/banking/matches/{match_id}/revoke")
 def revoke_bank_match(match_id: int, payload: dict):
     try:

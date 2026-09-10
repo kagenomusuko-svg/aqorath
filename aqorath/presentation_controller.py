@@ -174,6 +174,12 @@ class LocalPresentationController:
     def reconciliation(self, reconciliation_id):
         return _application.load_surface_reconciliation(reconciliation_id)
 
+    def bank_transfer(self, payload):
+        return _application.execute_surface_bank_transfer(
+            payload.get("source_bank_account_id"), payload.get("destination_bank_account_id"),
+            payload.get("amount"), payload.get("posting_date"), payload.get("description"),
+        )
+
     @property
     def pending_count(self):
         return len(self._pending)

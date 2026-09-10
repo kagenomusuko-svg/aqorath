@@ -23,6 +23,7 @@ from . import subledger_operations as _subledger
 from . import bank_repository as _banks
 from . import reconciliation_repository as _reconciliations
 from .banking import BankAccount
+from . import bank_transfer as _bank_transfer
 from .models import AccountRoleBinding
 from sqlmodel import select
 
@@ -655,6 +656,14 @@ def load_surface_reconciliation(reconciliation_id):
         return _json_value(_reconciliations.load_reconciliation(session, reconciliation_id))
 
 
+def execute_surface_bank_transfer(source_bank_account_id, destination_bank_account_id, amount, posting_date, description):
+    with _storage.get_session() as session:
+        return _json_value(_bank_transfer.execute_bank_transfer(
+            session, source_bank_account_id, destination_bank_account_id,
+            _amount(amount), _date(posting_date), description,
+        ))
+
+
 __all__ = [
     "CommonOperationKind",
     "PreparedSurfaceOperation",
@@ -686,4 +695,5 @@ __all__ = [
     "match_surface_bank_transaction",
     "revoke_surface_bank_match",
     "load_surface_reconciliation",
+    "execute_surface_bank_transfer",
 ]

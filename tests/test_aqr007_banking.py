@@ -147,3 +147,22 @@ def test_common_and_professional_banking_surface_share_reconciliation_truth(tmp_
     professional = controller.reconciliation(created["reconciliation_id"])
     assert professional["bank_account_id"] == bank["id"]
     assert professional["lines"][0]["state"] == "unmatched"
+
+
+def test_transfer_between_bank_accounts_uses_canonical_posting(tmp_path, monkeypatch):
+    from sqlmodel import Session, select
+    from aqorath import bank_repository, bank_transfer
+    from aqorath.banking import BankAccount
+    from aqorath.models import Account, JournalEntry, JournalLine
+    from test_aqr006_subledger import _seed_runtime
+    engine, _, entity_id, _, _ = _seed_runtime(tmp_path, monkeypatch, "bank-transfer.db")
+    with Session(engine) as session:
+        source_account = session.exec(select(Account).where(Account.code == "1101")).one()
+        destination_account = Account(code="1102", name="Banco secundario", nature="DEBIT")
+        session.add(destination_account); session.commit(); session.refresh(destination_account)
+        source = bank_repository.create_bank_account(session, BankAccount(None, entity_id, source_account.id, "Banco V1", "SOURCE", "MXN"))
+        destination = bank_repository.create_bank_account(session, BankAccount(None, entity_id, destination_account.id, "Banco V1", "DEST", "MXN"))
+        result = bank_transfer.execute_bank_transfer(session, source.id, destination.id, Decimal("300.00"), date(2026, 1, 31), "Transferencia entre cuentas propias")
+        lines = session.exec(select(JournalLine).where(JournalLine.entry_id == result["entry_id"]).order_by(JournalLine.id)).all()
+        assert [(line.account_id, line.debit, line.credit) for line in lines] == [(destination_account.id, "300.00", "0"), (source_account.id, "0", "300.00")]
+        assert session.get(JournalEntry, result["entry_id"]).state == "posted"
