@@ -110,6 +110,16 @@ class LocalPresentationController:
     def third_parties(self):
         return _application.list_surface_third_parties()
 
+    def create_third_party(self, payload):
+        return _application.create_surface_third_party(
+            payload.get("name"), payload.get("party_type"), payload.get("rfc"),
+        )
+
+    def reverse_operation(self, entry_id, payload):
+        return _application.reverse_surface_operation(
+            entry_id, payload.get("reason"), payload.get("reversal_date"),
+        )
+
     def open_items(self, kind=None, as_of=None, include_settled=True):
         return _application.list_surface_open_items(
             kind=kind,

@@ -375,6 +375,28 @@ def load_open_item(session, open_item_id, as_of=None):
     )
 
 
+def assert_open_item_timeline(session, open_item_id):
+    """Validate every change date, including intervals hidden by future reversals."""
+    item = _load_item_record(session, open_item_id)
+    applications = session.exec(select(_records.OpenItemApplicationRecord).where(
+        _records.OpenItemApplicationRecord.open_item_id == open_item_id
+    )).all()
+    entry_ids = {item.source_entry_id} | {a.application_entry_id for a in applications}
+    days = set()
+    for entry_id in entry_ids:
+        entry = session.get(_models.JournalEntry, entry_id)
+        days.add(accounting_date(entry.date))
+        reversal = _reversal_record(session, entry_id)
+        if reversal is not None:
+            reversed_entry = session.get(_models.JournalEntry, reversal.reversal_entry_id)
+            days.add(accounting_date(reversed_entry.date))
+    for day in sorted(days):
+        try:
+            load_open_item(session, open_item_id, as_of=day)
+        except SubledgerDivergenceError as exc:
+            raise ValueError(f"invalid open-item timeline at {day}: {exc}") from exc
+
+
 def list_open_items(session, kind=None, third_party_id=None, as_of=None, include_settled=True):
     if kind is not None:
         _require_kind(kind)
@@ -586,7 +608,7 @@ def assert_reconciliation_transition_preserved(before, after):
     return after
 
 
-def assert_entry_reversible(session, entry_id):
+def assert_entry_reversible(session, entry_id, reversal_date=None):
     """Protect obligation origins while any linked application remains effective."""
     _positive_id(entry_id, "entry_id")
     items = session.exec(
@@ -594,6 +616,14 @@ def assert_entry_reversible(session, entry_id):
             _records.OpenItemRecord.source_entry_id == entry_id
         )
     ).all()
+    day = accounting_date(reversal_date or date.today())
+    linked = session.exec(select(_records.OpenItemApplicationRecord).where(
+        _records.OpenItemApplicationRecord.application_entry_id == entry_id
+    )).all()
+    if items or linked:
+        entry = session.get(_models.JournalEntry, entry_id)
+        if day < accounting_date(entry.date):
+            raise ValueError("subledger reversal cannot precede its operation")
     for item in items:
         applications = session.exec(
             select(_records.OpenItemApplicationRecord).where(
@@ -601,7 +631,10 @@ def assert_entry_reversible(session, entry_id):
             )
         ).all()
         for application in applications:
-            if _entry_effective_as_of(session, application.application_entry_id, date.max):
+            reversal = _reversal_record(session, application.application_entry_id)
+            if reversal is None or accounting_date(
+                session.get(_models.JournalEntry, reversal.reversal_entry_id).date
+            ) > day:
                 raise ValueError("reverse open-item applications before reversing the obligation")
 
 

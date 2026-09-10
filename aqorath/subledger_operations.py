@@ -657,6 +657,7 @@ def execute_open_item_application(confirmed):
                 application_line_id=control_line.id,
                 application_document_reference_id=document.id,
             )
+            _open_items.assert_open_item_timeline(session, prepared.open_item_id)
             after_all = _open_items.load_open_item(
                 session,
                 prepared.open_item_id,
@@ -764,6 +765,8 @@ def execute_open_item_application_batch(confirmed):
                     )
                 )
 
+            for allocation in prepared.allocations:
+                _open_items.assert_open_item_timeline(session, allocation.open_item_id)
             final_views = tuple(
                 _open_items.load_open_item(
                     session,

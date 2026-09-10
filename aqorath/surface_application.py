@@ -9,7 +9,7 @@ but the common surface no longer exposes them directly: new CxC/CxP movements mu
 carry ThirdParty/document/open-item provenance through the AQR-006 use cases.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict, is_dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
@@ -166,6 +166,26 @@ def list_surface_third_parties():
             raise LookupError("active Entity is required")
         parties = _application.list_third_parties(session, entity.id)
     return [_party_dict(party) for party in parties]
+
+
+def create_surface_third_party(name, party_type, rfc=None):
+    from .third_party import ThirdParty
+    with _storage.get_session() as session:
+        entity = _application.get_active_entity(session)
+        if entity is None:
+            raise LookupError("active Entity is required")
+        party = ThirdParty(None, entity.id, name, rfc or None, None, None,
+                           party_type, None, None, None, True)
+        return _party_dict(_application.create_third_party(session, party))
+
+
+def reverse_surface_operation(entry_id, reason, reversal_date):
+    with _storage.get_session() as session:
+        result = _application.reverse_posted_journal_entry(
+            session, entry_id, reason, _date(reversal_date, "reversal_date"),
+        )
+        session.commit()
+    return _json_value(result)
 
 
 def _party_name(session, third_party_id):
@@ -541,6 +561,8 @@ def load_professional_open_item(open_item_id, as_of=None):
 
 
 def _json_value(value):
+    if is_dataclass(value):
+        return _json_value(asdict(value))
     if isinstance(value, Decimal):
         return str(value)
     if isinstance(value, (date, datetime)):

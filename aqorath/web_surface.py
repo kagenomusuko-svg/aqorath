@@ -127,6 +127,22 @@ def third_parties():
         raise _error(exc) from exc
 
 
+@app.post("/api/subledger/third-parties")
+def create_third_party(payload: dict):
+    try:
+        return controller.create_third_party(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/operations/{entry_id}/reverse")
+def reverse_operation(entry_id: int, payload: dict):
+    try:
+        return controller.reverse_operation(entry_id, payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
 @app.get("/api/subledger/open-items")
 def open_items(
     kind: str | None = None,

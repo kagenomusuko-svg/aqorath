@@ -151,3 +151,32 @@ La vista común nunca pide Debe/Haber ni códigos contables.
 ## Límite V1
 
 AQR-006 cubre los verticales ordinarios ya soportados (`sale/credit` y servicio/gasto a crédito) y sus cobros/pagos. Compra de mercancía/inventario, crédito de activo fijo y tratamiento fiscal adicional se conectarán cuando sus respectivos casos de uso AQR posteriores existan; no se simulan mediante una segunda ruta.
+## Cierre técnico y verificación de continuidad — 2026-09-10
+
+El log efectivo de CI run `34425778465` sobre `029a899ac8ea3139a5ceb2edcb0c02e9feab5bd1` muestra que `test_schema_6_to_7_does_not_invent_historical_provenance` ya pasaba. Los 12 fallos restantes eran siete fixtures sin EntityProfile y cinco expectativas residuales de schema 6. No hubo evidencia de defecto en `_migrate_6_to_7`, que se conserva.
+
+La fixture histórica ahora materializa `tests/fixtures/schema6.sql`, DDL congelado de `models.py` de main `9c4a9882d47c327c02a096be1e38f96fa1b90f7e` (ese archivo no fue modificado por AQR-006). No importa metadata del runtime. La prueba verifica `user_version=6`, exclusión física de ambas relaciones AQR-006, columnas históricas y capacidad de insertar JournalLine; después exige únicamente las dos tablas nuevas, preservación del DDL histórico y de todos los campos de la línea, FK, NOT NULL, PK, CHECK de tipo, unicidades, tablas sin datos inventados e integridad SQLite.
+
+La fixture operacional crea Entity + EntityProfile por la autoridad existente. Se conserva la cobertura previa de CFDI, incluidos los tests que habían desaparecido al reformatear el archivo. Las adaptaciones de pruebas históricas sólo cambian expectativas de versión vigente.
+
+Las aplicaciones se validan en **todas las fechas de cambio** de la obligación, incluidas reversiones futuras: comprobar sólo el saldo final ocultaba sobreaplicaciones intermedias de cobros/pagos retroactivos. La reversión del origen no puede preceder a la reversión de sus aplicaciones ni a su propia operación. Estas comprobaciones componen las relaciones AQR-003; no persisten saldos.
+
+La superficie incluye alta/selección de terceros, origen, parcialidad/liquidación, distribución de un cobro/pago entre documentos del mismo tercero, detalle y reversión. La vista profesional muestra el origen, líneas reales, aplicaciones, documentos, auditoría, reversión, aging a fecha y reconciliación. El navegador conserva únicamente tokens y valores de captura; los importes mostrados llegan como texto exacto del servidor y no se suman con Number/float. `Number` se limita a identificadores.
+
+La reconciliación permite una nueva operación sobre gaps históricos sólo si mantiene exactamente la diferencia y las líneas no asignadas previas; la respuesta conserva esas discrepancias y la interfaz las presenta explícitamente. La frontera estricta `assert_subledger_reconciled` sigue rechazándolas. No se hace backfill.
+
+Verificación local Python 3.12.14, instalación equivalente a CI: **81 pruebas específicas/regresiones AQR-002–006** y **1993 pruebas en suite completa**, con 8 advertencias heredadas. Incluye rollback inyectado en documento, segunda aplicación de batch, auditoría y reconciliación, consentimiento obsoleto, límites de aging y cortes históricos. JavaScript de la superficie validado sintácticamente. La comprobación visual no se acredita: el navegador del entorno perdió conexión; el recorrido humano reproducible siguiente permite verificar la interacción sin afirmar una inspección que no ocurrió.
+
+## Recorrido humano reproducible
+
+Con entidad, calendario abierto y bindings legítimos ya configurados por las autoridades existentes:
+
+1. En vista común, guardar un cliente o proveedor y seleccionarlo para una venta a crédito o compra de servicios a crédito.
+2. Capturar importe, fecha, vencimiento, folio y fecha documental; revisar y confirmar.
+3. Consultar obligaciones al corte elegido. Capturar una parcialidad junto a su documento; revisar el cobro/pago y confirmar. El pendiente disminuye por el importe derivado de la nueva línea del ledger.
+4. Intentar exceder el pendiente: se rechaza sin nuevas pólizas/documentos/aplicaciones. «Saldo completo» copia el saldo mostrado sin calcularlo.
+5. Crear otra obligación del mismo tercero; escribir importes en ambos documentos y confirmar un único cobro/pago. Deben existir líneas de control distintas para cada aplicación.
+6. Abrir Detalle y revertir el cobro/pago completo con motivo y fecha. Actualizar el corte a esa fecha: ambas obligaciones reaparecen abiertas.
+7. En vista profesional, inspeccionar el ID de obligación y el corte; contrastar documento, tercero, fechas, póliza/línea origen, pólizas/líneas aplicadas, auditoría, reversión, importes, saldo, estado y aging. Consultar reconciliación; una diferencia o línea sin asignar permanece explícita.
+
+La aceptación no amplía compras a inventario/activos ni inventa cobertura fiscal: siguen gobernados por sus tareas específicas.

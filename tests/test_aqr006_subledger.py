@@ -9,41 +9,28 @@ from decimal import Decimal
 import sqlite3
 
 import pytest
-from sqlalchemy import MetaData, create_engine, inspect as sa_inspect
+from sqlalchemy import create_engine, inspect as sa_inspect
 from sqlmodel import Session, select
 
 
 def _create_schema_6_fixture(db_path):
-    """Create an isolated snapshot of the pre-AQR-006 schema without runtime v7 metadata."""
-    from aqorath import migrations
-    from aqorath import models as schema6_models
+    """Materialize frozen historical DDL, independent of all runtime metadata."""
+    from pathlib import Path
 
-    schema6_tables = {
-        value.__table__.name: value.__table__
-        for value in vars(schema6_models).values()
-        if hasattr(value, "__table__")
-    }
-    assert {"openitem", "openitemapplication"}.isdisjoint(schema6_tables)
-
-    historical_metadata = MetaData()
-    for table in schema6_tables.values():
-        table.to_metadata(historical_metadata)
-
-    engine = create_engine(f"sqlite:///{db_path}")
-    try:
-        historical_metadata.create_all(engine)
-    finally:
-        engine.dispose()
-    migrations._set_schema_version(db_path, 6)
+    snapshot = Path(__file__).parent / "fixtures" / "schema6.sql"
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript(snapshot.read_text())
 
 
 def _seed_runtime(tmp_path, monkeypatch, name="aqr006.db"):
     import aqorath.storage as storage
+    import aqorath.core  # Bind legacy imports before the temporary session factory.
     from aqorath import migrations
     from aqorath.models import (
         Account,
         AccountRoleBinding,
         EntityRecord,
+        EntityProfileRecord,
         ThirdPartyRecord,
     )
 
@@ -52,19 +39,12 @@ def _seed_runtime(tmp_path, monkeypatch, name="aqr006.db"):
     engine = create_engine(f"sqlite:///{db_path}")
 
     with Session(engine) as session:
-        if session.exec(select(EntityRecord)).first() is None:
-            entity = EntityRecord(
-                name="Entidad AQR006",
-                rfc="AAA010101AAA",
-                legal_personality="moral",
-                legal_form="test",
-                is_active=True,
-            )
-            session.add(entity)
-            session.commit()
-            session.refresh(entity)
-        else:
-            entity = session.exec(select(EntityRecord)).first()
+        from aqorath.entity import Entity, EntityProfile
+        from aqorath.entity_repository import create_entity
+        entity = create_entity(session, Entity(
+            None, "Entidad AQR006", "AAA010101AAA", "persona_moral", "A.C.",
+            EntityProfile("no_lucrativo", False, (), ()), True,
+        ))
 
         accounts = {
             "bank": Account(code="1101", name="Bancos", nature="DEBIT"),
@@ -204,6 +184,17 @@ def test_schema_6_to_7_does_not_invent_historical_provenance(tmp_path):
         }.issubset(tables)
         assert "openitem" not in tables
         assert "openitemapplication" not in tables
+        historical_tables = tables.copy()
+        historical_schema = conn.execute(
+            "SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY type,name"
+        ).fetchall()
+        assert {r[1] for r in conn.execute("PRAGMA table_info(journalline)")} == {
+            "id", "entry_id", "account_code", "account_id", "debit", "credit",
+            "description", "created_at",
+        }
+        assert {r[1] for r in conn.execute("PRAGMA table_info(journalentry)")} == {
+            "id", "date", "concept", "doc_ref", "period_id", "posted_by", "state", "created_at",
+        }
 
         conn.execute(
             "INSERT INTO account(code,name,nature,vat_flag,origin,parent_id,created_at) "
@@ -223,7 +214,7 @@ def test_schema_6_to_7_does_not_invent_historical_provenance(tmp_path):
         )
         line_id = conn.execute("SELECT max(id) FROM journalline").fetchone()[0]
         before = conn.execute(
-            "SELECT id,entry_id,account_code,account_id,debit,credit FROM journalline WHERE id=?",
+            "SELECT * FROM journalline WHERE id=?",
             (line_id,),
         ).fetchone()
         assert before is not None
@@ -255,12 +246,36 @@ def test_schema_6_to_7_does_not_invent_historical_provenance(tmp_path):
                 "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
             )
         }
+        assert tables - historical_tables == {"openitem", "openitemapplication"}
+        assert [r for r in conn.execute(
+            "SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY type,name"
+        ) if r[2] in historical_tables] == historical_schema
         assert "openitem" in tables
         assert "openitemapplication" in tables
         assert {row[1] for row in conn.execute("PRAGMA table_info(openitem)")} == expected_open_item_columns
         assert {
             row[1] for row in conn.execute("PRAGMA table_info(openitemapplication)")
         } == expected_application_columns
+
+        expected_fks = {
+            "openitem": {("entity_id", "entity"), ("third_party_id", "thirdparty"),
+                         ("source_entry_id", "journalentry"), ("source_line_id", "journalline"),
+                         ("source_document_reference_id", "documentreference")},
+            "openitemapplication": {("open_item_id", "openitem"),
+                         ("application_entry_id", "journalentry"),
+                         ("application_line_id", "journalline"),
+                         ("application_document_reference_id", "documentreference")},
+        }
+        for table, expected in expected_fks.items():
+            assert {(r[3], r[2]) for r in conn.execute(f"PRAGMA foreign_key_list({table})")} == expected
+            assert all(r[4] == "id" for r in conn.execute(f"PRAGMA foreign_key_list({table})"))
+            columns = conn.execute(f"PRAGMA table_info({table})").fetchall()
+            assert all(r[3] == 1 for r in columns)
+            assert [r[1] for r in columns if r[5]] == ["id"]
+        ddl = conn.execute("SELECT sql FROM sqlite_master WHERE name='openitem'").fetchone()[0]
+        assert "CHECK (kind IN ('receivable','payable'))" in ddl
+        assert conn.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
 
         def unique_column_sets(table):
             result = set()
@@ -279,7 +294,7 @@ def test_schema_6_to_7_does_not_invent_historical_provenance(tmp_path):
         assert ("application_line_id",) in unique_column_sets("openitemapplication")
 
         after = conn.execute(
-            "SELECT id,entry_id,account_code,account_id,debit,credit FROM journalline WHERE id=?",
+            "SELECT * FROM journalline WHERE id=?",
             (line_id,),
         ).fetchone()
         assert after == before
@@ -569,3 +584,88 @@ def test_atomicity_rolls_back_posting_audit_document_and_open_item(tmp_path, mon
         assert session.exec(select(AuditEventRecord)).all() == []
         assert session.exec(select(DocumentReferenceRecord)).all() == []
         assert session.exec(select(OpenItemRecord)).all() == []
+
+@pytest.mark.parametrize('kind', ['receivable', 'payable'])
+def test_backdated_application_cannot_overapply_before_future_reversal(tmp_path, monkeypatch, kind):
+    import aqorath.storage as storage
+    from aqorath.reversal import reverse_posted_entry
+    _, _, _, customer, supplier = _seed_runtime(tmp_path, monkeypatch)
+    origin = _origin(kind, customer if kind == 'receivable' else supplier,
+                     '100', date(2026,1,1), date(2026,1,31), 'BACKDATED')
+    app = _application(origin['open_item_id'], '100', date(2026,2,1), 'FIRST')
+    with storage.get_session() as session:
+        reverse_posted_entry(session, app['entry_id'], 'cancel', date(2026,3,1))
+        session.commit()
+    with pytest.raises(ValueError, match='exceed'):
+        _application(origin['open_item_id'], '100', date(2026,1,15), 'SECOND')
+
+
+def test_origin_reversal_cannot_precede_application_reversal(tmp_path, monkeypatch):
+    import aqorath.storage as storage
+    from aqorath.reversal import reverse_posted_entry
+    _, _, _, customer, _ = _seed_runtime(tmp_path, monkeypatch)
+    origin = _origin('receivable', customer,'100',date(2026,1,1),date(2026,1,31),'R-TIME')
+    app = _application(origin['open_item_id'],'100',date(2026,2,1),'APP-TIME')
+    with storage.get_session() as session:
+        reverse_posted_entry(session,app['entry_id'],'cancel',date(2026,3,1));session.commit()
+    with storage.get_session() as session:
+        with pytest.raises(ValueError, match='application'):
+            reverse_posted_entry(session,origin['entry_id'],'cancel origin',date(2026,1,15))
+
+
+@pytest.mark.parametrize('failure_stage',['document','application','audit','reconciliation'])
+def test_batch_atomicity_at_every_metadata_boundary(tmp_path, monkeypatch, failure_stage):
+    import aqorath.storage as storage
+    import aqorath.subledger_operations as ops
+    import aqorath.open_item_repository as repo
+    from sqlalchemy import text
+    _, _, _, customer, _ = _seed_runtime(tmp_path, monkeypatch)
+    first=_origin('receivable',customer,'50',date(2026,1,1),date(2026,1,31),'A')
+    second=_origin('receivable',customer,'50',date(2026,1,1),date(2026,1,31),'B')
+    tables=('journalentry','journalline','auditevent','documentreference','openitem','openitemapplication')
+    def counts():
+        with storage.get_session() as session:
+            return [session.execute(text('SELECT count(*) FROM '+t)).scalar_one() for t in tables]
+    before=counts()
+    with storage.get_session() as session:
+        draft=ops.prepare_open_item_application_batch(session,[(first['open_item_id'],Decimal('50')),
+            (second['open_item_id'],Decimal('50'))],date(2026,1,10),'payment','BATCH',date(2026,1,10))
+    target, name = {'document':(ops,'_stage_document'), 'application':(repo,'stage_open_item_application'),
+                    'audit':(ops,'_stage_subledger_audit'), 'reconciliation':(ops,'_transition_after')}[failure_stage]
+    original=getattr(target,name)
+    calls=[]
+    def fail(*a,**kw):
+        result=original(*a,**kw);calls.append(1)
+        if failure_stage!='application' or len(calls)==2:
+            raise RuntimeError('injected boundary failure')
+        return result
+    monkeypatch.setattr(target,name,fail)
+    with pytest.raises(RuntimeError,match='injected'):
+        ops.execute_open_item_application_batch(ops.confirm_open_item_application_batch(draft))
+    assert counts()==before
+
+
+@pytest.mark.parametrize('day,bucket', [('2026-01-31','current'),('2026-02-01','1-30'),
+    ('2026-03-02','1-30'),('2026-03-03','31-60'),('2026-04-01','31-60'),
+    ('2026-04-02','61-90'),('2026-05-01','61-90'),('2026-05-02','91+')])
+def test_aging_boundaries_are_derived_at_as_of(tmp_path, monkeypatch, day, bucket):
+    import aqorath.storage as storage
+    from aqorath.open_item_repository import load_open_item
+    _, _, _, customer, _ = _seed_runtime(tmp_path, monkeypatch)
+    origin=_origin('receivable',customer,'100',date(2026,1,1),date(2026,1,31),'AGE')
+    with storage.get_session() as session:
+        view=load_open_item(session,origin['open_item_id'],date.fromisoformat(day))
+        assert view.aging_bucket==bucket and view.open_balance==Decimal('100')
+
+
+def test_stale_prepared_application_revalidates_before_commit(tmp_path, monkeypatch):
+    import aqorath.storage as storage
+    import aqorath.subledger_operations as ops
+    _, _, _, customer, _ = _seed_runtime(tmp_path, monkeypatch)
+    origin=_origin('receivable',customer,'100',date(2026,1,1),date(2026,1,31),'STALE')
+    with storage.get_session() as session:
+        prepared=ops.prepare_open_item_application(session,origin['open_item_id'],Decimal('100'),
+            date(2026,2,1),'payment','STALE-P',date(2026,2,1))
+    _application(origin['open_item_id'],'60',date(2026,2,1),'OTHER')
+    with pytest.raises(ValueError,match='exceeds'):
+        ops.execute_open_item_application(ops.confirm_open_item_application(prepared))

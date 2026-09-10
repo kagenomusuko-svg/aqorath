@@ -129,14 +129,14 @@ def test_year_close_cannot_reopen_december(db,tmp_path):
 
 
 def test_migration_v4_preserves_unknown_calendar_and_money(tmp_path):
-    from aqorath.migrations import migrate_database
+    from aqorath.migrations import migrate_database, CURRENT_SCHEMA_VERSION
     path=tmp_path/'legacy.db';migrate_database(path)
     with sqlite3.connect(path) as conn:
         conn.execute('PRAGMA user_version=4')
         for table in ('accountingperiod','fiscalyear','accountingcalendar'): conn.execute(f'DROP TABLE {table}')
         conn.execute('CREATE TABLE preserved (amount TEXT)');conn.execute("INSERT INTO preserved VALUES ('12.3400')")
     result=migrate_database(path)
-    assert result['from_version']==4 and result['to_version']==6
+    assert result['from_version']==4 and result['to_version']==CURRENT_SCHEMA_VERSION
     assert result['backup_path']
     with sqlite3.connect(path) as conn:
         assert conn.execute('SELECT * FROM accountingcalendar').fetchall()==[]
@@ -297,7 +297,7 @@ def test_report_preserves_declared_civil_date_and_maximum_range(db):
 
 
 def test_schema_five_missing_calendar_is_rejected(db):
-    from aqorath.migrations import migrate_database
+    from aqorath.migrations import migrate_database, CURRENT_SCHEMA_VERSION
     path, engine = db
     with engine.begin() as connection:
         connection.execute(text('DROP TABLE accountingperiod'))
