@@ -291,6 +291,14 @@ def fund_balance(fund_id: int, as_of: str):
         raise _error(exc) from exc
 
 
+@app.get("/api/osc/funds/{fund_id}/traceability")
+def fund_traceability(fund_id: int, as_of: str):
+    try:
+        return controller.fund_traceability(fund_id, as_of)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
 @app.post("/api/banking/matches/{match_id}/revoke")
 def revoke_bank_match(match_id: int, payload: dict):
     try:
