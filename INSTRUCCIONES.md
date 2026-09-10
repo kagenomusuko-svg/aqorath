@@ -182,13 +182,15 @@ Una tarea sólo pasa de `NEXT` a `DONE` cuando:
 
 ## 11. SIGUIENTE
 
-**`AQR-008 — Recursos OSC: fondos, fuentes, restricciones y aplicación`**
+**`AQR-009 — Donativos completos, incluido donativo en especie`**
 
 AQR-006 quedó incorporada mediante PR #41, merge `6617896f1bfe56093697be08f1a996db55930ab6`, con CI verde y suite completa Python 3.12 de **1993 passed, 8 warnings**. Sus submayores operativos conservan `JournalLine` como única autoridad monetaria, sin backfill histórico, y su fixture schema 6 es independiente del metadata runtime.
 
 AQR-007 quedó incorporada mediante PR #42, merge `9117ac085e00e813bb2d5ae30267eb4184d181a6`, con CI verde y suite completa Python 3.12 de **2002 passed, 8 warnings**. Su evidencia bancaria permanece separada del ledger canónico y la conciliación conserva diferencias, pendientes, auditoría y reversión sin backfill ni autoridad monetaria paralela.
 
-AQR-008 debe implementar fondos, fuentes, restricciones y aplicación sobre `Program`, dimensiones analíticas y las líneas del ledger existentes, sin duplicar la contabilidad. La trazabilidad monetaria debe reconciliar exactamente con `JournalLine`; las reglas de presentación no pueden convertirse en una segunda autoridad.
+AQR-008 quedó incorporada mediante PR #43, merge `13133edfd9ed5015f6cb7bfdccbd8f1fc2515a27`, con CI verde sobre head `4ce5fc3e137426fa3923d007c8d5597a912ec574` y suite completa Python 3.12 de **2008 passed, 8 warnings**. Sus fondos/fuentes y aplicaciones conservan `JournalLine` como única autoridad, exigen provenance canónica, derivan disponibilidad efectiva y exponen la misma verdad en vista común y profesional, sin saldo paralelo ni backfill.
+
+AQR-009 debe completar el flujo de donativos monetarios y en especie sobre `ThirdParty`, `DocumentReference`, `Donation`, fondos, fuentes, programas y posting canónico. No debe duplicar importes ni crear una segunda autoridad fiscal o contable.
 
 AQR-001 fue incorporada mediante PR #31 (`bff58de7cad11de6c2ab37c0d3e0b7b6c20ae003`). Su matriz única es `docs/PRODUCT_ACCEPTANCE_V1.md`. Consultar siempre el único `NEXT` del backlog antes de comenzar trabajo.
 
