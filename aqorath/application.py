@@ -238,6 +238,16 @@ def confirm_cfdi_accounting(prepared):
     return _cfdi_accounting.confirm_cfdi_accounting(prepared)
 
 
+def prepare_cfdi_monetary_donation(session, source_id, **facts):
+    return _cfdi_accounting.prepare_cfdi_monetary_donation(
+        session, source_id, **facts
+    )
+
+
+def confirm_cfdi_monetary_donation(prepared):
+    return _cfdi_accounting.confirm_cfdi_monetary_donation(prepared)
+
+
 def create_analytical_dimension(session, dimension):
     """Persist one explicit analytical axis through its authority."""
     return _analytical_dimension_repository.create_analytical_dimension(

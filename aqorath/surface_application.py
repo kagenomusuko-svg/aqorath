@@ -28,7 +28,7 @@ from .banking import BankAccount
 from . import bank_transfer as _bank_transfer
 from . import fund_repository as _funds
 from .fund import Fund, FundingSource, FundReceipt, FundApplication
-from .fund_models import FundRecord, FundingSourceRecord
+from .fund_models import FundReceiptRecord, FundRecord, FundingSourceRecord
 from .models import JournalEntry, JournalLine, AuditEventRecord, DonationRecord, ProgramRecord, ThirdPartyRecord, InKindDonationRecord, FixedAssetRecord, DocumentReferenceRecord
 from .banking_models import BankAccountRecord
 from .models import AccountRoleBinding
@@ -94,6 +94,7 @@ class PreparedSurfaceDonationOperation:
 
 @dataclass(frozen=True)
 class PreparedSurfaceCfdiOperation:
+    kind: str
     prepared: object
     preview: dict
 
@@ -101,6 +102,7 @@ class PreparedSurfaceCfdiOperation:
 _CFDI_OPERATION_LABELS = {
     "purchase_utility_bank": "Compra de servicios pagada por banco",
     "sale_cash": "Venta cobrada en efectivo",
+    "donation_bank": "Donativo recibido por banco",
 }
 
 
@@ -110,7 +112,7 @@ def _cfdi_summary(source):
         "id": source.id,
         "uuid": parsed.uuid,
         "document_number": parsed.document_number,
-        "relationship": source.relationship,
+        "document_position": source.document_position,
         "issuer": {"rfc": parsed.issuer_rfc, "name": parsed.issuer_name},
         "receiver": {"rfc": parsed.receiver_rfc, "name": parsed.receiver_name},
         "issued_at": parsed.issued_at.isoformat(),
@@ -187,12 +189,73 @@ def prepare_surface_cfdi(payload):
         if len(matches) != 1:
             raise LookupError("CFDI UUID must identify exactly one imported source")
         source = _application.load_cfdi_source(session, entity.id, matches[0].id)
+        if operation_kind == "donation_bank":
+            donor = session.get(ThirdPartyRecord, source.third_party_id)
+            if donor is None:
+                raise LookupError("CFDI counterparty is no longer available")
+            if payload.get("donor_name") not in (None, donor.name):
+                raise ValueError("selected donor differs from the RFC-identified counterparty")
+            donation_payload = {**payload, "donor_name": donor.name}
+            entity, donor, bank, program, fund, funding_source = _surface_donation_context(
+                session, donation_payload, kind="monetary"
+            )
+            prepared = _application.prepare_cfdi_monetary_donation(
+                session,
+                source.id,
+                donor_third_party_id=donor.id,
+                bank_account_id=bank.id,
+                fund_id=fund.id,
+                funding_source_id=funding_source.id,
+                program_id=program.id,
+                purpose=payload.get("purpose"),
+                is_restricted=(fund.restriction == "restricted"),
+            )
+            preview = {
+                "operation": _CFDI_OPERATION_LABELS[operation_kind],
+                "uuid": source.parsed.uuid,
+                "document_number": source.parsed.document_number,
+                "donor": donor.name,
+                "posting_date": prepared.donation.decision.posting_date.isoformat(),
+                "amount": str(prepared.donation.decision.fact.amount),
+                "document_total": str(source.parsed.total),
+                "tax_from_document": str(
+                    source.parsed.total_transferred - source.parsed.total_withheld
+                ),
+                "extracted_from_xml": {
+                    "donor": donor.name,
+                    "amount": str(source.parsed.total),
+                    "date": source.parsed.issued_at.date().isoformat(),
+                    "document_number": source.parsed.document_number,
+                    "uuid": source.parsed.uuid,
+                    "payment_form": source.parsed.payment_form,
+                },
+                "completed_by_user": {
+                    "bank": f"{bank.institution_name} · {bank.account_identifier}",
+                    "fund": fund.name,
+                    "funding_source": funding_source.name,
+                    "program": program.name,
+                    "restriction": fund.restriction,
+                    "purpose": payload.get("purpose"),
+                },
+                "explanation": (
+                    "Se reconocerá una sola operación AQR-009: banco e ingreso por "
+                    "donativo; el CFDI será su único documento fuente."
+                ),
+                "requires_confirmation": True,
+                "warning": "Importar no contabiliza. Confirmar usará exactamente esta evidencia y decisión.",
+                "fiscality": "Impuestos del XML conservados como evidencia; tratamiento fiscal específico pendiente/no cubierto por la cobertura fiscal declarada.",
+            }
+            return PreparedSurfaceCfdiOperation(operation_kind, prepared, preview)
         prepared = _application.prepare_cfdi_accounting(session, source.id, operation_kind)
     preview = {
         "operation": _CFDI_OPERATION_LABELS[operation_kind],
         "uuid": source.parsed.uuid,
         "document_number": source.parsed.document_number,
-        "counterparty": source.parsed.issuer_name if source.relationship == "purchase" else source.parsed.receiver_name,
+        "counterparty": (
+            source.parsed.issuer_name
+            if source.document_position == "receiver"
+            else source.parsed.receiver_name
+        ),
         "posting_date": prepared.decision.posting_date.isoformat(),
         "amount": str(prepared.decision.fact.amount),
         "document_total": str(source.parsed.total),
@@ -202,22 +265,27 @@ def prepare_surface_cfdi(payload):
         "warning": "Importar no contabiliza. Confirmar usará exactamente esta evidencia y decisión.",
         "fiscality": "Importes fiscales extraídos como evidencia; tratamiento fiscal específico pendiente/no cubierto por la cobertura fiscal declarada.",
     }
-    return PreparedSurfaceCfdiOperation(prepared, preview)
+    return PreparedSurfaceCfdiOperation(operation_kind, prepared, preview)
 
 
 def cfdi_professional_preview(value):
     if not isinstance(value, PreparedSurfaceCfdiOperation):
         raise TypeError("value must be PreparedSurfaceCfdiOperation")
     result = dict(value.preview)
-    result["decision"] = _decision_professional_preview(
-        value.prepared.operation_kind, value.prepared.decision
+    decision = (
+        value.prepared.donation.decision
+        if value.kind == "donation_bank"
+        else value.prepared.decision
     )
+    result["decision"] = _decision_professional_preview(value.kind, decision)
     return result
 
 
 def confirm_surface_cfdi(value):
     if not isinstance(value, PreparedSurfaceCfdiOperation):
         raise TypeError("value must be PreparedSurfaceCfdiOperation")
+    if value.kind == "donation_bank":
+        return _application.confirm_cfdi_monetary_donation(value.prepared)
     return _application.confirm_cfdi_accounting(value.prepared)
 
 
@@ -241,12 +309,47 @@ def load_surface_cfdi_professional(uuid):
         document_id = None if link is None else link.document_reference_id
         document = None if document_id is None else session.get(DocumentReferenceRecord, document_id)
         entry_id = None if document is None else document.entry_id
+        donation_id = None
+        if entry_id is not None:
+            line_ids = session.exec(
+                select(JournalLine.id).where(JournalLine.entry_id == entry_id)
+            ).all()
+            receipt = session.exec(
+                select(FundReceiptRecord).where(
+                    FundReceiptRecord.journal_line_id.in_(line_ids)
+                )
+            ).first()
+            donation_id = None if receipt is None else receipt.donation_id
+        ledger_amount = None
+        if entry_id is not None:
+            ledger_amount = str(sum(
+                (Decimal(line.debit) for line in session.exec(select(JournalLine).where(JournalLine.entry_id == entry_id)).all()),
+                Decimal("0"),
+            ))
+    donation = (
+        None
+        if donation_id is None
+        else load_surface_donation_professional("monetary", donation_id)
+    )
     return {
         "source": _cfdi_summary(source),
         "document_reference_id": document_id,
         "accounting": None if entry_id is None else load_professional_operation(entry_id),
+        "donation": donation,
+        "evidence_vs_accounting": {
+            "document_amount": str(source.parsed.total),
+            "ledger_amount": ledger_amount,
+            "same_document_reference_id": (
+                donation is not None and donation["document"]["id"] == document_id
+            ),
+        },
+        "fiscality": {
+            "supported": False,
+            "declared_xml_taxes": _cfdi_summary(source)["taxes"],
+            "limitation": "La evidencia XML no determina por sí sola el tratamiento fiscal aplicable.",
+        },
         "status": "imported_unposted" if entry_id is None else "linked_to_posted_accounting",
-        "distinction": "El XML es evidencia externa; JournalEntry/JournalLine son la autoridad contable.",
+        "distinction": "El XML es evidencia externa; JournalEntry/JournalLine son la autoridad contable; la clasificación económica fue confirmada por el usuario.",
     }
 
 

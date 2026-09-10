@@ -599,7 +599,7 @@ def _migrate_10_to_11(db_path):
 def _validate_cfdi_schema(db_path):
     required = {
         "cfdisource": {
-            "id", "entity_id", "third_party_id", "relationship", "version",
+            "id", "entity_id", "third_party_id", "document_position", "version",
             "uuid", "voucher_type", "issuer_rfc", "issuer_name", "issuer_regime",
             "receiver_rfc", "receiver_name", "receiver_regime", "receiver_use",
             "issued_at", "stamped_at", "currency", "subtotal", "discount", "total",

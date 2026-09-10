@@ -7,6 +7,7 @@ import pytest
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "cfdi40_ingreso.xml"
+DONATION_FIXTURE = Path(__file__).parent / "fixtures" / "cfdi40_donation.xml"
 
 
 def _xml():
@@ -30,6 +31,10 @@ def _outgoing_xml():
             b'UUID="223e4567-e89b-12d3-a456-426614174000"',
         )
     )
+
+
+def _donation_xml():
+    return DONATION_FIXTURE.read_bytes()
 
 
 def test_parse_cfdi_40_ingreso_extracts_exact_external_truth_without_accounting():
@@ -218,7 +223,7 @@ def test_import_cfdi_persists_external_evidence_atomically_without_posting(tmp_p
         assert result.duplicate is False
         assert result.source.entity_id == entity.id
         assert result.source.third_party_id == party.id
-        assert result.source.relationship == "purchase"
+        assert result.source.document_position == "receiver"
         assert result.source.total == Decimal("1160.00")
         assert result.source.xml_bytes == _xml()
         loaded = load_cfdi_source(session, entity.id, result.source.id)
@@ -302,10 +307,16 @@ def test_import_cfdi_rolls_back_source_taxes_and_audit_on_late_failure(tmp_path,
 def _posted_entry(session, entity_id, *, total="1160.00", day=10):
     import json
     from aqorath.models import Account, AuditEventRecord, JournalEntry, JournalLine
+    from sqlmodel import select
 
-    bank = Account(code="1101", name="Banco", nature="DEBIT")
-    income = Account(code="4201", name="Contrapartida", nature="CREDIT")
-    session.add_all([bank, income])
+    bank = session.exec(select(Account).where(Account.code == "1101")).one_or_none()
+    income = session.exec(select(Account).where(Account.code == "4201")).one_or_none()
+    if bank is None:
+        bank = Account(code="1101", name="Banco", nature="DEBIT")
+        session.add(bank)
+    if income is None:
+        income = Account(code="4201", name="Contrapartida", nature="CREDIT")
+        session.add(income)
     session.flush()
     entry = JournalEntry(
         date=datetime(2026, 9, day, 9, 15, tzinfo=timezone.utc),
@@ -437,8 +448,11 @@ def test_schema10_to_11_uses_historical_snapshot_preserves_history_and_adds_no_c
         assert conn.execute("SELECT count(*) FROM cfditaxevidence").fetchone()[0] == 0
         assert conn.execute("SELECT count(*) FROM cfdisourcelink").fetchone()[0] == 0
         assert {row[1] for row in conn.execute("PRAGMA table_info(cfdisource)")} >= {
-            "entity_id", "third_party_id", "uuid", "file_hash", "xml_bytes",
+            "entity_id", "third_party_id", "document_position", "uuid", "file_hash", "xml_bytes",
             "subtotal", "total", "total_transferred", "total_withheld",
+        }
+        assert "relationship" not in {
+            row[1] for row in conn.execute("PRAGMA table_info(cfdisource)")
         }
         unique_source = {
             tuple(item[2] for item in conn.execute(f"PRAGMA index_info('{row[1]}')"))
@@ -560,11 +574,11 @@ def test_outgoing_cfdi_requires_explicit_compatible_sale_and_reuses_customer(tmp
             _party(entity.id, rfc="COSC8001137NA", name="Cliente Ejemplo", party_type="customer"),
         )
         source = import_cfdi_source(session, _outgoing_xml()).source
-        assert source.relationship == "sale"
+        assert source.document_position == "issuer"
         assert source.third_party_id == customer.id
         prepared = prepare_cfdi_accounting(session, source.id, "sale_cash")
         assert prepared.decision.fact.type == "sale"
-        with pytest.raises(ValueError, match="issuer/receiver relationship"):
+        with pytest.raises(ValueError, match="document position"):
             prepare_cfdi_accounting(session, source.id, "purchase_utility_bank")
         with pytest.raises(ValueError, match="FormaPago"):
             purchase = import_cfdi_source(
@@ -644,6 +658,13 @@ def test_cfdi_browser_surface_is_a_human_file_preview_confirm_flow_not_accountin
         "CFDI fuente · evidencia y contabilidad",
         "el XML no sustituyó al ledger",
         "tratamiento fiscal específico pendiente/no cubierto",
+        'value="donation_bank">Donativo recibido',
+        'id="cfdiDonationBank"',
+        'id="cfdiDonationFund"',
+        'id="cfdiDonationSource"',
+        'id="cfdiDonationProgram"',
+        "Extraído del XML",
+        "Completado por ti",
     ):
         assert marker.lower() in APP_HTML.lower()
     common = APP_HTML.split('<section id="common"', 1)[1].split('<section id="professional"', 1)[0]
@@ -654,3 +675,445 @@ def test_cfdi_browser_surface_is_a_human_file_preview_confirm_flow_not_accountin
     assert "sqlmodel" not in source.lower()
     assert "cfdi_models" not in source
     assert "journalentry" not in source.lower()
+
+
+def _cfdi_donation_runtime(tmp_path, monkeypatch):
+    from aqorath.account_bindings import set_account_binding
+    from aqorath.bank_repository import create_bank_account
+    from aqorath.banking import BankAccount
+    from aqorath.fund import Fund, FundingSource
+    from aqorath.fund_repository import create_fund, create_funding_source
+    from aqorath.models import Account
+    from aqorath.program import Program
+    from aqorath.program_repository import create_program
+    from aqorath.third_party_repository import create_third_party
+    from sqlmodel import Session
+
+    engine, entity, _supplier = _accounting_runtime(tmp_path, monkeypatch)
+    with Session(engine) as session:
+        donor = create_third_party(
+            session,
+            _party(
+                entity.id,
+                rfc="DON010101AA1",
+                name="Donante Ejemplo",
+                party_type="donor",
+            ),
+        )
+        donation_income = Account(code="4301", name="Donativos", nature="CREDIT")
+        session.add(donation_income)
+        session.commit()
+        set_account_binding(session, "donation_income", donation_income.code)
+        bank_account = session.exec(
+            __import__("sqlmodel").select(Account).where(Account.code == "1101")
+        ).one()
+        bank = create_bank_account(
+            session,
+            BankAccount(None, entity.id, bank_account.id, "Banco V1", "DON-BANK", "MXN"),
+        )
+        program = create_program(
+            session, Program(None, entity.id, "Educación", None, None)
+        )
+        fund = create_fund(
+            session,
+            Fund(
+                None,
+                entity.id,
+                "EDU",
+                "Educación restringida",
+                "restricted",
+                purpose="Educación",
+                program_id=program.id,
+            ),
+        )
+        funding_source = create_funding_source(
+            session,
+            FundingSource(None, entity.id, "Donante principal", donor.id),
+        )
+    return engine, entity, donor, bank, program, fund, funding_source
+
+
+def _prepare_cfdi_donation(session, source, donor, bank, program, fund, funding_source):
+    from aqorath.application import prepare_cfdi_monetary_donation
+
+    return prepare_cfdi_monetary_donation(
+        session,
+        source.id,
+        donor_third_party_id=donor.id,
+        bank_account_id=bank.id,
+        fund_id=fund.id,
+        funding_source_id=funding_source.id,
+        program_id=program.id,
+        purpose="Educación",
+        is_restricted=True,
+    )
+
+
+def test_cfdi_donation_is_one_atomic_aqr009_operation_and_one_document(tmp_path, monkeypatch):
+    from aqorath.application import (
+        confirm_cfdi_monetary_donation,
+        import_cfdi_source,
+        load_monetary_donation_trace,
+    )
+    from aqorath.cfdi_models import CfdiSourceLinkRecord, CfdiSourceRecord
+    from aqorath.fund_models import FundReceiptRecord
+    from aqorath.models import (
+        AuditEventRecord,
+        CfdiImportMetadataRecord,
+        DocumentReferenceRecord,
+        DonationRecord,
+        JournalEntry,
+        JournalLine,
+    )
+    from sqlmodel import Session, select
+
+    engine, entity, donor, bank, program, fund, funding_source = _cfdi_donation_runtime(
+        tmp_path, monkeypatch
+    )
+    with Session(engine) as session:
+        source = import_cfdi_source(session, _donation_xml()).source
+        assert source.document_position == "issuer"
+        prepared = _prepare_cfdi_donation(
+            session, source, donor, bank, program, fund, funding_source
+        )
+        assert prepared.donation.decision.fact.amount == Decimal("1000.00")
+        assert prepared.donation.decision.posting_date.isoformat() == "2026-09-10"
+
+    first = confirm_cfdi_monetary_donation(prepared)
+    assert confirm_cfdi_monetary_donation(prepared) == first
+    with Session(engine) as session:
+        assert len(session.exec(select(CfdiSourceRecord)).all()) == 1
+        assert len(session.exec(select(JournalEntry)).all()) == 1
+        assert len(session.exec(select(DonationRecord)).all()) == 1
+        assert len(session.exec(select(FundReceiptRecord)).all()) == 1
+        assert len(session.exec(select(DocumentReferenceRecord)).all()) == 1
+        assert len(session.exec(select(CfdiSourceLinkRecord)).all()) == 1
+        assert len(session.exec(select(CfdiImportMetadataRecord)).all()) == 1
+        document = session.exec(select(DocumentReferenceRecord)).one()
+        link = session.exec(select(CfdiSourceLinkRecord)).one()
+        receipt = session.exec(select(FundReceiptRecord)).one()
+        donation = session.exec(select(DonationRecord)).one()
+        assert document.id == link.document_reference_id == first["document_reference_id"]
+        assert document.entry_id == first["entry_id"]
+        assert document.third_party_id == donor.id
+        assert document.document_type == "cfdi"
+        assert receipt.donation_id == donation.id == first["donation_id"]
+        lines = session.exec(
+            select(JournalLine).where(JournalLine.entry_id == first["entry_id"])
+        ).all()
+        bank_line = next(line for line in lines if line.debit != "0")
+        assert bank_line.account_id == bank.ledger_account_id
+        assert (bank_line.debit, bank_line.credit) == ("1000.00", "0")
+        assert receipt.journal_line_id == bank_line.id
+        assert sorted((line.debit, line.credit) for line in lines) == [
+            ("0", "1000.00"),
+            ("1000.00", "0"),
+        ]
+        events = session.exec(select(AuditEventRecord)).all()
+        assert [event.event_type for event in events].count("cfdi_source_imported") == 1
+        assert [event.event_type for event in events].count("entry_posted") == 1
+        assert [event.event_type for event in events].count("cfdi_source_linked") == 1
+        trace = load_monetary_donation_trace(session, entity.id, donation.id)
+        assert trace["document"]["id"] == document.id
+        assert trace["document"]["type"] == "cfdi"
+
+
+def test_cfdi_donation_late_failure_keeps_only_independent_import(tmp_path, monkeypatch):
+    import aqorath.cfdi_accounting as accounting
+    from aqorath.application import (
+        confirm_cfdi_monetary_donation,
+        import_cfdi_source,
+    )
+    from aqorath.cfdi_models import CfdiSourceLinkRecord, CfdiSourceRecord
+    from aqorath.fund_models import FundReceiptRecord
+    from aqorath.models import (
+        AuditEventRecord,
+        CfdiImportMetadataRecord,
+        DocumentReferenceRecord,
+        DonationRecord,
+        JournalEntry,
+    )
+    from sqlmodel import Session, select
+
+    engine, _entity, donor, bank, program, fund, funding_source = _cfdi_donation_runtime(
+        tmp_path, monkeypatch
+    )
+    with Session(engine) as session:
+        source = import_cfdi_source(session, _donation_xml()).source
+        prepared = _prepare_cfdi_donation(
+            session, source, donor, bank, program, fund, funding_source
+        )
+
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("forced late CFDI donation link failure")
+
+    monkeypatch.setattr(accounting._sources, "stage_cfdi_source_link", fail)
+    with pytest.raises(RuntimeError, match="forced late CFDI donation link failure"):
+        confirm_cfdi_monetary_donation(prepared)
+    with Session(engine) as session:
+        assert len(session.exec(select(CfdiSourceRecord)).all()) == 1
+        assert session.exec(select(JournalEntry)).all() == []
+        assert session.exec(select(DonationRecord)).all() == []
+        assert session.exec(select(FundReceiptRecord)).all() == []
+        assert session.exec(select(DocumentReferenceRecord)).all() == []
+        assert session.exec(select(CfdiSourceLinkRecord)).all() == []
+        assert session.exec(select(CfdiImportMetadataRecord)).all() == []
+        event_types = [event.event_type for event in session.exec(select(AuditEventRecord)).all()]
+        assert event_types.count("cfdi_source_imported") == 1
+        assert "entry_posted" not in event_types
+        assert "cfdi_source_linked" not in event_types
+
+
+def test_cfdi_donation_rejects_incompatible_facts_before_posting(tmp_path, monkeypatch):
+    from dataclasses import replace
+    from aqorath.application import import_cfdi_source, prepare_cfdi_monetary_donation
+    from aqorath.cfdi_models import CfdiSourceRecord
+    from aqorath.models import JournalEntry
+    from sqlmodel import Session, select
+
+    engine, entity, donor, bank, program, fund, funding_source = _cfdi_donation_runtime(
+        tmp_path, monkeypatch
+    )
+    with Session(engine) as session:
+        source = import_cfdi_source(session, _donation_xml()).source
+        kwargs = dict(
+            donor_third_party_id=donor.id,
+            bank_account_id=bank.id,
+            fund_id=fund.id,
+            funding_source_id=funding_source.id,
+            program_id=program.id,
+            purpose="Educación",
+            is_restricted=True,
+        )
+        alien = __import__("aqorath.third_party", fromlist=["ThirdParty"]).ThirdParty(
+            None, entity.id, "Otro donante", "OTR010101AA1", None, None, "donor", None, None, None, True
+        )
+        alien = __import__("aqorath.third_party_repository", fromlist=["create_third_party"]).create_third_party(session, alien)
+        with pytest.raises(ValueError, match="donor.*RFC|identified counterparty"):
+            prepare_cfdi_monetary_donation(session, source.id, **{**kwargs, "donor_third_party_id": alien.id})
+        with pytest.raises(ValueError, match="document position"):
+            purchase = import_cfdi_source(
+                session,
+                _xml().replace(
+                    b'UUID="123e4567-e89b-12d3-a456-426614174000"',
+                    b'UUID="523e4567-e89b-12d3-a456-426614174000"',
+                ),
+            ).source
+            prepare_cfdi_monetary_donation(session, purchase.id, **kwargs)
+        with pytest.raises(ValueError, match="FormaPago"):
+            incompatible = import_cfdi_source(
+                session,
+                _donation_xml()
+                .replace(b'FormaPago="03"', b'FormaPago="01"')
+                .replace(
+                    b'UUID="423e4567-e89b-12d3-a456-426614174000"',
+                    b'UUID="623e4567-e89b-12d3-a456-426614174000"',
+                ),
+            ).source
+            prepare_cfdi_monetary_donation(session, incompatible.id, **kwargs)
+        assert session.exec(select(JournalEntry)).all() == []
+
+
+def test_cfdi_donation_detects_changed_snapshot_and_existing_incompatible_link(tmp_path, monkeypatch):
+    from aqorath.application import (
+        confirm_cfdi_monetary_donation,
+        import_cfdi_source,
+    )
+    from aqorath.cfdi_source_repository import link_cfdi_source_to_entry
+    from aqorath.models import JournalEntry
+    from sqlmodel import Session, select
+
+    engine, entity, donor, bank, program, fund, funding_source = _cfdi_donation_runtime(
+        tmp_path, monkeypatch
+    )
+    with Session(engine) as session:
+        source = import_cfdi_source(session, _donation_xml()).source
+        changed = _prepare_cfdi_donation(
+            session, source, donor, bank, program, fund, funding_source
+        )
+        row = session.get(__import__("aqorath.cfdi_models", fromlist=["CfdiSourceRecord"]).CfdiSourceRecord, source.id)
+        row.file_hash = "f" * 64
+        session.add(row)
+        session.commit()
+    with pytest.raises(ValueError, match="snapshot changed"):
+        confirm_cfdi_monetary_donation(changed)
+    with Session(engine) as session:
+        assert session.exec(select(JournalEntry)).all() == []
+
+
+@pytest.mark.parametrize(
+    ("field", "message"),
+    [
+        ("bank_account_id", "bank account"),
+        ("fund_id", "fund"),
+        ("funding_source_id", "funding source"),
+        ("program_id", "program"),
+    ],
+)
+def test_cfdi_donation_rejects_foreign_osc_or_bank_selection_before_posting(
+    tmp_path, monkeypatch, field, message
+):
+    from aqorath.application import import_cfdi_source, prepare_cfdi_monetary_donation
+    from aqorath.models import JournalEntry
+    from sqlmodel import Session, select
+
+    engine, _entity, donor, bank, program, fund, funding_source = _cfdi_donation_runtime(
+        tmp_path, monkeypatch
+    )
+    with Session(engine) as session:
+        source = import_cfdi_source(session, _donation_xml()).source
+        facts = {
+            "donor_third_party_id": donor.id,
+            "bank_account_id": bank.id,
+            "fund_id": fund.id,
+            "funding_source_id": funding_source.id,
+            "program_id": program.id,
+            "purpose": "Educación",
+            "is_restricted": True,
+        }
+        facts[field] = 999999
+        with pytest.raises(ValueError, match=message):
+            prepare_cfdi_monetary_donation(session, source.id, **facts)
+        assert session.exec(select(JournalEntry)).all() == []
+
+
+@pytest.mark.parametrize(("amount", "day", "message"), [
+    (Decimal("999.99"), 10, "amount differs"),
+    (Decimal("1000.00"), 11, "date differs"),
+])
+def test_cfdi_donation_confirmation_rejects_amount_or_date_divergence(
+    tmp_path, monkeypatch, amount, day, message
+):
+    from dataclasses import replace
+    from aqorath.application import (
+        confirm_cfdi_monetary_donation,
+        import_cfdi_source,
+        prepare_monetary_donation,
+    )
+    from aqorath.models import JournalEntry
+    from sqlmodel import Session, select
+
+    engine, _entity, donor, bank, program, fund, funding_source = _cfdi_donation_runtime(
+        tmp_path, monkeypatch
+    )
+    with Session(engine) as session:
+        source = import_cfdi_source(session, _donation_xml()).source
+        prepared = _prepare_cfdi_donation(
+            session, source, donor, bank, program, fund, funding_source
+        )
+        divergent = prepare_monetary_donation(
+            session,
+            amount,
+            datetime(2026, 9, day, tzinfo=timezone.utc),
+            donor_third_party_id=donor.id,
+            document_type="cfdi",
+            document_number=source.parsed.document_number,
+            document_date=source.parsed.issued_at,
+            fund_id=fund.id,
+            funding_source_id=funding_source.id,
+            program_id=program.id,
+            purpose="Educación",
+            is_restricted=True,
+            bank_account_id=bank.id,
+        )
+        divergent = replace(divergent, operation_id=prepared.operation_id)
+        prepared = replace(prepared, donation=divergent)
+    with pytest.raises(ValueError, match=message):
+        confirm_cfdi_monetary_donation(prepared)
+    with Session(engine) as session:
+        assert session.exec(select(JournalEntry)).all() == []
+
+
+def test_cfdi_donation_rejects_source_already_linked_to_another_operation(
+    tmp_path, monkeypatch
+):
+    from aqorath.application import (
+        confirm_cfdi_monetary_donation,
+        import_cfdi_source,
+    )
+    from aqorath.cfdi_source_repository import link_cfdi_source_to_entry
+    from aqorath.models import JournalEntry
+    from sqlmodel import Session, select
+
+    engine, entity, donor, bank, program, fund, funding_source = _cfdi_donation_runtime(
+        tmp_path, monkeypatch
+    )
+    with Session(engine) as session:
+        source = import_cfdi_source(session, _donation_xml()).source
+        entry = _posted_entry(session, entity.id, total="1000.00")
+        link_cfdi_source_to_entry(session, entity.id, source.id, entry.id)
+        prepared = _prepare_cfdi_donation(
+            session, source, donor, bank, program, fund, funding_source
+        )
+    with pytest.raises(ValueError, match="already linked"):
+        confirm_cfdi_monetary_donation(prepared)
+    with Session(engine) as session:
+        assert len(session.exec(select(JournalEntry)).all()) == 1
+
+
+def test_cfdi_donation_surface_requires_explicit_osc_completion(tmp_path, monkeypatch):
+    import base64
+    from aqorath.presentation_controller import LocalPresentationController
+
+    _engine, _entity, _donor, _bank, _program, _fund, _source = _cfdi_donation_runtime(
+        tmp_path, monkeypatch
+    )
+    controller = LocalPresentationController()
+    imported = controller.import_cfdi(
+        {"xml_base64": base64.b64encode(_donation_xml()).decode("ascii")}
+    )
+    with pytest.raises((LookupError, ValueError), match="fund|program|bank|source"):
+        controller.prepare_cfdi(
+            {"uuid": imported["source"]["uuid"], "operation_kind": "donation_bank"}
+        )
+
+
+def test_cfdi_donation_surface_reuses_xml_facts_cancel_and_professional_truth(tmp_path, monkeypatch):
+    import base64
+    from aqorath.presentation_controller import LocalPresentationController
+    from aqorath.models import DonationRecord, JournalEntry
+    from sqlmodel import Session, select
+
+    engine, _entity, donor, bank, program, fund, funding_source = _cfdi_donation_runtime(
+        tmp_path, monkeypatch
+    )
+    controller = LocalPresentationController()
+    imported = controller.import_cfdi(
+        {"xml_base64": base64.b64encode(_donation_xml()).decode("ascii")}
+    )
+    payload = {
+        "uuid": imported["source"]["uuid"],
+        "operation_kind": "donation_bank",
+        "donor_name": donor.name,
+        "bank_account_identifier": bank.account_identifier,
+        "fund_name": fund.name,
+        "funding_source_name": funding_source.name,
+        "program_name": program.name,
+        "restriction": fund.restriction,
+        "purpose": "Educación",
+    }
+    cancelled = controller.prepare_cfdi(payload)
+    preview = cancelled["preview"]
+    assert preview["amount"] == "1000.00"
+    assert preview["posting_date"] == "2026-09-10"
+    assert preview["donor"] == donor.name
+    assert {
+        "amount": "1000.00",
+        "date": "2026-09-10",
+        "document_number": "DON-1000",
+    }.items() <= preview["extracted_from_xml"].items()
+    assert preview["completed_by_user"]["bank"] == "Banco V1 · DON-BANK"
+    assert controller.cancel(cancelled["token"]) == {"cancelled": True}
+    with Session(engine) as session:
+        assert session.exec(select(JournalEntry)).all() == []
+        assert session.exec(select(DonationRecord)).all() == []
+
+    pending = controller.prepare_cfdi(payload)
+    payload["fund_name"] = "alterado después del preview"
+    result = controller.confirm(pending["token"])
+    professional = controller.professional_cfdi(imported["source"]["uuid"])
+    assert professional["donation"]["donation"]["id"] == result["donation_id"]
+    assert professional["donation"]["fund"]["name"] == fund.name
+    assert professional["source"]["total"] == "1000.00"
+    assert professional["evidence_vs_accounting"]["ledger_amount"] == "1000.00"
+    assert professional["fiscality"]["supported"] is False

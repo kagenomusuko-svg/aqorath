@@ -13,7 +13,7 @@ class CfdiSourceRecord(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     entity_id: int = Field(sa_column=Column(Integer, ForeignKey("entity.id"), nullable=False, index=True))
     third_party_id: int = Field(sa_column=Column(Integer, ForeignKey("thirdparty.id"), nullable=False, index=True))
-    relationship: str = Field(sa_column=Column(String, nullable=False, index=True))
+    document_position: str = Field(sa_column=Column(String, nullable=False, index=True))
     version: str = Field(sa_column=Column(String, nullable=False))
     uuid: str = Field(sa_column=Column(String, nullable=False, unique=True, index=True))
     voucher_type: str = Field(sa_column=Column(String, nullable=False))

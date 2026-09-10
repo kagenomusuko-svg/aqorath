@@ -36,17 +36,17 @@ def _active_entity(session):
         raise LookupError("exactly one active Entity is required")
     entity = rows[0]
     if not entity.rfc or not entity.rfc.strip():
-        raise ValueError("active Entity RFC is required for CFDI relationship")
+        raise ValueError("active Entity RFC is required for CFDI document position")
     return entity
 
 
-def _relationship_and_party(session, entity, parsed):
+def _document_position_and_party(session, entity, parsed):
     entity_rfc = entity.rfc.strip().upper()
     is_issuer = parsed.issuer_rfc == entity_rfc
     is_receiver = parsed.receiver_rfc == entity_rfc
     if is_issuer == is_receiver:
         raise ValueError("active Entity must be issuer or receiver, but not both")
-    relationship = "sale" if is_issuer else "purchase"
+    document_position = "issuer" if is_issuer else "receiver"
     counterparty_rfc = parsed.receiver_rfc if is_issuer else parsed.issuer_rfc
     rows = session.exec(
         select(ThirdPartyRecord).where(
@@ -57,7 +57,7 @@ def _relationship_and_party(session, entity, parsed):
     matches = [row for row in rows if row.rfc and row.rfc.strip().upper() == counterparty_rfc]
     if len(matches) != 1:
         raise LookupError("counterparty RFC must identify exactly one active ThirdParty")
-    return relationship, matches[0]
+    return document_position, matches[0]
 
 
 def _parsed_from_rows(source, tax_rows):
@@ -98,7 +98,7 @@ def _from_record(session, source):
         id=source.id,
         entity_id=source.entity_id,
         third_party_id=source.third_party_id,
-        relationship=source.relationship,
+        document_position=source.document_position,
         parsed=_parsed_from_rows(source, taxes),
         imported_at=datetime.fromisoformat(source.imported_at),
     )
@@ -108,7 +108,7 @@ def import_cfdi_source(session, xml_bytes, *, imported_at=None):
     """Persist one parsed source and audit atomically; exact repeats are idempotent."""
     parsed = parse_cfdi_xml(xml_bytes)
     entity = _active_entity(session)
-    relationship, party = _relationship_and_party(session, entity, parsed)
+    document_position, party = _document_position_and_party(session, entity, parsed)
     existing = session.exec(select(CfdiSourceRecord).where(CfdiSourceRecord.uuid == parsed.uuid)).one_or_none()
     if existing is not None:
         if existing.file_hash != parsed.sha256 or bytes(existing.xml_bytes) != parsed.xml_bytes:
@@ -123,7 +123,7 @@ def import_cfdi_source(session, xml_bytes, *, imported_at=None):
         raise TypeError("imported_at must be datetime")
 
     row = CfdiSourceRecord(
-        entity_id=entity.id, third_party_id=party.id, relationship=relationship,
+        entity_id=entity.id, third_party_id=party.id, document_position=document_position,
         version=parsed.version, uuid=parsed.uuid, voucher_type=parsed.voucher_type,
         issuer_rfc=parsed.issuer_rfc, issuer_name=parsed.issuer_name, issuer_regime=parsed.issuer_regime,
         receiver_rfc=parsed.receiver_rfc, receiver_name=parsed.receiver_name, receiver_regime=parsed.receiver_regime,
@@ -151,7 +151,7 @@ def import_cfdi_source(session, xml_bytes, *, imported_at=None):
         _audit_events.stage_audit_event(session, AuditEvent(
             None, entity.id, "cfdi_source_imported", imported_at,
             {"cfdi_source_id": row.id, "uuid": parsed.uuid, "file_hash": parsed.sha256,
-             "relationship": relationship, "third_party_id": party.id},
+             "document_position": document_position, "third_party_id": party.id},
         ))
         session.commit()
     except Exception:
@@ -186,7 +186,32 @@ def _entry_owner(session, entry_id):
     return owners[0]
 
 
-def stage_cfdi_source_link(session, entity_id, source_id, entry_id, *, linked_at=None):
+def _validate_existing_cfdi_document(document, source, entry_id):
+    if document is None:
+        raise LookupError("canonical CFDI DocumentReference does not exist")
+    if document.entry_id != entry_id:
+        raise ValueError("CFDI DocumentReference must belong to the same JournalEntry")
+    if document.third_party_id != source.third_party_id:
+        raise ValueError("CFDI DocumentReference must identify the imported counterparty")
+    if document.document_type != "cfdi":
+        raise ValueError("canonical CFDI DocumentReference must have document_type cfdi")
+    if document.document_number != source.document_number:
+        raise ValueError("CFDI DocumentReference number differs from imported evidence")
+    if datetime.fromisoformat(document.date).date() != datetime.fromisoformat(source.issued_at).date():
+        raise ValueError("CFDI DocumentReference date differs from imported evidence")
+    if document.file_hash != source.file_hash:
+        raise ValueError("CFDI DocumentReference hash differs from imported evidence")
+
+
+def stage_cfdi_source_link(
+    session,
+    entity_id,
+    source_id,
+    entry_id,
+    *,
+    linked_at=None,
+    document_reference_id=None,
+):
     """Stage source→document/metadata linkage inside a caller-owned transaction."""
     source = session.get(CfdiSourceRecord, source_id)
     if source is None or source.entity_id != entity_id:
@@ -212,14 +237,18 @@ def stage_cfdi_source_link(session, entity_id, source_id, entry_id, *, linked_at
         raise ValueError("CFDI source is already linked to another operation")
     if linked_at is None:
         linked_at = datetime.now(timezone.utc)
-    document = _documents.stage_document_reference(session, DocumentReference(
-        id=None, entry_id=entry_id, third_party_id=source.third_party_id,
-        document_type="cfdi", document_number=source.document_number,
-        issuer_name=source.issuer_name, date=datetime.fromisoformat(source.issued_at),
-        file_hash=source.file_hash, file_path=None, external_url=None,
-        is_validated=True,
-        validation_notes="CFDI 4.0 structure and extracted totals validated offline; SAT status not consulted.",
-    ))
+    if document_reference_id is None:
+        document = _documents.stage_document_reference(session, DocumentReference(
+            id=None, entry_id=entry_id, third_party_id=source.third_party_id,
+            document_type="cfdi", document_number=source.document_number,
+            issuer_name=source.issuer_name, date=datetime.fromisoformat(source.issued_at),
+            file_hash=source.file_hash, file_path=None, external_url=None,
+            is_validated=True,
+            validation_notes="CFDI 4.0 structure and extracted totals validated offline; SAT status not consulted.",
+        ))
+    else:
+        document = session.get(DocumentReferenceRecord, document_reference_id)
+        _validate_existing_cfdi_document(document, source, entry_id)
     _metadata.stage_cfdi_import_metadata(session, CfdiImportMetadata(
         id=None, document_reference_id=document.id, cfdi_version=source.version,
         uuid=source.uuid, issuer_rfc=source.issuer_rfc, receiver_rfc=source.receiver_rfc,

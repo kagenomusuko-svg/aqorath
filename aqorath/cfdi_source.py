@@ -67,7 +67,7 @@ class CfdiSourceEvidence:
     id: int
     entity_id: int
     third_party_id: int
-    relationship: str
+    document_position: str
     parsed: ParsedCfdi
     imported_at: datetime
 

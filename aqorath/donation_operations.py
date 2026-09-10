@@ -12,7 +12,7 @@ from . import accounting_operation_persistence as _persistence
 from . import confirmation as _confirmation
 from . import posting as _posting
 from . import storage as _storage
-from .models import DonationRecord, InKindDonationRecord, DocumentReferenceRecord, JournalLine, EntityRecord, FixedAssetRecord
+from .models import AuditEventRecord, DonationRecord, InKindDonationRecord, DocumentReferenceRecord, JournalEntry, JournalLine, EntityRecord, FixedAssetRecord
 from .fund_models import FundRecord, FundingSourceRecord, FundReceiptRecord
 from .banking_models import BankAccountRecord
 
@@ -59,41 +59,138 @@ def prepare_monetary_donation(session, amount, posting_date, *, donor_third_part
     return PreparedDonationOperation(decision, donor_third_party_id, document_type, document_number, document_date, fund_id, funding_source_id, program_id, purpose, is_restricted, uuid4().hex, bank_account_id)
 
 
+def _existing_monetary_result(session, operation_id):
+    events = session.exec(
+        select(AuditEventRecord).where(AuditEventRecord.event_type == "entry_posted")
+    ).all()
+    for event in events:
+        try:
+            details = json.loads(event.details_json)
+        except (TypeError, ValueError):
+            continue
+        if details.get("operation_id") == operation_id:
+            return details.get("donation_operation_result")
+    return None
+
+
+def stage_monetary_donation(session, prepared, *, document_fields=None):
+    """Stage the complete AQR-009 monetary operation in a caller transaction."""
+    if not isinstance(prepared, PreparedDonationOperation):
+        raise TypeError("prepared must be PreparedDonationOperation")
+    existing = _existing_monetary_result(session, prepared.operation_id)
+    if existing is not None:
+        return existing
+    confirmed = _operations.confirm_accounting_operation(prepared.decision)
+    instruction = _posting.create_posting_instruction(confirmed.confirmed_proposal)
+    entity = session.exec(select(EntityRecord).where(EntityRecord.is_active.is_(True))).one()
+    fund = session.get(FundRecord, prepared.fund_id)
+    source = session.get(FundingSourceRecord, prepared.funding_source_id)
+    if fund is None or fund.entity_id != entity.id:
+        raise ValueError("fund does not belong to active Entity")
+    if source is None or source.entity_id != entity.id:
+        raise ValueError("funding source does not belong to active Entity")
+    result = _persistence.stage_posting_with_audit(session, instruction, confirmed)
+    audit = session.get(AuditEventRecord, result.audit_event_id)
+    audit.details_json = json.dumps(
+        {**json.loads(audit.details_json), "operation_id": prepared.operation_id},
+        sort_keys=True,
+    )
+    entry = session.get(JournalEntry, result.entry_id)
+    bank_line = session.exec(
+        select(JournalLine).where(
+            JournalLine.entry_id == entry.id,
+            JournalLine.debit != "0",
+        )
+    ).one()
+    if prepared.bank_account_id is not None:
+        bank_account = session.get(BankAccountRecord, prepared.bank_account_id)
+        if (
+            bank_account is None
+            or bank_account.entity_id != entity.id
+            or bank_account.is_active is not True
+        ):
+            raise ValueError("selected bank account does not belong to the active Entity")
+        if bank_line.account_id != bank_account.ledger_account_id:
+            raise ValueError("selected bank account is not the canonical bank line")
+    donation = DonationRecord(
+        entity_id=entity.id,
+        date=entry.date.isoformat(),
+        amount=str(prepared.decision.fact.amount),
+        donor_third_party_id=prepared.donor_third_party_id,
+        purpose=prepared.purpose,
+        is_restricted=prepared.is_restricted,
+    )
+    session.add(donation)
+    session.flush()
+    fields = {
+        "entry_id": entry.id,
+        "third_party_id": prepared.donor_third_party_id,
+        "document_type": prepared.document_type,
+        "document_number": prepared.document_number,
+        "date": prepared.document_date.isoformat(),
+        "is_validated": False,
+    }
+    if document_fields:
+        allowed = {
+            "issuer_name",
+            "file_hash",
+            "file_path",
+            "external_url",
+            "is_validated",
+            "validation_notes",
+        }
+        unexpected = set(document_fields) - allowed
+        if unexpected:
+            raise ValueError(
+                "document_fields cannot replace canonical donation ownership: "
+                + ", ".join(sorted(unexpected))
+            )
+        fields.update(document_fields)
+    document = DocumentReferenceRecord(**fields)
+    session.add(document)
+    session.flush()
+    receipt = FundReceiptRecord(
+        entity_id=entity.id,
+        fund_id=fund.id,
+        funding_source_id=source.id,
+        journal_line_id=bank_line.id,
+        donation_id=donation.id,
+        amount=str(prepared.decision.fact.amount),
+        received_at=entry.date.isoformat(),
+    )
+    session.add(receipt)
+    session.flush()
+    output = {
+        "entry_id": entry.id,
+        "donation_id": donation.id,
+        "document_reference_id": document.id,
+        "fund_receipt_id": receipt.id,
+        "audit_event_id": result.audit_event_id,
+    }
+    audit.details_json = json.dumps(
+        {
+            **json.loads(audit.details_json),
+            "bank_account_id": prepared.bank_account_id,
+            "donation_operation_result": output,
+        },
+        sort_keys=True,
+    )
+    session.add(audit)
+    session.flush()
+    return output
+
+
 def confirm_monetary_donation(prepared):
     if not isinstance(prepared, PreparedDonationOperation):
         raise TypeError("prepared must be PreparedDonationOperation")
-    confirmed = _operations.confirm_accounting_operation(prepared.decision)
-    instruction = _posting.create_posting_instruction(confirmed.confirmed_proposal)
     with _storage.get_session() as session:
-        existing = [event for event in session.exec(select(__import__("aqorath.models", fromlist=["AuditEventRecord"]).AuditEventRecord)).all() if prepared.operation_id in event.details_json]
-        if existing:
-            details = json.loads(existing[0].details_json)
-            return details["donation_operation_result"]
-        entity = session.exec(select(EntityRecord).where(EntityRecord.is_active.is_(True))).one()
-        fund = session.get(FundRecord, prepared.fund_id)
-        source = session.get(FundingSourceRecord, prepared.funding_source_id)
-        if fund is None or fund.entity_id != entity.id: raise ValueError("fund does not belong to active Entity")
-        if source is None or source.entity_id != entity.id: raise ValueError("funding source does not belong to active Entity")
-        result = _persistence.stage_posting_with_audit(session, instruction, confirmed)
-        audit = session.get(__import__("aqorath.models", fromlist=["AuditEventRecord"]).AuditEventRecord, result.audit_event_id)
-        audit.details_json = json.dumps({**json.loads(audit.details_json), "operation_id": prepared.operation_id}, sort_keys=True)
-        entry = session.get(__import__("aqorath.models", fromlist=["JournalEntry"]).JournalEntry, result.entry_id)
-        bank_line = session.exec(select(JournalLine).where(JournalLine.entry_id == entry.id, JournalLine.debit != "0")).one()
-        if prepared.bank_account_id is not None:
-            bank_account = session.get(BankAccountRecord, prepared.bank_account_id)
-            if bank_account is None or bank_account.entity_id != entity.id or bank_account.is_active is not True:
-                raise ValueError("selected bank account does not belong to the active Entity")
-            if bank_line.account_id != bank_account.ledger_account_id:
-                raise ValueError("selected bank account is not the canonical bank line")
-        donation = DonationRecord(entity_id=entity.id, date=entry.date.isoformat(), amount=str(prepared.decision.fact.amount), donor_third_party_id=prepared.donor_third_party_id, purpose=prepared.purpose, is_restricted=prepared.is_restricted)
-        session.add(donation); session.flush()
-        document = DocumentReferenceRecord(entry_id=entry.id, third_party_id=prepared.donor_third_party_id, document_type=prepared.document_type, document_number=prepared.document_number, date=prepared.document_date.isoformat(), is_validated=False)
-        session.add(document); session.flush()
-        receipt = FundReceiptRecord(entity_id=entity.id, fund_id=fund.id, funding_source_id=source.id, journal_line_id=bank_line.id, donation_id=donation.id, amount=str(prepared.decision.fact.amount), received_at=entry.date.isoformat())
-        session.add(receipt); session.flush()
-        output = {"entry_id": entry.id, "donation_id": donation.id, "document_reference_id": document.id, "fund_receipt_id": receipt.id, "audit_event_id": result.audit_event_id}
-        audit.details_json = json.dumps({**json.loads(audit.details_json), "bank_account_id": prepared.bank_account_id, "donation_operation_result": output}, sort_keys=True)
-        session.commit(); return output
+        try:
+            output = stage_monetary_donation(session, prepared)
+            session.commit()
+            return output
+        except Exception:
+            session.rollback()
+            raise
 
 
 def load_monetary_donation_trace(session, entity_id, donation_id):
