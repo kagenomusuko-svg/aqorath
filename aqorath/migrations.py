@@ -24,8 +24,8 @@ from aqorath.money import to_decimal_exact
 # Version Control
 # ============================================================
 
-CURRENT_SCHEMA_VERSION = 9
-"""Schema 9 adds OSC fund/source traceability over canonical journal lines."""
+CURRENT_SCHEMA_VERSION = 10
+"""Schema 10 adds complete donation provenance and non-cash evidence."""
 
 # ============================================================
 # Migration Registry
@@ -89,6 +89,7 @@ def _ensure_additive_current_schema(db_path):
         _models.FiscalProfileRecord.__table__.create(engine, checkfirst=True)
         _models.ThirdPartyRecord.__table__.create(engine, checkfirst=True)
         _models.DonationRecord.__table__.create(engine, checkfirst=True)
+        _models.InKindDonationRecord.__table__.create(engine, checkfirst=True)
         _models.AuditEventRecord.__table__.create(engine, checkfirst=True)
         _models.DocumentReferenceRecord.__table__.create(engine, checkfirst=True)
         _models.CfdiImportMetadataRecord.__table__.create(engine, checkfirst=True)
@@ -564,6 +565,18 @@ def _migrate_8_to_9(db_path):
         engine.dispose()
 
 
+def _migrate_9_to_10(db_path):
+    """Add donation provenance and in-kind evidence without backfilling history."""
+    from aqorath.models import InKindDonationRecord
+    from sqlalchemy import create_engine, text
+    engine = create_engine(f"sqlite:///{db_path}")
+    try:
+        with engine.begin() as conn:
+            InKindDonationRecord.__table__.create(conn, checkfirst=True)
+    finally:
+        engine.dispose()
+
+
 MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -574,6 +587,7 @@ MIGRATIONS = {
     7: _migrate_6_to_7,
     8: _migrate_7_to_8,
     9: _migrate_8_to_9,
+    10: _migrate_9_to_10,
 }
 """Registry of migration callables. Key: target version."""
 
