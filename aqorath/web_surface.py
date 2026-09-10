@@ -135,6 +135,22 @@ def prepare_operation(payload: dict):
         raise _error(exc) from exc
 
 
+@app.post("/api/fiscal-v1/prepare")
+def prepare_fiscal_v1(payload: dict):
+    try:
+        return controller.prepare_fiscal_v1(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.get("/api/fiscal-v1/operations/{entry_id}/professional")
+def professional_fiscal_v1(entry_id: int):
+    try:
+        return controller.professional_fiscal_v1(entry_id)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
 @app.post("/api/cfdi/import")
 def import_cfdi(payload: dict):
     try:

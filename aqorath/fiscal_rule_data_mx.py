@@ -117,6 +117,22 @@ MX_GENERAL_PERSONA_FISICA_PROFESSIONAL_ISR_RETENTION = FiscalRuleSetManifest(
 )
 
 
+MX_GENERAL_PERSONA_FISICA_PROFESSIONAL_IVA_RETENTION = FiscalRuleSetManifest(
+    set_key="mx.general.persona-fisica-profesional.iva-retention",
+    version="2006.1",
+    context=_MX_GENERAL_PERSONA_FISICA_PROFESSIONAL_CONTEXT,
+    entries=(
+        FiscalRuleSetEntry(
+            rule_key="iva.professional_services_retention_fraction",
+            effective_from=date(2006, 12, 5),
+            value=Decimal("2"),
+            unit="fraction_2_3_of_transferred_vat",
+            source_ref="DOF:2006-12-04;LIVA:ART1-A-II-a;RLIVA:ART3-I-a",
+        ),
+    ),
+)
+
+
 MX_RESICO_PERSONA_FISICA_ISR_RETENTION = FiscalRuleSetManifest(
     set_key="mx.resico.persona-fisica.isr-retention",
     version="2022.1",
@@ -144,6 +160,7 @@ CURATED_MX_FISCAL_RULE_SETS = (
     MX_GENERAL_COMMERCIAL_IVA_EXEMPT_LAND,
     MX_GENERAL_PERSONA_MORAL_IVA_FREIGHT_RETENTION,
     MX_GENERAL_PERSONA_FISICA_PROFESSIONAL_ISR_RETENTION,
+    MX_GENERAL_PERSONA_FISICA_PROFESSIONAL_IVA_RETENTION,
     MX_RESICO_PERSONA_FISICA_ISR_RETENTION,
 )
 
@@ -154,6 +171,7 @@ __all__ = [
     "MX_GENERAL_COMMERCIAL_IVA_EXEMPT_LAND",
     "MX_GENERAL_PERSONA_MORAL_IVA_FREIGHT_RETENTION",
     "MX_GENERAL_PERSONA_FISICA_PROFESSIONAL_ISR_RETENTION",
+    "MX_GENERAL_PERSONA_FISICA_PROFESSIONAL_IVA_RETENTION",
     "MX_RESICO_PERSONA_FISICA_ISR_RETENTION",
     "CURATED_FISCAL_RULE_SETS",
     "CURATED_MX_FISCAL_RULE_SETS",

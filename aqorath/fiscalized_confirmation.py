@@ -216,7 +216,11 @@ class FiscalizedConfirmationProvenance:
             self.rule_effective_to, date
         ):
             raise TypeError("rule_effective_to must be a date or None")
-        if self.amount_basis not in ("net_before_fiscal", "gross_including_fiscal"):
+        if self.amount_basis not in (
+            "net_before_fiscal",
+            "gross_including_fiscal",
+            "base_before_fiscal_settlement",
+        ):
             raise ValueError("invalid amount_basis")
         if self.fiscal_side not in ("debit", "credit"):
             raise ValueError("fiscal_side must be 'debit' or 'credit'")
@@ -322,9 +326,7 @@ def create_fiscalized_confirmation_snapshot(resolved_proposal):
     composition = fiscalized.declaration
     effects = composition.fiscal_effects
     first_effect = effects[0]
-    monetary_snapshot = (
-        first_effect.declaration.confirmed_monetary_amount.snapshot
-    )
+    monetary_snapshot = first_effect.declaration.confirmed_monetary_amount.snapshot
 
     lines = tuple(
         FiscalizedConfirmationLine(

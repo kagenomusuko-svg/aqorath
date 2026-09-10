@@ -20,6 +20,7 @@ from . import fiscal_monetary_confirmation as _monetary_confirmation
 _ALLOWED_AMOUNT_BASES = (
     "net_before_fiscal",
     "gross_including_fiscal",
+    "base_before_fiscal_settlement",
 )
 
 
@@ -97,8 +98,8 @@ class FiscalEconomicCompositionDeclaration:
             raise TypeError("amount_basis must be a string")
         if self.amount_basis not in _ALLOWED_AMOUNT_BASES:
             raise ValueError(
-                "amount_basis must be 'net_before_fiscal' or "
-                "'gross_including_fiscal'"
+                "amount_basis must be 'net_before_fiscal', "
+                "'gross_including_fiscal' or 'base_before_fiscal_settlement'"
             )
         _require_nonempty_text(self.adjustment_role, "adjustment_role")
 
@@ -117,12 +118,11 @@ class FiscalEconomicCompositionDeclaration:
             if first_snapshot is None:
                 first_snapshot = snapshot
             else:
-                for name in (
-                    "effective_date",
-                    "jurisdiction",
-                    "regime",
-                    "entity_type",
-                ):
+                # Effective date and jurisdiction describe the one economic event.
+                # Regime/entity_type remain per-rule registry scope: AQR-011 can
+                # legitimately compose a recipient-PM VAT rule with a supplier-PF
+                # ISR rule without falsifying either rule's provenance.
+                for name in ("effective_date", "jurisdiction"):
                     if getattr(snapshot, name) != getattr(first_snapshot, name):
                         raise ValueError(
                             f"all fiscal effects must share {name} for one composition"
@@ -141,6 +141,13 @@ class FiscalEconomicCompositionDeclaration:
         adjustment_line = matches[0]
         delta = _aggregate_fiscal_delta(effects)
         if delta == Decimal("0"):
+            return
+
+        # AQR-011 paid purchases start from a pre-fiscal economic base. The
+        # settlement line absorbs the aggregate tax/withholding delta regardless
+        # of its sign; _adjusted_amount owns the exact arithmetic later. This is
+        # distinct from the two historical sale-oriented basis contracts below.
+        if self.amount_basis == "base_before_fiscal_settlement":
             return
 
         excess_side = "credit" if delta > Decimal("0") else "debit"
