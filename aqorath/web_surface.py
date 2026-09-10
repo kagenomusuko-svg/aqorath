@@ -59,6 +59,30 @@ def capabilities():
         raise _error(exc) from exc
 
 
+@app.get("/api/osc/donations")
+def donations():
+    try:
+        return controller.donations()
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/osc/donations")
+def create_donation(payload: dict):
+    try:
+        return controller.create_donation(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/osc/in-kind-donations")
+def create_inkind_donation(payload: dict):
+    try:
+        return controller.create_inkind_donation(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
 @app.post("/api/operations/prepare")
 def prepare_operation(payload: dict):
     try:
