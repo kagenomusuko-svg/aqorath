@@ -1,8 +1,9 @@
-name: AQR-011 backlog closeout
+name: AQR-011 closeout
 
 on:
   push:
-    branches: [aqr-011-closeout]
+    branches:
+      - aqr-011-closeout
 
 permissions:
   contents: write
@@ -15,67 +16,16 @@ jobs:
         with:
           ref: aqr-011-closeout
           fetch-depth: 0
-      - name: Advance product backlog
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Patch authoritative documents
+        run: python scripts/aqr_011_closeout.py
+      - name: Commit closeout
         run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path('docs/PRODUCT_BACKLOG_V1.md')
-          text = path.read_text()
-
-          old_011 = '''## AQR-011 — Cobertura fiscal V1 declarada y versionada
-
-**Estado:** `NEXT`'''
-          new_011 = '''## AQR-011 — Cobertura fiscal V1 declarada y versionada
-
-**Estado:** `DONE`'''
-          old_012 = '''## AQR-012 — Inventario y costos cuando el perfil de entidad lo requiera
-
-**Estado:** `TODO`'''
-          new_012 = '''## AQR-012 — Inventario y costos cuando el perfil de entidad lo requiera
-
-**Estado:** `NEXT`'''
-          old_tail = '''## SIGUIENTE ACTUAL
-
-`AQR-011 — Cobertura fiscal V1 declarada y versionada`.'''
-          new_tail = '''## SIGUIENTE ACTUAL
-
-`AQR-012 — Inventario y costos cuando el perfil de entidad lo requiera`.'''
-
-          for old, new in ((old_011, new_011), (old_012, new_012), (old_tail, new_tail)):
-              if old not in text:
-                  raise SystemExit(f'expected backlog marker not found: {old!r}')
-              text = text.replace(old, new, 1)
-
-          anchor = '''### Dependencias
-
-AQR-001 y AQR-010 para flujos CFDI.
-
----
-
-## AQR-012'''
-          replacement = '''### Dependencias
-
-AQR-001 y AQR-010 para flujos CFDI.
-
-### Cierre de aceptación
-
-Implementado y fusionado mediante PR #46, merge `5dc5640734d46b685ccf8dd9adf9f77206557481`, head definitivo `527934106b6b852b67f51d4a708435c3e4897aec`. El CI del head quedó verde en run 498 con workflow normal, después de retirar la instrumentación diagnóstica temporal. La cobertura V1 separa estrictamente hechos incurridos de operaciones efectivamente pagadas; usa `ThirdParty` persistido como autoridad factual; integra evidencia CFDI AQR-010 mediante `stage_cfdi_source_link` dentro de la misma transacción; conserva autoridades de período, staging transaccional, partida doble y arquitectura fiscal. Las superficies común y profesional, HTTP/controller/UI y reconstrucción profesional quedaron cubiertas sin exponer tasas, cuentas ni Debe/Haber como decisiones del usuario común. La revisión file-by-file no dejó gates técnicos abiertos.
-
----
-
-## AQR-012'''
-          if anchor not in text:
-              raise SystemExit('AQR-011 closeout anchor not found')
-          text = text.replace(anchor, replacement, 1)
-          path.write_text(text)
-          PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/PRODUCT_BACKLOG_V1.md
-          if git diff --cached --quiet; then
-            echo "Backlog already advanced"
-            exit 0
-          fi
+          git add INSTRUCCIONES.md docs/PRODUCT_BACKLOG_V1.md docs/REPO_AUDIT_V2.md
+          git diff --cached --check
           git commit -m "docs: close AQR-011 and advance to AQR-012"
           git push origin HEAD:aqr-011-closeout
