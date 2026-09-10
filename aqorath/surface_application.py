@@ -24,6 +24,9 @@ from . import bank_repository as _banks
 from . import reconciliation_repository as _reconciliations
 from .banking import BankAccount
 from . import bank_transfer as _bank_transfer
+from . import fund_repository as _funds
+from .fund import Fund, FundingSource
+from .fund_models import FundRecord, FundingSourceRecord
 from .models import AccountRoleBinding
 from sqlmodel import select
 
@@ -664,6 +667,41 @@ def execute_surface_bank_transfer(source_bank_account_id, destination_bank_accou
         ))
 
 
+def list_surface_funds():
+    with _storage.get_session() as session:
+        rows = session.exec(select(FundRecord).order_by(FundRecord.id)).all()
+    return [_json_value(row.__dict__) for row in rows]
+
+
+def create_surface_fund(payload):
+    with _storage.get_session() as session:
+        entity = _application.get_active_entity(session)
+        if entity is None or entity.id is None: raise LookupError("active Entity is required")
+        program_id = payload.get("program_id")
+        if program_id is None and payload.get("program_name"):
+            from .models import ProgramRecord
+            programs = session.exec(select(ProgramRecord).where(ProgramRecord.entity_id == entity.id, ProgramRecord.name == payload["program_name"])).all()
+            if len(programs) != 1: raise LookupError("program name must identify exactly one Program")
+            program_id = programs[0].id
+        fund = _funds.create_fund(session, Fund(None, entity.id, payload.get("code"), payload.get("name"), payload.get("restriction"), payload.get("purpose"), program_id))
+    return _json_value(fund)
+
+
+def create_surface_funding_source(payload):
+    with _storage.get_session() as session:
+        entity = _application.get_active_entity(session)
+        if entity is None or entity.id is None: raise LookupError("active Entity is required")
+        source = _funds.create_funding_source(session, FundingSource(None, entity.id, payload.get("name"), payload.get("donor_third_party_id"), payload.get("external_reference")))
+    return _json_value(source)
+
+
+def get_surface_fund_balance(fund_id, as_of=None):
+    with _storage.get_session() as session:
+        entity = _application.get_active_entity(session)
+        if entity is None or entity.id is None: raise LookupError("active Entity is required")
+        return _json_value(_funds.load_fund_balance(session, entity.id, fund_id, _date(as_of, "as_of")))
+
+
 __all__ = [
     "CommonOperationKind",
     "PreparedSurfaceOperation",
@@ -696,4 +734,8 @@ __all__ = [
     "revoke_surface_bank_match",
     "load_surface_reconciliation",
     "execute_surface_bank_transfer",
+    "list_surface_funds",
+    "create_surface_fund",
+    "create_surface_funding_source",
+    "get_surface_fund_balance",
 ]
