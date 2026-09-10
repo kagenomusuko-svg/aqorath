@@ -1,9 +1,31 @@
 from datetime import datetime, timezone
 from decimal import Decimal
+import os
 import sqlite3
 
 from sqlalchemy import create_engine
 from sqlmodel import Session
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def restore_storage_engine():
+    import aqorath.storage as storage
+
+    previous_env = os.environ.get("AQORATH_DB")
+    previous_engine = storage._engine
+    previous_db_path = storage._DB_PATH
+    previous_public_db_path = storage.DB_PATH
+    yield
+    if storage._engine is not None and storage._engine is not previous_engine:
+        storage._engine.dispose()
+    storage._engine = previous_engine
+    storage._DB_PATH = previous_db_path
+    storage.DB_PATH = previous_public_db_path
+    if previous_env is None:
+        os.environ.pop("AQORATH_DB", None)
+    else:
+        os.environ["AQORATH_DB"] = previous_env
 
 
 def _runtime(tmp_path):
