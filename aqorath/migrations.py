@@ -24,8 +24,8 @@ from aqorath.money import to_decimal_exact
 # Version Control
 # ============================================================
 
-CURRENT_SCHEMA_VERSION = 7
-"""Schema 7 adds relationship-only CxC/CxP subledgers without historical backfill."""
+CURRENT_SCHEMA_VERSION = 8
+"""Schema 8 adds external bank evidence and reconciliation relations."""
 
 # ============================================================
 # Migration Registry
@@ -33,6 +33,7 @@ CURRENT_SCHEMA_VERSION = 7
 def _create_current_schema(db_path):
     """Create complete current schema using models after structural migrations."""
     from aqorath import models as _models  # noqa: F401 - populate metadata
+    from aqorath import banking_models as _banking_models  # noqa: F401
     from sqlmodel import SQLModel
     from sqlalchemy import create_engine
 
@@ -527,6 +528,28 @@ def _migrate_6_to_7(db_path):
         engine.dispose()
 
 
+def _migrate_7_to_8(db_path):
+    """Add bank evidence relations without importing or rewriting ledger history."""
+    from aqorath.banking_models import (
+        BankAccountRecord, BankStatementRecord, BankTransactionRecord,
+        ReconciliationRecord, ReconciliationMatchRecord,
+        ReconciliationMatchRevocationRecord,
+    )
+    from sqlalchemy import create_engine
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    try:
+        with engine.begin() as conn:
+            for model in (
+                BankAccountRecord, BankStatementRecord, BankTransactionRecord,
+                ReconciliationRecord, ReconciliationMatchRecord,
+                ReconciliationMatchRevocationRecord,
+            ):
+                model.__table__.create(conn, checkfirst=True)
+    finally:
+        engine.dispose()
+
+
 MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -535,6 +558,7 @@ MIGRATIONS = {
     5: _migrate_4_to_5,
     6: _migrate_5_to_6,
     7: _migrate_6_to_7,
+    8: _migrate_7_to_8,
 }
 """Registry of migration callables. Key: target version."""
 

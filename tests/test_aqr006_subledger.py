@@ -143,8 +143,8 @@ def test_schema_7_relationship_only_tables_and_no_money_columns(tmp_path, monkey
     from aqorath.open_item_models import OpenItemApplicationRecord, OpenItemRecord
 
     engine, db_path, *_ = _seed_runtime(tmp_path, monkeypatch, "schema7.db")
-    assert migrations.CURRENT_SCHEMA_VERSION == 7
-    assert migrations.get_schema_version(db_path) == 7
+    assert migrations.CURRENT_SCHEMA_VERSION >= 7
+    assert migrations.get_schema_version(db_path) == migrations.CURRENT_SCHEMA_VERSION
 
     inspector = sa_inspect(engine)
     assert set(column["name"] for column in inspector.get_columns("openitem")) == {
@@ -246,7 +246,11 @@ def test_schema_6_to_7_does_not_invent_historical_provenance(tmp_path):
                 "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
             )
         }
-        assert tables - historical_tables == {"openitem", "openitemapplication"}
+        assert tables - historical_tables == {
+            "openitem", "openitemapplication", "bankaccount", "bankstatement",
+            "banktransaction", "reconciliation", "reconciliationmatch",
+            "reconciliationmatchrevocation",
+        }
         assert [r for r in conn.execute(
             "SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY type,name"
         ) if r[2] in historical_tables] == historical_schema
