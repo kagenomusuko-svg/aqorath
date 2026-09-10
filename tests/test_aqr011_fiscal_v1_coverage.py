@@ -6,6 +6,9 @@ from sqlalchemy import create_engine
 from sqlmodel import SQLModel, Session
 
 
+PROFESSIONAL_ACTIVITY = "business_consulting_professional_service"
+
+
 def _session(tmp_path):
     from aqorath.models import FiscalRuleVersion  # noqa: F401
     from aqorath import fiscal_rule_data_mx as data
@@ -60,6 +63,8 @@ def test_general_iva_is_positive_fact_gated_versioned_and_not_selected_from_cfdi
         treatment = resolve_fiscal_v1_treatments(session, _facts(sale))[0]
         assert treatment.coverage_version == COVERAGE_VERSION
         assert treatment.treatment_key == "iva.general_rate"
+        assert treatment.rule_set_key == "mx.general.comercial.iva-general"
+        assert treatment.rule_set_version == "2010.1"
         assert treatment.rule.value == Decimal("0.16")
         assert treatment.rule.effective_from == date(2010, 1, 1)
         assert "LIVA:ART1" in treatment.rule.source_ref
@@ -69,7 +74,6 @@ def test_general_iva_is_positive_fact_gated_versioned_and_not_selected_from_cfdi
         assert treatment.fiscal_side == "credit"
         assert "no del CFDI" in treatment.explanation
 
-        # A CFDI tax amount does not make an unsupported recipient-side fact taxable.
         utility = EconomicFact("utility_expense", Decimal("1000.00"), "bank")
         with pytest.raises(UnsupportedFiscalV1Case, match="no tiene una regla fiscal V1"):
             resolve_fiscal_v1_treatments(
@@ -88,10 +92,7 @@ def test_general_iva_is_positive_fact_gated_versioned_and_not_selected_from_cfdi
 
 def test_zero_rate_is_positive_own_edited_publication_treatment_not_fallback_or_exemption(tmp_path):
     from aqorath.economic_facts import EconomicFact
-    from aqorath.fiscal_v1_coverage import (
-        UnsupportedFiscalV1Case,
-        resolve_fiscal_v1_treatments,
-    )
+    from aqorath.fiscal_v1_coverage import UnsupportedFiscalV1Case, resolve_fiscal_v1_treatments
 
     engine, session = _session(tmp_path)
     try:
@@ -106,6 +107,7 @@ def test_zero_rate_is_positive_own_edited_publication_treatment_not_fallback_or_
             ),
         )[0]
         assert treatment.treatment_key == "iva.zero_rate"
+        assert treatment.rule_set_version == "1981.1"
         assert treatment.rule.unit == "rate"
         assert treatment.rule.value == Decimal("0.00")
         assert treatment.exact_amount == Decimal("0.0000")
@@ -139,9 +141,12 @@ def test_freight_retention_uses_four_percent_of_paid_consideration_not_vat(tmp_p
         )
         by_key = {item.treatment_key: item for item in treatments}
         assert by_key["iva.general_rate"].exact_amount == Decimal("160.0000")
+        assert by_key["iva.general_rate"].fiscal_role == "vat_pending_credit"
+        assert "no certifica su acreditamiento" in by_key["iva.general_rate"].explanation
         retention = by_key["iva.freight_transport_retention_rate"]
         assert retention.base == Decimal("1000.00")
         assert retention.rule.value == Decimal("0.04")
+        assert retention.rule_set_version == "2006.1"
         assert retention.exact_amount == Decimal("40.0000")
         assert retention.formula == "base × 0.04"
         assert "contraprestación" in retention.explanation
@@ -150,7 +155,30 @@ def test_freight_retention_uses_four_percent_of_paid_consideration_not_vat(tmp_p
         engine.dispose()
 
 
-def test_professional_service_keeps_iva_isr_and_two_thirds_retention_separate(tmp_path):
+def test_persona_fisica_freight_requires_regime_before_resico_can_be_excluded(tmp_path):
+    from aqorath.economic_facts import EconomicFact
+    from aqorath.fiscal_v1_coverage import UnsupportedFiscalV1Case, resolve_fiscal_v1_treatments
+
+    engine, session = _session(tmp_path)
+    try:
+        fact = EconomicFact("freight_expense", Decimal("1000.00"), "bank")
+        with pytest.raises(UnsupportedFiscalV1Case, match="régimen"):
+            resolve_fiscal_v1_treatments(
+                session,
+                _facts(
+                    fact,
+                    entity_role="recipient",
+                    counterparty_legal_personality="persona_fisica",
+                    counterparty_fiscal_regime=None,
+                    activity="land_freight_goods",
+                ),
+            )
+    finally:
+        session.close()
+        engine.dispose()
+
+
+def test_professional_consulting_keeps_iva_isr_and_two_thirds_retention_separate(tmp_path):
     from aqorath.economic_facts import EconomicFact
     from aqorath.fiscal_v1_coverage import resolve_fiscal_v1_treatments
 
@@ -165,7 +193,7 @@ def test_professional_service_keeps_iva_isr_and_two_thirds_retention_separate(tm
                 entity_legal_personality="persona_moral",
                 counterparty_legal_personality="persona_fisica",
                 counterparty_fiscal_regime="general",
-                activity="professional_service",
+                activity=PROFESSIONAL_ACTIVITY,
                 cfdi_transferred_vat=Decimal("160.0000"),
             ),
         )
@@ -175,17 +203,36 @@ def test_professional_service_keeps_iva_isr_and_two_thirds_retention_separate(tm
             "iva.professional_services_retention_fraction",
         ]
         assert treatments[0].exact_amount == Decimal("160.0000")
+        assert treatments[0].fiscal_role == "vat_pending_credit"
         assert treatments[1].exact_amount == Decimal("100.0000")
         two_thirds = treatments[2]
         assert two_thirds.rule.value == Decimal("2")
         assert two_thirds.rule.unit == "fraction_2_3_of_transferred_vat"
+        assert two_thirds.rule_set_version == "2006.1"
         assert two_thirds.base == Decimal("160.0000")
         assert two_thirds.formula.startswith("2/3")
         assert "0.666666" not in str(two_thirds.rule.value)
-        assert two_thirds.exact_amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) == Decimal("106.67")
+        assert two_thirds.exact_amount.quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        ) == Decimal("106.67")
     finally:
         session.close()
         engine.dispose()
+
+
+def test_generic_professional_label_is_not_a_taxable_v1_conclusion(tmp_path):
+    from aqorath.economic_facts import EconomicFact
+    from aqorath.fiscal_v1_coverage import UnsupportedFiscalV1Case
+
+    fact = EconomicFact("professional_services_expense", Decimal("1000.00"), "bank")
+    with pytest.raises(UnsupportedFiscalV1Case, match="no tiene una regla fiscal V1"):
+        _facts(
+            fact,
+            entity_role="recipient",
+            counterparty_legal_personality="persona_fisica",
+            counterparty_fiscal_regime="general",
+            activity="professional_service",
+        )
 
 
 def test_resico_professional_service_is_only_one_point_two_five_withholding_not_integral_isr(tmp_path):
@@ -202,15 +249,18 @@ def test_resico_professional_service_is_only_one_point_two_five_withholding_not_
                 entity_role="recipient",
                 counterparty_legal_personality="persona_fisica",
                 counterparty_fiscal_regime="resico",
-                activity="professional_service",
+                activity=PROFESSIONAL_ACTIVITY,
                 cfdi_transferred_vat=Decimal("160.0000"),
             ),
         )
         keys = [item.treatment_key for item in treatments]
         assert "isr.resico_retention_rate" in keys
         assert "isr.professional_services_retention_rate" not in keys
-        resico = next(item for item in treatments if item.treatment_key == "isr.resico_retention_rate")
+        resico = next(
+            item for item in treatments if item.treatment_key == "isr.resico_retention_rate"
+        )
         assert resico.rule.value == Decimal("0.0125")
+        assert resico.rule_set_version == "2022.1"
         assert resico.exact_amount == Decimal("12.500000")
         assert "no el ISR integral" in resico.explanation
     finally:
@@ -256,7 +306,7 @@ def test_professional_context_must_be_accredited_and_documentary_divergence_stop
         common = dict(
             entity_role="recipient",
             counterparty_legal_personality="persona_fisica",
-            activity="professional_service",
+            activity=PROFESSIONAL_ACTIVITY,
         )
         with pytest.raises(UnsupportedFiscalV1Case, match="Falta acreditar"):
             resolve_fiscal_v1_treatments(
