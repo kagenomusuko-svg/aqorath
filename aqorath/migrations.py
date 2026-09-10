@@ -24,8 +24,8 @@ from aqorath.money import to_decimal_exact
 # Version Control
 # ============================================================
 
-CURRENT_SCHEMA_VERSION = 8
-"""Schema 8 adds external bank evidence and reconciliation relations."""
+CURRENT_SCHEMA_VERSION = 9
+"""Schema 9 adds OSC fund/source traceability over canonical journal lines."""
 
 # ============================================================
 # Migration Registry
@@ -34,6 +34,7 @@ def _create_current_schema(db_path):
     """Create complete current schema using models after structural migrations."""
     from aqorath import models as _models  # noqa: F401 - populate metadata
     from aqorath import banking_models as _banking_models  # noqa: F401
+    from aqorath import fund_models as _fund_models  # noqa: F401
     from sqlmodel import SQLModel
     from sqlalchemy import create_engine
 
@@ -550,6 +551,19 @@ def _migrate_7_to_8(db_path):
         engine.dispose()
 
 
+def _migrate_8_to_9(db_path):
+    """Add fund traceability relations without creating a monetary subledger."""
+    from aqorath.fund_models import FundRecord, FundingSourceRecord, FundReceiptRecord, FundApplicationRecord
+    from sqlalchemy import create_engine
+    engine = create_engine(f"sqlite:///{db_path}")
+    try:
+        with engine.begin() as conn:
+            for model in (FundRecord, FundingSourceRecord, FundReceiptRecord, FundApplicationRecord):
+                model.__table__.create(conn, checkfirst=True)
+    finally:
+        engine.dispose()
+
+
 MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -559,6 +573,7 @@ MIGRATIONS = {
     6: _migrate_5_to_6,
     7: _migrate_6_to_7,
     8: _migrate_7_to_8,
+    9: _migrate_8_to_9,
 }
 """Registry of migration callables. Key: target version."""
 
