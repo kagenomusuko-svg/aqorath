@@ -329,11 +329,11 @@ def _resolve_professional_service(session, facts):
         _unsupported(
             "AQR-011 sólo ha revisado la subcategoría de consultoría profesional de negocios."
         )
-    if facts.fact.type not in {
-        "professional_services_expense",
-        "professional_services_expense_incurred",
-    }:
-        _unsupported("El hecho económico no identifica un servicio profesional V1.")
+    if facts.fact.type != "professional_services_expense":
+        _unsupported(
+            "El vertical fiscal de honorarios V1 sólo acepta el hecho efectivamente pagado; "
+            "el devengo/cuenta por pagar es un hecho contable distinto."
+        )
     _require_paid(facts)
     _require_pm_recipient_with_counterparty(facts)
     if facts.counterparty_legal_personality != "persona_fisica":
@@ -383,8 +383,11 @@ def _resolve_professional_service(session, facts):
 
 
 def _resolve_freight(session, facts):
-    if facts.fact.type not in {"freight_expense", "freight_expense_incurred"}:
-        _unsupported("El hecho económico no identifica autotransporte terrestre de bienes.")
+    if facts.fact.type != "freight_expense":
+        _unsupported(
+            "El vertical fiscal de autotransporte V1 sólo acepta el hecho efectivamente pagado; "
+            "el devengo/cuenta por pagar es un hecho contable distinto."
+        )
     _require_paid(facts)
     _require_pm_recipient_with_counterparty(facts)
     if facts.counterparty_legal_personality not in {"persona_fisica", "persona_moral"}:
