@@ -57,6 +57,26 @@ def test_http_common_prepare_confirm_posts_aqr011_without_tax_inputs(tmp_path, m
         engine.dispose()
 
 
+def test_http_fiscal_v1_professional_endpoint_reconstructs_persisted_rule_truth(tmp_path, monkeypatch):
+    engine, web_surface = _http_runtime(tmp_path, monkeypatch)
+    try:
+        payload = web_surface.prepare_fiscal_v1({
+            "operation_key": "sale_own_publication_paid",
+            "amount": "500.00",
+            "operation_date": "2026-09-10",
+        })
+        result = web_surface.confirm_operation(payload["token"])
+        professional = web_surface.professional_fiscal_v1(result["entry_id"])
+
+        assert professional["coverage_version"] == "mx-fiscal-v1.2026-09-10"
+        assert professional["entry_state"] == "posted"
+        assert professional["treatments"][0]["rule_key"] == "iva.zero_rate"
+        assert professional["treatments"][0]["rounded_amount"] == "0.00"
+        assert professional["treatments"][0]["source_ref"]
+    finally:
+        engine.dispose()
+
+
 def test_browser_shell_uses_capability_driven_operation_select_and_preview_fields():
     from aqorath.web_assets import APP_HTML
 
