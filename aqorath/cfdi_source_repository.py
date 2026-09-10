@@ -203,6 +203,21 @@ def _validate_existing_cfdi_document(document, source, entry_id):
         raise ValueError("CFDI DocumentReference hash differs from imported evidence")
 
 
+def _entry_represents_cfdi_total(lines, source_total):
+    """Require the CFDI net total to be present in the canonical settlement lines.
+
+    A retained-tax CFDI total is the net amount paid/collected, while the ledger's
+    total debits can legitimately include the gross base plus recoverable VAT.
+    The document link therefore anchors to an actual JournalLine amount instead
+    of assuming that the net document total always equals aggregate debits.
+    """
+    total = Decimal(source_total)
+    return any(
+        Decimal(line.debit) == total or Decimal(line.credit) == total
+        for line in lines
+    )
+
+
 def stage_cfdi_source_link(
     session,
     entity_id,
@@ -224,9 +239,8 @@ def stage_cfdi_source_link(
     if entry.date.date() != datetime.fromisoformat(source.issued_at).date():
         raise ValueError("CFDI issue date differs from JournalEntry date")
     lines = session.exec(select(JournalLine).where(JournalLine.entry_id == entry_id)).all()
-    debit_total = sum((Decimal(line.debit) for line in lines), Decimal("0"))
-    if debit_total != Decimal(source.total):
-        raise ValueError("CFDI total differs from canonical JournalLine debit total")
+    if not _entry_represents_cfdi_total(lines, source.total):
+        raise ValueError("CFDI total is not represented by a canonical JournalLine settlement amount")
     existing = session.exec(
         select(CfdiSourceLinkRecord).where(CfdiSourceLinkRecord.cfdi_source_id == source_id)
     ).one_or_none()
