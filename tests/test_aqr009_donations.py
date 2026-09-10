@@ -66,11 +66,11 @@ def _inkind_prepared(engine, fund, program):
 
 
 def test_schema10_adds_inkind_evidence_without_backfill(tmp_path):
-    from aqorath.migrations import migrate_database
+    from aqorath.migrations import CURRENT_SCHEMA_VERSION, migrate_database
     path = tmp_path / "donations.db"
     migrate_database(path)
     with sqlite3.connect(path) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 10
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == CURRENT_SCHEMA_VERSION
         assert {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")} >= {"donation", "inkinddonation"}
         assert conn.execute("SELECT count(*) FROM inkinddonation").fetchone()[0] == 0
 

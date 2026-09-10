@@ -55,6 +55,19 @@ class LocalPresentationController:
         prepared = _application.prepare_surface_inkind_donation(payload)
         return self._store(prepared, prepared.preview)
 
+    def import_cfdi(self, payload):
+        return _application.import_surface_cfdi(payload)
+
+    def cfdi_sources(self):
+        return _application.list_surface_cfdi_sources()
+
+    def prepare_cfdi(self, payload):
+        prepared = _application.prepare_surface_cfdi(payload)
+        return self._store(prepared, prepared.preview)
+
+    def professional_cfdi(self, uuid):
+        return _application.load_surface_cfdi_professional(uuid)
+
     def prepare_open_item_origin(self, payload):
         prepared = _application.prepare_surface_open_item_origin(
             payload.get("operation_key"),
@@ -95,6 +108,8 @@ class LocalPresentationController:
             return _application.professional_preview(prepared)
         if isinstance(prepared, _application.PreparedSurfaceDonationOperation):
             return _application.donation_professional_preview(prepared)
+        if isinstance(prepared, _application.PreparedSurfaceCfdiOperation):
+            return _application.cfdi_professional_preview(prepared)
         if isinstance(prepared, _application.PreparedSurfaceSubledgerAction):
             return _application.subledger_professional_preview(prepared)
         raise TypeError("unsupported prepared presentation value")
@@ -110,6 +125,8 @@ class LocalPresentationController:
             }
         elif isinstance(prepared, _application.PreparedSurfaceDonationOperation):
             response = _application.confirm_surface_donation(prepared)
+        elif isinstance(prepared, _application.PreparedSurfaceCfdiOperation):
+            response = _application.confirm_surface_cfdi(prepared)
         elif isinstance(prepared, _application.PreparedSurfaceSubledgerAction):
             response = _application.confirm_and_post_subledger(prepared)
         else:

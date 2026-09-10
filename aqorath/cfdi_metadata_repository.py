@@ -42,7 +42,7 @@ def _require_cfdi_document(session, document_reference_id):
     return document
 
 
-def register_cfdi_import_metadata(session, metadata):
+def stage_cfdi_import_metadata(session, metadata):
     if not isinstance(metadata, CfdiImportMetadata):
         raise TypeError("metadata must be CfdiImportMetadata")
     if metadata.id is not None:
@@ -61,17 +61,21 @@ def register_cfdi_import_metadata(session, metadata):
         sat_certificate_number=metadata.sat_certificate_number,
         imported_at=metadata.imported_at.isoformat(),
     )
+    session.add(record)
+    session.flush()
+    if record.id is None:
+        raise RuntimeError("CFDI metadata identity was not assigned")
+    return replace(metadata, id=record.id)
+
+
+def register_cfdi_import_metadata(session, metadata):
     try:
-        session.add(record)
-        session.flush()
-        if record.id is None:
-            raise RuntimeError("CFDI metadata identity was not assigned")
-        persisted_id = record.id
+        result = stage_cfdi_import_metadata(session, metadata)
         session.commit()
     except Exception:
         session.rollback()
         raise
-    return replace(metadata, id=persisted_id)
+    return result
 
 
 def get_cfdi_import_metadata(session, document_reference_id):
@@ -86,3 +90,10 @@ def get_cfdi_import_metadata(session, document_reference_id):
             f"CFDI metadata for DocumentReference id={document_reference_id} does not exist"
         )
     return _from_record(record)
+
+
+__all__ = [
+    "stage_cfdi_import_metadata",
+    "register_cfdi_import_metadata",
+    "get_cfdi_import_metadata",
+]

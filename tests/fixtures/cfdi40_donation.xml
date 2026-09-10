@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante
+    xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+    xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
+    Version="4.0"
+    Serie="DON"
+    Folio="1000"
+    Fecha="2026-09-10T09:15:00"
+    Sello="SELLO-CFD-DONATIVO"
+    FormaPago="03"
+    NoCertificado="30001000000500003416"
+    SubTotal="1000.00"
+    Moneda="MXN"
+    Total="1000.00"
+    TipoDeComprobante="I"
+    MetodoPago="PUE"
+    Exportacion="01"
+    LugarExpedicion="06000">
+  <cfdi:Emisor Rfc="MER260101AB1" Nombre="Meriadock A.C." RegimenFiscal="603"/>
+  <cfdi:Receptor Rfc="DON010101AA1" Nombre="Donante Ejemplo" DomicilioFiscalReceptor="06000" RegimenFiscalReceptor="612" UsoCFDI="G03"/>
+  <cfdi:Conceptos>
+    <cfdi:Concepto ClaveProdServ="84101600" Cantidad="1" ClaveUnidad="ACT" Descripcion="Evidencia documental de donativo" ValorUnitario="1000.00" Importe="1000.00" ObjetoImp="01"/>
+  </cfdi:Conceptos>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital Version="1.1" UUID="423e4567-e89b-12d3-a456-426614174000" FechaTimbrado="2026-09-10T09:16:00" RfcProvCertif="SAT970701NN3" SelloCFD="SELLO-CFD-DONATIVO" NoCertificadoSAT="00001000000504465028" SelloSAT="SELLO-SAT-DONATIVO"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>
