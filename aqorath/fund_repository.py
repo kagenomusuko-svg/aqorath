@@ -29,6 +29,7 @@ def _line_amount(session, line_id, *, kind):
     if line is None: raise LookupError("JournalLine not found")
     entry = session.get(JournalEntry, line.entry_id)
     if entry is None or entry.state not in ("posted", "reversed"): raise ValueError("JournalLine must belong to a posted JournalEntry")
+    context = _posting_context(session, entry.id)
     account = session.get(Account, line.account_id)
     if account is None: raise LookupError("JournalLine account not found")
     debit, credit = Decimal(line.debit), Decimal(line.credit)
@@ -37,7 +38,32 @@ def _line_amount(session, line_id, *, kind):
         raise ValueError("FundReceipt requires a credit JournalLine on a credit-nature account")
     if kind == "application" and (debit <= 0 or account.nature.upper() != "DEBIT"):
         raise ValueError("FundApplication requires a debit JournalLine on a debit-nature account")
+    allowed = {"utility_expense", "utility_expense_incurred", "supplier_payment"}
+    if kind == "application" and (context[0] != "active" or context[1] not in allowed):
+        raise ValueError("FundApplication requires canonical posted expense/payment provenance")
     return line, entry, abs(debit - credit)
+
+
+def _posting_context(session, entry_id):
+    """Return canonical owner and fact type from the durable posting audit."""
+    rows = session.exec(select(AuditEventRecord).where(AuditEventRecord.event_type == "entry_posted")).all()
+    matches = []
+    for event in rows:
+        try:
+            details = json.loads(event.details_json)
+        except (TypeError, ValueError):
+            continue
+        if details.get("entry_id") != entry_id:
+            continue
+        fact_type = details.get("decision", {}).get("fact", {}).get("type")
+        if type(fact_type) is str:
+            matches.append((event.entity_id, fact_type))
+    if len(matches) != 1:
+        return ("ambiguous", None)
+    active = session.exec(select(EntityRecord).where(EntityRecord.is_active.is_(True))).all()
+    if len(active) != 1 or active[0].id != matches[0][0]:
+        return ("foreign", matches[0][1])
+    return ("active", matches[0][1])
 
 
 def _effective(session, line_id, as_of):
@@ -77,13 +103,21 @@ def create_funding_source(session, source):
 
 def record_fund_receipt(session, receipt):
     if not isinstance(receipt, FundReceipt) or receipt.id is not None: raise TypeError("receipt must be a new FundReceipt")
-    _entity(session, receipt.entity_id); _fund(session, receipt.entity_id, receipt.fund_id); _source(session, receipt.entity_id, receipt.funding_source_id)
+    _entity(session, receipt.entity_id); fund = _fund(session, receipt.entity_id, receipt.fund_id); _source(session, receipt.entity_id, receipt.funding_source_id)
+    line = session.get(JournalLine, receipt.journal_line_id)
+    if line is None: raise LookupError("JournalLine not found")
+    entry = session.get(JournalEntry, line.entry_id)
+    if entry is None or entry.state not in ("posted", "reversed"): raise ValueError("JournalLine must belong to a posted JournalEntry")
+    context = _posting_context(session, entry.id)
+    if context[0] != "active": raise ValueError("JournalLine has no unambiguous active Entity ownership")
     line, entry, line_amount = _line_amount(session, receipt.journal_line_id, kind="receipt")
     if line_amount != receipt.amount: raise ValueError("receipt amount must equal the canonical JournalLine amount")
     if receipt.received_at.date() != entry.date.date(): raise ValueError("received_at must equal the canonical JournalEntry date")
-    if receipt.donation_id is not None:
-        donation = session.get(DonationRecord, receipt.donation_id)
-        if donation is None or donation.entity_id != receipt.entity_id or Decimal(donation.amount) != receipt.amount: raise ValueError("receipt donation must match Entity and exact amount")
+    if fund.valid_from and entry.date.date().isoformat() < fund.valid_from: raise ValueError("receipt is before Fund validity")
+    if fund.valid_until and entry.date.date().isoformat() > fund.valid_until: raise ValueError("receipt is after Fund validity")
+    if receipt.donation_id is None: raise ValueError("FundReceipt requires Donation provenance for a resource receipt")
+    donation = session.get(DonationRecord, receipt.donation_id)
+    if donation is None or donation.entity_id != receipt.entity_id or Decimal(donation.amount) != receipt.amount or donation.date != entry.date.isoformat(): raise ValueError("receipt donation must match Entity, canonical date and exact amount")
     already = session.exec(select(FundReceiptRecord).where(FundReceiptRecord.journal_line_id == receipt.journal_line_id)).first()
     if already is not None: raise ValueError("JournalLine is already attributed to a FundReceipt")
     row = FundReceiptRecord(entity_id=receipt.entity_id, fund_id=receipt.fund_id, funding_source_id=receipt.funding_source_id, journal_line_id=receipt.journal_line_id, donation_id=receipt.donation_id, amount=str(receipt.amount), received_at=entry.date.isoformat())
@@ -135,3 +169,26 @@ def load_fund_balance(session, entity_id, fund_id, as_of):
     applied = sum((Decimal(row.amount) for row in applications if _effective(session, row.journal_line_id, as_of)), Decimal("0"))
     if applied > received: raise ValueError("fund traceability is inconsistent: applications exceed receipts")
     return FundBalance(fund_id=fund_id, as_of=as_of, received=received, applied=applied, available=received-applied, restriction=fund.restriction, program_id=fund.program_id)
+
+
+def load_fund_traceability(session, entity_id, fund_id, as_of):
+    """Return a fail-closed professional projection with canonical ledger evidence."""
+    fund = _fund(session, entity_id, fund_id)
+    balance = load_fund_balance(session, entity_id, fund_id, as_of)
+    receipts = session.exec(select(FundReceiptRecord).where(FundReceiptRecord.entity_id == entity_id, FundReceiptRecord.fund_id == fund_id).order_by(FundReceiptRecord.id)).all()
+    applications = session.exec(select(FundApplicationRecord).where(FundApplicationRecord.entity_id == entity_id, FundApplicationRecord.fund_id == fund_id).order_by(FundApplicationRecord.id)).all()
+    source_ids = {row.funding_source_id for row in receipts}
+    sources = {row.id: row for row in session.exec(select(FundingSourceRecord).where(FundingSourceRecord.id.in_(source_ids))).all()} if source_ids else {}
+    def ledger(line_id):
+        line = session.get(JournalLine, line_id)
+        entry = None if line is None else session.get(JournalEntry, line.entry_id)
+        if line is None or entry is None: raise ValueError("fund traceability references missing ledger evidence")
+        reversal = session.exec(select(JournalEntryReversalRecord).where(JournalEntryReversalRecord.original_entry_id == entry.id)).first()
+        return {"entry_id": entry.id, "line_id": line.id, "date": entry.date.isoformat(), "account_id": line.account_id, "debit": str(line.debit), "credit": str(line.credit), "state": entry.state, "reversal_entry_id": None if reversal is None else reversal.reversal_entry_id}
+    return {
+        "fund": {"id": fund.id, "code": fund.code, "name": fund.name, "restriction": fund.restriction, "purpose": fund.purpose, "program_id": fund.program_id, "valid_from": fund.valid_from, "valid_until": fund.valid_until},
+        "as_of": as_of.isoformat(),
+        "received": str(balance.received), "applied": str(balance.applied), "available": str(balance.available),
+        "receipts": [{"id": row.id, "source": {"id": sources[row.funding_source_id].id, "name": sources[row.funding_source_id].name}, "amount": str(row.amount), "effective": _effective(session, row.journal_line_id, as_of), "ledger": ledger(row.journal_line_id)} for row in receipts],
+        "applications": [{"id": row.id, "program_id": row.program_id, "receipt_id": row.receipt_id, "amount": str(row.amount), "effective": _effective(session, row.journal_line_id, as_of), "ledger": ledger(row.journal_line_id)} for row in applications],
+    }
