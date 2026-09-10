@@ -24,8 +24,8 @@ from aqorath.money import to_decimal_exact
 # Version Control
 # ============================================================
 
-CURRENT_SCHEMA_VERSION = 6
-"""Schema 5 adds explicit calendar metadata; v4 ledger truth remains intact."""
+CURRENT_SCHEMA_VERSION = 7
+"""Schema 7 adds relationship-only CxC/CxP subledgers without historical backfill."""
 
 # ============================================================
 # Migration Registry
@@ -448,12 +448,46 @@ def _validate_calendar_schema(db_path):
             if found != columns:
                 raise RuntimeError(f'Invalid schema 5 calendar table: {table}')
 
+
 def _validate_reversal_schema(db_path):
     with sqlite3.connect(str(db_path)) as conn:
         found = {r[1] for r in conn.execute('PRAGMA table_info(journalentryreversal)')}
     required = {'id', 'original_entry_id', 'reversal_entry_id', 'reason', 'created_at'}
     if found != required:
         raise RuntimeError('Invalid schema 6 reversal table')
+
+
+def _validate_subledger_schema(db_path):
+    required = {
+        'openitem': {
+            'id', 'entity_id', 'third_party_id', 'kind', 'source_entry_id',
+            'source_line_id', 'source_document_reference_id', 'due_date', 'created_at',
+        },
+        'openitemapplication': {
+            'id', 'open_item_id', 'application_entry_id', 'application_line_id',
+            'application_document_reference_id', 'created_at',
+        },
+    }
+    with sqlite3.connect(str(db_path)) as conn:
+        for table, columns in required.items():
+            found = {r[1] for r in conn.execute(f'PRAGMA table_info({table})')}
+            if found != columns:
+                raise RuntimeError(f'Invalid schema 7 subledger table: {table}')
+
+        def unique_column_sets(table):
+            result = set()
+            for row in conn.execute(f'PRAGMA index_list({table})'):
+                if row[2] != 1:
+                    continue
+                index_name = row[1]
+                cols = tuple(r[2] for r in conn.execute(f'PRAGMA index_info({index_name})'))
+                result.add(cols)
+            return result
+
+        if ('source_line_id',) not in unique_column_sets('openitem'):
+            raise RuntimeError('Invalid schema 7 OpenItem source-line uniqueness')
+        if ('application_line_id',) not in unique_column_sets('openitemapplication'):
+            raise RuntimeError('Invalid schema 7 application-line uniqueness')
 
 
 def _migrate_4_to_5(db_path):
@@ -479,6 +513,20 @@ def _migrate_5_to_6(db_path):
         engine.dispose()
 
 
+def _migrate_6_to_7(db_path):
+    """Add relationship-only CxC/CxP subledger metadata; never infer history."""
+    from aqorath.open_item_models import OpenItemRecord, OpenItemApplicationRecord
+    from sqlalchemy import create_engine
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    try:
+        with engine.begin() as conn:
+            OpenItemRecord.__table__.create(conn, checkfirst=True)
+            OpenItemApplicationRecord.__table__.create(conn, checkfirst=True)
+    finally:
+        engine.dispose()
+
+
 MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -486,6 +534,7 @@ MIGRATIONS = {
     4: _migrate_3_to_4,
     5: _migrate_4_to_5,
     6: _migrate_5_to_6,
+    7: _migrate_6_to_7,
 }
 """Registry of migration callables. Key: target version."""
 
@@ -613,7 +662,7 @@ def restore_database_backup(backup_path, target_path) -> None:
 
 
 def migrate_database(db_path) -> dict:
-    """Migrate SQLite sequentially and validate current calendar metadata."""
+    """Migrate SQLite sequentially and validate current structural metadata."""
     db_path = Path(db_path)
     current_version = get_schema_version(str(db_path))
 
@@ -629,6 +678,7 @@ def migrate_database(db_path) -> dict:
             raise RuntimeError(f"Database {db_path} is corrupt")
         _validate_calendar_schema(db_path)
         _validate_reversal_schema(db_path)
+        _validate_subledger_schema(db_path)
         _ensure_additive_current_schema(str(db_path))
         return {
             "from_version": current_version,
@@ -660,6 +710,7 @@ def migrate_database(db_path) -> dict:
     _ensure_additive_current_schema(str(db_path))
     _validate_calendar_schema(db_path)
     _validate_reversal_schema(db_path)
+    _validate_subledger_schema(db_path)
     return {
         "from_version": current_version,
         "to_version": CURRENT_SCHEMA_VERSION,

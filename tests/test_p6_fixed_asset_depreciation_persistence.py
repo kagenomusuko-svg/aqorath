@@ -242,7 +242,7 @@ def test_frozen_v4_additively_ensures_depreciation_period_registry_without_schem
     from aqorath import migrations
 
     engine, db_path, _, _ = _initialize_canonical_db(tmp_path, monkeypatch)
-    assert migrations.CURRENT_SCHEMA_VERSION == 6
+    assert migrations.get_schema_version(db_path) == migrations.CURRENT_SCHEMA_VERSION
     assert "fixedassetdepreciationpostingrecord" in sa_inspect(engine).get_table_names()
 
     with engine.begin() as connection:
@@ -261,7 +261,7 @@ def test_frozen_v4_additively_ensures_depreciation_period_registry_without_schem
         ).get_table_names()
         with verification_engine.connect() as connection:
             version = connection.exec_driver_sql("PRAGMA user_version").scalar_one()
-        assert version == 6
+        assert version == migrations.CURRENT_SCHEMA_VERSION
     finally:
         verification_engine.dispose()
 

@@ -59,11 +59,11 @@ def _third_party(entity_id):
 
 
 def _fresh_db(tmp_path, filename="cfdi-import-metadata.db"):
-    from aqorath.migrations import migrate_database
+    from aqorath.migrations import CURRENT_SCHEMA_VERSION, migrate_database
 
     db_path = tmp_path / filename
     result = migrate_database(str(db_path))
-    assert result["to_version"] == 6
+    assert result["to_version"] == CURRENT_SCHEMA_VERSION
     return db_path, create_engine(f"sqlite:///{db_path}")
 
 
@@ -358,7 +358,7 @@ def test_frozen_v4_additively_creates_cfdi_metadata_schema_with_one_to_one_docum
 
     db_path, engine = _fresh_db(tmp_path, "schema.db")
     try:
-        assert CURRENT_SCHEMA_VERSION == 6
+        assert CURRENT_SCHEMA_VERSION >= 4
         conn = sqlite3.connect(str(db_path))
         try:
             tables = {
@@ -440,7 +440,7 @@ def test_frozen_v4_additively_creates_cfdi_metadata_schema_with_one_to_one_docum
 
 
 def test_current_v4_additive_ensure_adds_cfdi_metadata_without_rewriting_existing_document_truth(tmp_path):
-    from aqorath.migrations import migrate_database
+    from aqorath.migrations import CURRENT_SCHEMA_VERSION, migrate_database
     from aqorath.models import DocumentReferenceRecord
 
     db_path, engine = _fresh_db(tmp_path, "additive.db")
@@ -470,14 +470,14 @@ def test_current_v4_additive_ensure_adds_cfdi_metadata_without_rewriting_existin
             conn.execute("DROP TABLE cfdiimportmetadata")
             conn.commit()
             version_before = conn.execute("PRAGMA user_version").fetchone()[0]
-            assert version_before == 6
+            assert version_before == CURRENT_SCHEMA_VERSION
         finally:
             conn.close()
 
         result = migrate_database(str(db_path))
         assert result == {
-            "from_version": 6,
-            "to_version": 6,
+            "from_version": CURRENT_SCHEMA_VERSION,
+            "to_version": CURRENT_SCHEMA_VERSION,
             "migrated": False,
             "backup_path": None,
         }

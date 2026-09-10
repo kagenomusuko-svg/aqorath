@@ -41,8 +41,8 @@ def _require_entry(session, entry_id):
     return entry
 
 
-def create_document_reference(session, document_reference):
-    """Persist one explicit source-document reference for an existing entry."""
+def stage_document_reference(session, document_reference):
+    """Stage one source reference inside the caller's transaction without commit."""
     if not isinstance(document_reference, DocumentReference):
         raise TypeError("document_reference must be DocumentReference")
     if document_reference.id is not None:
@@ -72,17 +72,22 @@ def create_document_reference(session, document_reference):
         is_validated=document_reference.is_validated,
         validation_notes=document_reference.validation_notes,
     )
+    session.add(record)
+    session.flush()
+    if record.id is None:
+        raise RuntimeError("DocumentReference persistence did not assign identity")
+    return replace(document_reference, id=record.id)
+
+
+def create_document_reference(session, document_reference):
+    """Persist one explicit source-document reference for an existing entry."""
     try:
-        session.add(record)
-        session.flush()
-        if record.id is None:
-            raise RuntimeError("DocumentReference persistence did not assign identity")
-        persisted_id = record.id
+        result = stage_document_reference(session, document_reference)
         session.commit()
     except Exception:
         session.rollback()
         raise
-    return replace(document_reference, id=persisted_id)
+    return result
 
 
 def get_document_reference(session, document_reference_id):
@@ -103,3 +108,11 @@ def list_document_references(session, entry_id):
         .order_by(DocumentReferenceRecord.id)
     ).all()
     return tuple(_from_record(record) for record in rows)
+
+
+__all__ = [
+    "stage_document_reference",
+    "create_document_reference",
+    "get_document_reference",
+    "list_document_references",
+]

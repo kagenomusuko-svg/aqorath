@@ -52,11 +52,11 @@ def _entity(*, osc=False, active=True, name="Entidad Uno"):
 
 
 def _fresh_db(tmp_path, filename="audit-event.db"):
-    from aqorath.migrations import migrate_database
+    from aqorath.migrations import CURRENT_SCHEMA_VERSION, migrate_database
 
     db_path = tmp_path / filename
     result = migrate_database(str(db_path))
-    assert result["to_version"] == 6
+    assert result["to_version"] == CURRENT_SCHEMA_VERSION
     return db_path, create_engine(f"sqlite:///{db_path}")
 
 
@@ -171,7 +171,7 @@ def test_audit_event_domain_validates_identity_event_type_timestamp_and_exact_de
 def test_audit_event_details_are_explicit_json_object_metadata_with_str_keys_and_fail_closed_values():
     from aqorath.audit_event import AuditEvent
 
-    moment = datetime(2026, 8, 27, tzinfo=timezone.utc)
+    moment = datetime(2026, 8, 27, 12, 0, tzinfo=timezone.utc)
     valid = {
         "action": "export",
         "ids": [1, 2],
@@ -216,7 +216,7 @@ def test_frozen_v4_additively_creates_exact_audit_event_schema_with_entity_fk_an
     from aqorath.migrations import CURRENT_SCHEMA_VERSION
     from aqorath.models import AuditEventRecord
 
-    assert CURRENT_SCHEMA_VERSION == 6
+    assert CURRENT_SCHEMA_VERSION >= 4
     assert AuditEventRecord.__tablename__ == "auditevent"
 
     db_path, engine = _fresh_db(tmp_path, "schema.db")
@@ -253,7 +253,7 @@ def test_frozen_v4_additively_creates_exact_audit_event_schema_with_entity_fk_an
 
 
 def test_current_v4_additive_ensure_adds_audit_event_without_rewriting_existing_truth(tmp_path):
-    from aqorath.migrations import get_schema_version, migrate_database
+    from aqorath.migrations import CURRENT_SCHEMA_VERSION, get_schema_version, migrate_database
 
     db_path = tmp_path / "existing-v4.db"
     conn = sqlite3.connect(str(db_path))
@@ -269,12 +269,12 @@ def test_current_v4_additive_ensure_adds_audit_event_without_rewriting_existing_
     result = migrate_database(str(db_path))
     assert result == {
         "from_version": 4,
-        "to_version": 6,
+        "to_version": CURRENT_SCHEMA_VERSION,
         "migrated": True,
         "backup_path": result["backup_path"],
     }
     assert __import__("pathlib").Path(result["backup_path"]).is_file()
-    assert get_schema_version(str(db_path)) == 6
+    assert get_schema_version(str(db_path)) == CURRENT_SCHEMA_VERSION
 
     conn = sqlite3.connect(str(db_path))
     try:

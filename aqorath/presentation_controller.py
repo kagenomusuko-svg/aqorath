@@ -1,7 +1,8 @@
-"""Framework-neutral local presentation controller for AQR-005.
+"""Framework-neutral local presentation controller.
 
-Pending tokens are ephemeral UI state only. They never represent posted accounting
-truth and may disappear on process restart without changing SQLite.
+Pending tokens are ephemeral consent/presentation state only. They never represent
+posted accounting or subledger truth and may disappear on process restart without
+changing SQLite. All durable work delegates to surface_application.
 """
 
 import secrets
@@ -13,12 +14,24 @@ class LocalPresentationController:
     def __init__(self):
         self._pending = {}
 
+    def _store(self, prepared, preview):
+        token = secrets.token_urlsafe(24)
+        while token in self._pending:
+            token = secrets.token_urlsafe(24)
+        self._pending[token] = prepared
+        return {"token": token, "preview": preview}
+
     def capabilities(self):
         return {
             "operations": [
                 {"key": item.key, "label": item.label}
                 for item in _application.list_common_operation_kinds()
             ],
+            "credit_origins": (
+                {"key": "sale_credit", "label": "Venta a crédito"},
+                {"key": "utility_credit", "label": "Compra/gasto a crédito"},
+            ),
+            "third_parties": _application.list_surface_third_parties(),
             "entity": _application.get_surface_entity(),
             "views": ("common", "professional"),
         }
@@ -29,33 +42,99 @@ class LocalPresentationController:
             amount,
             posting_date,
         )
-        token = secrets.token_urlsafe(24)
-        while token in self._pending:
-            token = secrets.token_urlsafe(24)
-        self._pending[token] = prepared
-        return {
-            "token": token,
-            "preview": _application.common_preview(prepared),
-        }
+        return self._store(prepared, _application.common_preview(prepared))
+
+    def prepare_open_item_origin(self, payload):
+        prepared = _application.prepare_surface_open_item_origin(
+            payload.get("operation_key"),
+            payload.get("amount"),
+            payload.get("posting_date"),
+            payload.get("third_party_id"),
+            payload.get("due_date"),
+            payload.get("document_type"),
+            payload.get("document_number"),
+            payload.get("document_date"),
+        )
+        return self._store(prepared, _application.subledger_common_preview(prepared))
+
+    def prepare_open_item_application(self, payload):
+        prepared = _application.prepare_surface_open_item_application(
+            payload.get("open_item_id"),
+            payload.get("amount"),
+            payload.get("posting_date"),
+            payload.get("document_type"),
+            payload.get("document_number"),
+            payload.get("document_date"),
+        )
+        return self._store(prepared, _application.subledger_common_preview(prepared))
+
+    def prepare_open_item_application_batch(self, payload):
+        prepared = _application.prepare_surface_open_item_application_batch(
+            payload.get("allocations"),
+            payload.get("posting_date"),
+            payload.get("document_type"),
+            payload.get("document_number"),
+            payload.get("document_date"),
+        )
+        return self._store(prepared, _application.subledger_common_preview(prepared))
 
     def professional_preview(self, token):
         prepared = self._require_pending(token)
-        return _application.professional_preview(prepared)
+        if isinstance(prepared, _application.PreparedSurfaceOperation):
+            return _application.professional_preview(prepared)
+        if isinstance(prepared, _application.PreparedSurfaceSubledgerAction):
+            return _application.subledger_professional_preview(prepared)
+        raise TypeError("unsupported prepared presentation value")
 
     def confirm(self, token):
         prepared = self._require_pending(token)
-        result = _application.confirm_and_post(prepared)
+        if isinstance(prepared, _application.PreparedSurfaceOperation):
+            result = _application.confirm_and_post(prepared)
+            response = {
+                "entry_id": result.entry_id,
+                "audit_event_id": result.audit_event_id,
+                "state": result.state,
+            }
+        elif isinstance(prepared, _application.PreparedSurfaceSubledgerAction):
+            response = _application.confirm_and_post_subledger(prepared)
+        else:
+            raise TypeError("unsupported prepared presentation value")
         del self._pending[token]
-        return {
-            "entry_id": result.entry_id,
-            "audit_event_id": result.audit_event_id,
-            "state": result.state,
-        }
+        return response
 
     def cancel(self, token):
         self._require_pending(token)
         del self._pending[token]
         return {"cancelled": True}
+
+    def third_parties(self):
+        return _application.list_surface_third_parties()
+
+    def create_third_party(self, payload):
+        return _application.create_surface_third_party(
+            payload.get("name"), payload.get("party_type"), payload.get("rfc"),
+        )
+
+    def reverse_operation(self, entry_id, payload):
+        return _application.reverse_surface_operation(
+            entry_id, payload.get("reason"), payload.get("reversal_date"),
+        )
+
+    def open_items(self, kind=None, as_of=None, include_settled=True):
+        return _application.list_surface_open_items(
+            kind=kind,
+            as_of=as_of,
+            include_settled=include_settled,
+        )
+
+    def open_item(self, open_item_id, as_of=None):
+        return _application.load_surface_open_item(open_item_id, as_of=as_of)
+
+    def professional_open_item(self, open_item_id, as_of=None):
+        return _application.load_professional_open_item(open_item_id, as_of=as_of)
+
+    def subledger_reconciliation(self, kind, as_of=None):
+        return _application.get_surface_subledger_reconciliation(kind, as_of=as_of)
 
     def recent_professional_operations(self, limit=50):
         return _application.list_professional_operations(limit)

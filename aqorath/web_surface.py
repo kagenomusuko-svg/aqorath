@@ -1,8 +1,8 @@
-"""Thin FastAPI adapter for the AQR-005 localhost surface.
+"""Thin FastAPI adapter for the localhost surface.
 
-This module must remain presentation-only. It imports the framework-neutral
-controller, never accounting/storage authorities. The process launcher binds to
-127.0.0.1 and this adapter also rejects non-loopback clients defensively.
+This module remains presentation-only. It imports the framework-neutral controller,
+never accounting/storage authorities. The process launcher binds to 127.0.0.1 and
+this adapter also rejects non-loopback clients defensively.
 """
 
 from ipaddress import ip_address
@@ -71,6 +71,30 @@ def prepare_operation(payload: dict):
         raise _error(exc) from exc
 
 
+@app.post("/api/subledger/origins/prepare")
+def prepare_open_item_origin(payload: dict):
+    try:
+        return controller.prepare_open_item_origin(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/subledger/applications/prepare")
+def prepare_open_item_application(payload: dict):
+    try:
+        return controller.prepare_open_item_application(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/subledger/applications/batch/prepare")
+def prepare_open_item_application_batch(payload: dict):
+    try:
+        return controller.prepare_open_item_application_batch(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
 @app.get("/api/operations/{token}/professional-preview")
 def professional_preview(token: str):
     try:
@@ -91,6 +115,66 @@ def confirm_operation(token: str):
 def cancel_operation(token: str):
     try:
         return controller.cancel(token)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.get("/api/subledger/third-parties")
+def third_parties():
+    try:
+        return controller.third_parties()
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/subledger/third-parties")
+def create_third_party(payload: dict):
+    try:
+        return controller.create_third_party(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/operations/{entry_id}/reverse")
+def reverse_operation(entry_id: int, payload: dict):
+    try:
+        return controller.reverse_operation(entry_id, payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.get("/api/subledger/open-items")
+def open_items(
+    kind: str | None = None,
+    as_of: str | None = None,
+    include_settled: bool = True,
+):
+    try:
+        return controller.open_items(kind, as_of, include_settled)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.get("/api/subledger/open-items/{open_item_id}")
+def open_item(open_item_id: int, as_of: str | None = None):
+    try:
+        return controller.open_item(open_item_id, as_of)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.get("/api/subledger/open-items/{open_item_id}/professional")
+def professional_open_item(open_item_id: int, as_of: str | None = None):
+    try:
+        return controller.professional_open_item(open_item_id, as_of)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.get("/api/subledger/reconciliation/{kind}")
+def subledger_reconciliation(kind: str, as_of: str | None = None):
+    try:
+        return controller.subledger_reconciliation(kind, as_of)
     except Exception as exc:
         raise _error(exc) from exc
 
