@@ -2,11 +2,12 @@
 
 Pending tokens are ephemeral consent/presentation state only. They never represent
 posted accounting or subledger truth and may disappear on process restart without
-changing SQLite. All durable work delegates to surface_application.
+changing SQLite. All durable work delegates to application-facing surface modules.
 """
 
 import secrets
 
+from . import fiscal_v1_surface_application as _fiscal_v1
 from . import surface_application as _application
 
 
@@ -27,6 +28,10 @@ class LocalPresentationController:
                 {"key": item.key, "label": item.label}
                 for item in _application.list_common_operation_kinds()
             ],
+            "fiscal_v1_operations": [
+                {"key": item.key, "label": item.label}
+                for item in _fiscal_v1.list_fiscal_v1_surface_kinds()
+            ],
             "credit_origins": (
                 {"key": "sale_credit", "label": "Venta a crédito"},
                 {"key": "utility_credit", "label": "Compra/gasto a crédito"},
@@ -43,6 +48,13 @@ class LocalPresentationController:
             posting_date,
         )
         return self._store(prepared, _application.common_preview(prepared))
+
+    def prepare_fiscal_v1(self, payload):
+        prepared = _fiscal_v1.prepare_fiscal_v1_surface_operation(payload)
+        return self._store(prepared, prepared.common_preview)
+
+    def professional_fiscal_v1(self, entry_id):
+        return _fiscal_v1.load_fiscal_v1_surface_professional(entry_id)
 
     def donation_options(self):
         return _application.list_surface_donation_options()
@@ -112,6 +124,8 @@ class LocalPresentationController:
             return _application.cfdi_professional_preview(prepared)
         if isinstance(prepared, _application.PreparedSurfaceSubledgerAction):
             return _application.subledger_professional_preview(prepared)
+        if isinstance(prepared, _fiscal_v1.PreparedFiscalV1SurfaceOperation):
+            return _fiscal_v1.professional_fiscal_v1_preview(prepared)
         raise TypeError("unsupported prepared presentation value")
 
     def confirm(self, token):
@@ -129,6 +143,8 @@ class LocalPresentationController:
             response = _application.confirm_surface_cfdi(prepared)
         elif isinstance(prepared, _application.PreparedSurfaceSubledgerAction):
             response = _application.confirm_and_post_subledger(prepared)
+        elif isinstance(prepared, _fiscal_v1.PreparedFiscalV1SurfaceOperation):
+            response = _fiscal_v1.confirm_and_execute_fiscal_v1_surface_operation(prepared)
         else:
             raise TypeError("unsupported prepared presentation value")
         del self._pending[token]
