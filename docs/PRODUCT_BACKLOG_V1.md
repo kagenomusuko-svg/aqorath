@@ -408,7 +408,7 @@ Implementado y fusionado mediante PR #45, merge `6517b303c48d7d38eef01003dad487f
 
 ## AQR-011 — Cobertura fiscal V1 declarada y versionada
 
-**Estado:** `NEXT`
+**Estado:** `DONE`
 
 ### Resultado de producto
 
@@ -430,11 +430,17 @@ Cada tratamiento fiscal soportado tiene regla versionada, prueba con fecha, expl
 
 AQR-001 y AQR-010 para flujos CFDI.
 
+### Cierre de aceptación
+
+Implementado y fusionado mediante PR #46, merge `5dc5640734d46b685ccf8dd9adf9f77206557481`, head definitivo revisado `527934106b6b852b67f51d4a708435c3e4897aec`. CI del head definitivo run 498 verde; CI post-merge de `main` run 499 verde; suite completa Python 3.12 registrada: **2092 passed, 8 warnings**.
+
+AQR-011 declara y versiona la cobertura fiscal mexicana V1 y falla cerrado fuera de soporte. Conserva la fórmula exacta de dos terceras partes cuando corresponde, modela `vat_pending_credit`, usa `ThirdParty` persistido como autoridad factual y mantiene CFDI AQR-010 como evidencia documental, no como inferencia jurídica. Posting, vínculo documental y auditoría son atómicos; las superficies común y profesional exponen la misma verdad sin pedir al usuario común tasas, cuentas ni Debe/Haber.
+
 ---
 
 ## AQR-012 — Inventario y costos cuando el perfil de entidad lo requiera
 
-**Estado:** `TODO`
+**Estado:** `NEXT`
 
 ### Resultado de producto
 
@@ -563,4 +569,4 @@ Al completar una tarea:
 
 ## SIGUIENTE ACTUAL
 
-`AQR-011 — Cobertura fiscal V1 declarada y versionada`.
+`AQR-012 — Inventario y costos cuando el perfil de entidad lo requiera`.
