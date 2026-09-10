@@ -111,8 +111,12 @@ def _optional_positive_int(value, field):
 
 def _common_preview(kind, prepared):
     facts = prepared.facts
+    explanations = [item.explanation for item in prepared.treatments]
     return {
         "operation": kind.label,
+        "amount": str(facts.base),
+        "posting_date": facts.operation_date.isoformat(),
+        "explanation": " ".join(explanations),
         "operation_date": facts.operation_date.isoformat(),
         "base": str(facts.base),
         "counterparty_third_party_id": prepared.third_party_id,
