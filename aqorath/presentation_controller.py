@@ -145,6 +145,41 @@ class LocalPresentationController:
     def trial_balance(self, as_of=None):
         return _application.get_professional_trial_balance(as_of)
 
+    def bank_accounts(self):
+        return _application.list_surface_bank_accounts()
+
+    def create_bank_account(self, payload):
+        return _application.create_surface_bank_account(
+            payload.get("institution_name"), payload.get("account_identifier"), payload.get("currency", "MXN"),
+        )
+
+    def import_bank_csv(self, payload):
+        return _application.import_surface_bank_csv(
+            payload.get("bank_account_id"), payload.get("source_name"), payload.get("content"),
+        )
+
+    def create_reconciliation(self, payload):
+        return _application.create_surface_reconciliation(
+            payload.get("bank_account_id"), payload.get("statement_id"), payload.get("as_of"),
+        )
+
+    def match_bank_transaction(self, payload):
+        return _application.match_surface_bank_transaction(
+            payload.get("reconciliation_id"), payload.get("bank_transaction_id"), payload.get("journal_line_id"),
+        )
+
+    def revoke_bank_match(self, match_id, payload):
+        return _application.revoke_surface_bank_match(match_id, payload.get("reason"))
+
+    def reconciliation(self, reconciliation_id):
+        return _application.load_surface_reconciliation(reconciliation_id)
+
+    def bank_transfer(self, payload):
+        return _application.execute_surface_bank_transfer(
+            payload.get("source_bank_account_id"), payload.get("destination_bank_account_id"),
+            payload.get("amount"), payload.get("posting_date"), payload.get("description"),
+        )
+
     @property
     def pending_count(self):
         return len(self._pending)

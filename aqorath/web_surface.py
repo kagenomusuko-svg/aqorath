@@ -203,4 +203,68 @@ def trial_balance(as_of: str | None = None):
         raise _error(exc) from exc
 
 
+@app.get("/api/banking/accounts")
+def bank_accounts():
+    try:
+        return controller.bank_accounts()
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/banking/accounts")
+def create_bank_account(payload: dict):
+    try:
+        return controller.create_bank_account(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/banking/import")
+def import_bank_csv(payload: dict):
+    try:
+        return controller.import_bank_csv(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/banking/reconciliations")
+def create_reconciliation(payload: dict):
+    try:
+        return controller.create_reconciliation(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.get("/api/banking/reconciliations/{reconciliation_id}")
+def reconciliation(reconciliation_id: int):
+    try:
+        return controller.reconciliation(reconciliation_id)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/banking/matches")
+def match_bank_transaction(payload: dict):
+    try:
+        return controller.match_bank_transaction(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/banking/transfers")
+def bank_transfer(payload: dict):
+    try:
+        return controller.bank_transfer(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/banking/matches/{match_id}/revoke")
+def revoke_bank_match(match_id: int, payload: dict):
+    try:
+        return controller.revoke_bank_match(match_id, payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
 __all__ = ["app", "controller"]
