@@ -135,6 +135,38 @@ def prepare_operation(payload: dict):
         raise _error(exc) from exc
 
 
+@app.post("/api/cfdi/import")
+def import_cfdi(payload: dict):
+    try:
+        return controller.import_cfdi(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.get("/api/cfdi/sources")
+def cfdi_sources():
+    try:
+        return controller.cfdi_sources()
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/cfdi/prepare")
+def prepare_cfdi(payload: dict):
+    try:
+        return controller.prepare_cfdi(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.get("/api/cfdi/{uuid}/professional")
+def professional_cfdi(uuid: str):
+    try:
+        return controller.professional_cfdi(uuid)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
 @app.post("/api/subledger/origins/prepare")
 def prepare_open_item_origin(payload: dict):
     try:

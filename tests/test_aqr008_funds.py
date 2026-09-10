@@ -46,9 +46,10 @@ def _entity(session):
 
 
 def test_current_schema_is_additive_and_does_not_add_parallel_money_tables(tmp_path):
+    from aqorath.migrations import CURRENT_SCHEMA_VERSION
     path, _ = _db(tmp_path)
     with sqlite3.connect(path) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 10
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == CURRENT_SCHEMA_VERSION
         tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert {"fund", "fundingsource", "fundreceipt", "fundapplication"}.issubset(tables)
         assert "fundbalance" not in tables
@@ -58,7 +59,7 @@ def test_current_schema_is_additive_and_does_not_add_parallel_money_tables(tmp_p
 
 
 def test_schema8_to_9_uses_frozen_snapshot_and_preserves_history(tmp_path):
-    from aqorath.migrations import migrate_database
+    from aqorath.migrations import CURRENT_SCHEMA_VERSION, migrate_database
     path = tmp_path / "historical-v8.db"
     _schema8_snapshot(path)
     with sqlite3.connect(path) as conn:
@@ -69,9 +70,9 @@ def test_schema8_to_9_uses_frozen_snapshot_and_preserves_history(tmp_path):
         conn.execute("INSERT INTO journalentry(id,date,concept,state,created_at) VALUES (7,'2026-01-10T00:00:00+00:00','historic grant','posted','2026-01-10')")
         conn.execute("INSERT INTO journalline(id,entry_id,account_code,account_id,debit,credit,created_at) VALUES (8,7,'4201',?,'0','1000.00','2026-01-10')", (account_id,))
         conn.commit()
-    assert migrate_database(path)["to_version"] == 10
+    assert migrate_database(path)["to_version"] == CURRENT_SCHEMA_VERSION
     with sqlite3.connect(path) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 10
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == CURRENT_SCHEMA_VERSION
         assert conn.execute("SELECT credit FROM journalline WHERE id=8").fetchone()[0] == "1000.00"
         assert conn.execute("SELECT count(*) FROM fund").fetchone()[0] == 0
         assert any("journal_line_id" in {r[2] for r in conn.execute(f"PRAGMA index_info('{row[1]}')")} for row in conn.execute("PRAGMA index_list(fundreceipt)"))

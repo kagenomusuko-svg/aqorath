@@ -12,6 +12,8 @@ carry ThirdParty/document/open-item provenance through the AQR-006 use cases.
 from dataclasses import dataclass, asdict, is_dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
+import base64
+import binascii
 
 from . import accounting_operation as _operations
 from . import accounting_operation_read as _operation_read
@@ -27,9 +29,10 @@ from . import bank_transfer as _bank_transfer
 from . import fund_repository as _funds
 from .fund import Fund, FundingSource, FundReceipt, FundApplication
 from .fund_models import FundRecord, FundingSourceRecord
-from .models import JournalEntry, JournalLine, AuditEventRecord, DonationRecord, ProgramRecord, ThirdPartyRecord, InKindDonationRecord, FixedAssetRecord
+from .models import JournalEntry, JournalLine, AuditEventRecord, DonationRecord, ProgramRecord, ThirdPartyRecord, InKindDonationRecord, FixedAssetRecord, DocumentReferenceRecord
 from .banking_models import BankAccountRecord
 from .models import AccountRoleBinding
+from .cfdi_models import CfdiSourceLinkRecord, CfdiSourceRecord
 from sqlmodel import select
 
 
@@ -87,6 +90,164 @@ class PreparedSurfaceDonationOperation:
     kind: str
     prepared: object
     preview: dict
+
+
+@dataclass(frozen=True)
+class PreparedSurfaceCfdiOperation:
+    prepared: object
+    preview: dict
+
+
+_CFDI_OPERATION_LABELS = {
+    "purchase_utility_bank": "Compra de servicios pagada por banco",
+    "sale_cash": "Venta cobrada en efectivo",
+}
+
+
+def _cfdi_summary(source):
+    parsed = source.parsed
+    return {
+        "id": source.id,
+        "uuid": parsed.uuid,
+        "document_number": parsed.document_number,
+        "relationship": source.relationship,
+        "issuer": {"rfc": parsed.issuer_rfc, "name": parsed.issuer_name},
+        "receiver": {"rfc": parsed.receiver_rfc, "name": parsed.receiver_name},
+        "issued_at": parsed.issued_at.isoformat(),
+        "stamped_at": parsed.stamped_at.isoformat(),
+        "currency": parsed.currency,
+        "subtotal": str(parsed.subtotal),
+        "discount": None if parsed.discount is None else str(parsed.discount),
+        "total": str(parsed.total),
+        "total_transferred": str(parsed.total_transferred),
+        "total_withheld": str(parsed.total_withheld),
+        "payment_form": parsed.payment_form,
+        "payment_method": parsed.payment_method,
+        "file_hash": parsed.sha256,
+        "taxes": [
+            {
+                "direction": item.direction,
+                "base": str(item.base),
+                "tax_code": item.tax_code,
+                "factor_type": item.factor_type,
+                "rate_or_quota": None if item.rate_or_quota is None else str(item.rate_or_quota),
+                "amount": None if item.amount is None else str(item.amount),
+            }
+            for item in parsed.taxes
+        ],
+        "imported_at": source.imported_at.isoformat(),
+        "coverage": "CFDI 4.0 de ingreso en MXN; validación estructural local, sin consulta SAT ni timbrado.",
+    }
+
+
+def import_surface_cfdi(payload):
+    encoded = payload.get("xml_base64")
+    if not isinstance(encoded, str) or not encoded:
+        raise ValueError("an XML file is required")
+    try:
+        xml_bytes = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError("xml_base64 must be valid base64") from exc
+    with _storage.get_session() as session:
+        result = _application.import_cfdi_source(session, xml_bytes)
+    return {"duplicate": result.duplicate, "source": _cfdi_summary(result.source)}
+
+
+def list_surface_cfdi_sources():
+    with _storage.get_session() as session:
+        entity = _application.get_active_entity(session)
+        if entity is None or entity.id is None:
+            raise LookupError("active Entity is required")
+        ids = session.exec(
+            select(CfdiSourceRecord.id)
+            .where(CfdiSourceRecord.entity_id == entity.id)
+            .order_by(CfdiSourceRecord.issued_at, CfdiSourceRecord.id)
+        ).all()
+        return [
+            _cfdi_summary(_application.load_cfdi_source(session, entity.id, source_id))
+            for source_id in ids
+        ]
+
+
+def prepare_surface_cfdi(payload):
+    uuid = payload.get("uuid")
+    operation_kind = payload.get("operation_kind")
+    if operation_kind not in _CFDI_OPERATION_LABELS:
+        raise ValueError("select a supported economic operation")
+    with _storage.get_session() as session:
+        entity = _application.get_active_entity(session)
+        if entity is None or entity.id is None:
+            raise LookupError("active Entity is required")
+        matches = session.exec(
+            select(CfdiSourceRecord).where(
+                CfdiSourceRecord.entity_id == entity.id,
+                CfdiSourceRecord.uuid == uuid,
+            )
+        ).all()
+        if len(matches) != 1:
+            raise LookupError("CFDI UUID must identify exactly one imported source")
+        source = _application.load_cfdi_source(session, entity.id, matches[0].id)
+        prepared = _application.prepare_cfdi_accounting(session, source.id, operation_kind)
+    preview = {
+        "operation": _CFDI_OPERATION_LABELS[operation_kind],
+        "uuid": source.parsed.uuid,
+        "document_number": source.parsed.document_number,
+        "counterparty": source.parsed.issuer_name if source.relationship == "purchase" else source.parsed.receiver_name,
+        "posting_date": prepared.decision.posting_date.isoformat(),
+        "amount": str(prepared.decision.fact.amount),
+        "document_total": str(source.parsed.total),
+        "tax_from_document": str(source.parsed.total_transferred - source.parsed.total_withheld),
+        "explanation": prepared.decision.explanation.professional_summary,
+        "requires_confirmation": True,
+        "warning": "Importar no contabiliza. Confirmar usará exactamente esta evidencia y decisión.",
+        "fiscality": "Importes fiscales extraídos como evidencia; tratamiento fiscal específico pendiente/no cubierto por la cobertura fiscal declarada.",
+    }
+    return PreparedSurfaceCfdiOperation(prepared, preview)
+
+
+def cfdi_professional_preview(value):
+    if not isinstance(value, PreparedSurfaceCfdiOperation):
+        raise TypeError("value must be PreparedSurfaceCfdiOperation")
+    result = dict(value.preview)
+    result["decision"] = _decision_professional_preview(
+        value.prepared.operation_kind, value.prepared.decision
+    )
+    return result
+
+
+def confirm_surface_cfdi(value):
+    if not isinstance(value, PreparedSurfaceCfdiOperation):
+        raise TypeError("value must be PreparedSurfaceCfdiOperation")
+    return _application.confirm_cfdi_accounting(value.prepared)
+
+
+def load_surface_cfdi_professional(uuid):
+    with _storage.get_session() as session:
+        entity = _application.get_active_entity(session)
+        if entity is None or entity.id is None:
+            raise LookupError("active Entity is required")
+        source_row = session.exec(
+            select(CfdiSourceRecord).where(
+                CfdiSourceRecord.entity_id == entity.id,
+                CfdiSourceRecord.uuid == uuid,
+            )
+        ).one_or_none()
+        if source_row is None:
+            raise LookupError("CFDI source not found")
+        source = _application.load_cfdi_source(session, entity.id, source_row.id)
+        link = session.exec(
+            select(CfdiSourceLinkRecord).where(CfdiSourceLinkRecord.cfdi_source_id == source.id)
+        ).one_or_none()
+        document_id = None if link is None else link.document_reference_id
+        document = None if document_id is None else session.get(DocumentReferenceRecord, document_id)
+        entry_id = None if document is None else document.entry_id
+    return {
+        "source": _cfdi_summary(source),
+        "document_reference_id": document_id,
+        "accounting": None if entry_id is None else load_professional_operation(entry_id),
+        "status": "imported_unposted" if entry_id is None else "linked_to_posted_accounting",
+        "distinction": "El XML es evidencia externa; JournalEntry/JournalLine son la autoridad contable.",
+    }
 
 
 # Only immediate operations may use the generic surface path. Credit origins and
@@ -1149,6 +1310,13 @@ __all__ = [
     "PreparedSurfaceOperation",
     "PreparedSurfaceSubledgerAction",
     "PreparedSurfaceDonationOperation",
+    "PreparedSurfaceCfdiOperation",
+    "import_surface_cfdi",
+    "list_surface_cfdi_sources",
+    "prepare_surface_cfdi",
+    "cfdi_professional_preview",
+    "confirm_surface_cfdi",
+    "load_surface_cfdi_professional",
     "list_common_operation_kinds",
     "list_surface_donation_options",
     "prepare_surface_monetary_donation",

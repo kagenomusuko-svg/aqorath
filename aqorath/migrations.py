@@ -24,8 +24,8 @@ from aqorath.money import to_decimal_exact
 # Version Control
 # ============================================================
 
-CURRENT_SCHEMA_VERSION = 10
-"""Schema 10 adds complete donation provenance and non-cash evidence."""
+CURRENT_SCHEMA_VERSION = 11
+"""Schema 11 adds independent, exact CFDI source evidence."""
 
 # ============================================================
 # Migration Registry
@@ -35,6 +35,7 @@ def _create_current_schema(db_path):
     from aqorath import models as _models  # noqa: F401 - populate metadata
     from aqorath import banking_models as _banking_models  # noqa: F401
     from aqorath import fund_models as _fund_models  # noqa: F401
+    from aqorath import cfdi_models as _cfdi_models  # noqa: F401
     from sqlmodel import SQLModel
     from sqlalchemy import create_engine
 
@@ -93,6 +94,10 @@ def _ensure_additive_current_schema(db_path):
         _models.AuditEventRecord.__table__.create(engine, checkfirst=True)
         _models.DocumentReferenceRecord.__table__.create(engine, checkfirst=True)
         _models.CfdiImportMetadataRecord.__table__.create(engine, checkfirst=True)
+        from aqorath.cfdi_models import CfdiSourceRecord, CfdiTaxEvidenceRecord, CfdiSourceLinkRecord
+        CfdiSourceRecord.__table__.create(engine, checkfirst=True)
+        CfdiTaxEvidenceRecord.__table__.create(engine, checkfirst=True)
+        CfdiSourceLinkRecord.__table__.create(engine, checkfirst=True)
         _models.AnalyticalDimensionRecord.__table__.create(engine, checkfirst=True)
         _models.AnalyticalDimensionValueRecord.__table__.create(engine, checkfirst=True)
         _models.JournalLineAnalyticalDimensionRecord.__table__.create(
@@ -577,6 +582,59 @@ def _migrate_9_to_10(db_path):
         engine.dispose()
 
 
+def _migrate_10_to_11(db_path):
+    """Add external CFDI evidence without creating documents or ledger history."""
+    from aqorath.cfdi_models import CfdiSourceRecord, CfdiTaxEvidenceRecord, CfdiSourceLinkRecord
+    from sqlalchemy import create_engine
+    engine = create_engine(f"sqlite:///{db_path}")
+    try:
+        with engine.begin() as conn:
+            CfdiSourceRecord.__table__.create(conn, checkfirst=True)
+            CfdiTaxEvidenceRecord.__table__.create(conn, checkfirst=True)
+            CfdiSourceLinkRecord.__table__.create(conn, checkfirst=True)
+    finally:
+        engine.dispose()
+
+
+def _validate_cfdi_schema(db_path):
+    required = {
+        "cfdisource": {
+            "id", "entity_id", "third_party_id", "relationship", "version",
+            "uuid", "voucher_type", "issuer_rfc", "issuer_name", "issuer_regime",
+            "receiver_rfc", "receiver_name", "receiver_regime", "receiver_use",
+            "issued_at", "stamped_at", "currency", "subtotal", "discount", "total",
+            "total_transferred", "total_withheld", "payment_form", "payment_method",
+            "place_of_issue", "document_number", "sello_sat", "sat_certificate_number",
+            "file_hash", "xml_bytes", "imported_at", "created_at",
+        },
+        "cfditaxevidence": {
+            "id", "cfdi_source_id", "position", "direction", "base", "tax_code",
+            "factor_type", "rate_or_quota", "amount", "created_at",
+        },
+        "cfdisourcelink": {
+            "id", "cfdi_source_id", "document_reference_id", "created_at",
+        },
+    }
+    with sqlite3.connect(str(db_path)) as conn:
+        for table, expected in required.items():
+            found = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+            if found != expected:
+                raise RuntimeError(f"Invalid schema 11 CFDI table: {table}")
+
+        def unique_sets(table):
+            return {
+                tuple(item[2] for item in conn.execute(f"PRAGMA index_info('{row[1]}')"))
+                for row in conn.execute(f"PRAGMA index_list({table})") if row[2] == 1
+            }
+
+        if not {("uuid",), ("file_hash",)} <= unique_sets("cfdisource"):
+            raise RuntimeError("Invalid schema 11 CFDI source uniqueness")
+        if ("cfdi_source_id", "position") not in unique_sets("cfditaxevidence"):
+            raise RuntimeError("Invalid schema 11 CFDI tax ordering uniqueness")
+        if not {("cfdi_source_id",), ("document_reference_id",)} <= unique_sets("cfdisourcelink"):
+            raise RuntimeError("Invalid schema 11 CFDI link uniqueness")
+
+
 MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -588,6 +646,7 @@ MIGRATIONS = {
     8: _migrate_7_to_8,
     9: _migrate_8_to_9,
     10: _migrate_9_to_10,
+    11: _migrate_10_to_11,
 }
 """Registry of migration callables. Key: target version."""
 
@@ -732,6 +791,7 @@ def migrate_database(db_path) -> dict:
         _validate_calendar_schema(db_path)
         _validate_reversal_schema(db_path)
         _validate_subledger_schema(db_path)
+        _validate_cfdi_schema(db_path)
         _ensure_additive_current_schema(str(db_path))
         return {
             "from_version": current_version,
@@ -764,6 +824,7 @@ def migrate_database(db_path) -> dict:
     _validate_calendar_schema(db_path)
     _validate_reversal_schema(db_path)
     _validate_subledger_schema(db_path)
+    _validate_cfdi_schema(db_path)
     return {
         "from_version": current_version,
         "to_version": CURRENT_SCHEMA_VERSION,

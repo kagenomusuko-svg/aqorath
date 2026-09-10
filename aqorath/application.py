@@ -109,6 +109,8 @@ from . import entity_repository as _entity_repository
 from . import third_party_repository as _third_party_repository
 from . import document_reference_repository as _document_reference_repository
 from . import cfdi_metadata_repository as _cfdi_metadata_repository
+from . import cfdi_source_repository as _cfdi_source_repository
+from . import cfdi_accounting as _cfdi_accounting
 from . import analytical_dimension_repository as _analytical_dimension_repository
 from . import fixed_asset_repository as _fixed_asset_repository
 from . import fixed_asset_depreciation as _fixed_asset_depreciation
@@ -213,6 +215,27 @@ def get_cfdi_import_metadata(session, document_reference_id):
         session,
         document_reference_id,
     )
+
+
+def import_cfdi_source(session, xml_bytes, *, imported_at=None):
+    """Import exact external CFDI evidence without posting accounting."""
+    return _cfdi_source_repository.import_cfdi_source(
+        session, xml_bytes, imported_at=imported_at
+    )
+
+
+def load_cfdi_source(session, entity_id, source_id):
+    return _cfdi_source_repository.load_cfdi_source(session, entity_id, source_id)
+
+
+def prepare_cfdi_accounting(session, source_id, operation_kind):
+    return _cfdi_accounting.prepare_cfdi_accounting(
+        session, source_id, operation_kind
+    )
+
+
+def confirm_cfdi_accounting(prepared):
+    return _cfdi_accounting.confirm_cfdi_accounting(prepared)
 
 
 def create_analytical_dimension(session, dimension):
