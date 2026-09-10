@@ -14,6 +14,7 @@ from . import posting as _posting
 from . import storage as _storage
 from .models import DonationRecord, InKindDonationRecord, DocumentReferenceRecord, JournalLine, EntityRecord, FixedAssetRecord
 from .fund_models import FundRecord, FundingSourceRecord, FundReceiptRecord
+from .banking_models import BankAccountRecord
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,7 @@ class PreparedDonationOperation:
     purpose: str | None
     is_restricted: bool
     operation_id: str = ""
+    bank_account_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -52,9 +54,9 @@ class PreparedInKindDonationOperation:
     operation_id: str = ""
 
 
-def prepare_monetary_donation(session, amount, posting_date, *, donor_third_party_id, document_type, document_number, document_date, fund_id, funding_source_id, program_id=None, purpose=None, is_restricted=False):
+def prepare_monetary_donation(session, amount, posting_date, *, donor_third_party_id, document_type, document_number, document_date, fund_id, funding_source_id, program_id=None, purpose=None, is_restricted=False, bank_account_id=None):
     decision = _operations.prepare_accounting_operation(session, EconomicFact("donation", amount, "bank"), posting_date.date() if isinstance(posting_date, datetime) else posting_date)
-    return PreparedDonationOperation(decision, donor_third_party_id, document_type, document_number, document_date, fund_id, funding_source_id, program_id, purpose, is_restricted, uuid4().hex)
+    return PreparedDonationOperation(decision, donor_third_party_id, document_type, document_number, document_date, fund_id, funding_source_id, program_id, purpose, is_restricted, uuid4().hex, bank_account_id)
 
 
 def confirm_monetary_donation(prepared):
@@ -77,6 +79,12 @@ def confirm_monetary_donation(prepared):
         audit.details_json = json.dumps({**json.loads(audit.details_json), "operation_id": prepared.operation_id}, sort_keys=True)
         entry = session.get(__import__("aqorath.models", fromlist=["JournalEntry"]).JournalEntry, result.entry_id)
         bank_line = session.exec(select(JournalLine).where(JournalLine.entry_id == entry.id, JournalLine.debit != "0")).one()
+        if prepared.bank_account_id is not None:
+            bank_account = session.get(BankAccountRecord, prepared.bank_account_id)
+            if bank_account is None or bank_account.entity_id != entity.id or bank_account.is_active is not True:
+                raise ValueError("selected bank account does not belong to the active Entity")
+            if bank_line.account_id != bank_account.ledger_account_id:
+                raise ValueError("selected bank account is not the canonical bank line")
         donation = DonationRecord(entity_id=entity.id, date=entry.date.isoformat(), amount=str(prepared.decision.fact.amount), donor_third_party_id=prepared.donor_third_party_id, purpose=prepared.purpose, is_restricted=prepared.is_restricted)
         session.add(donation); session.flush()
         document = DocumentReferenceRecord(entry_id=entry.id, third_party_id=prepared.donor_third_party_id, document_type=prepared.document_type, document_number=prepared.document_number, date=prepared.document_date.isoformat(), is_validated=False)
@@ -84,7 +92,7 @@ def confirm_monetary_donation(prepared):
         receipt = FundReceiptRecord(entity_id=entity.id, fund_id=fund.id, funding_source_id=source.id, journal_line_id=bank_line.id, donation_id=donation.id, amount=str(prepared.decision.fact.amount), received_at=entry.date.isoformat())
         session.add(receipt); session.flush()
         output = {"entry_id": entry.id, "donation_id": donation.id, "document_reference_id": document.id, "fund_receipt_id": receipt.id, "audit_event_id": result.audit_event_id}
-        audit.details_json = json.dumps({**json.loads(audit.details_json), "donation_operation_result": output}, sort_keys=True)
+        audit.details_json = json.dumps({**json.loads(audit.details_json), "bank_account_id": prepared.bank_account_id, "donation_operation_result": output}, sort_keys=True)
         session.commit(); return output
 
 

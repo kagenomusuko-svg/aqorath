@@ -67,6 +67,30 @@ def donations():
         raise _error(exc) from exc
 
 
+@app.get("/api/osc/donation-options")
+def donation_options():
+    try:
+        return controller.donation_options()
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/osc/donations/prepare")
+def prepare_monetary_donation(payload: dict):
+    try:
+        return controller.prepare_monetary_donation(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/osc/in-kind-donations/prepare")
+def prepare_inkind_donation(payload: dict):
+    try:
+        return controller.prepare_inkind_donation(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
 @app.post("/api/osc/donations")
 def create_donation(payload: dict):
     try:
@@ -79,6 +103,22 @@ def create_donation(payload: dict):
 def create_inkind_donation(payload: dict):
     try:
         return controller.create_inkind_donation(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.get("/api/osc/donations/{donation_id}/professional")
+def professional_donation(donation_id: int):
+    try:
+        return controller.professional_donation(donation_id)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.get("/api/osc/in-kind-donations/{donation_id}/professional")
+def professional_inkind_donation(donation_id: int):
+    try:
+        return controller.professional_inkind_donation(donation_id)
     except Exception as exc:
         raise _error(exc) from exc
 
