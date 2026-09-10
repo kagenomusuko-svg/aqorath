@@ -279,7 +279,7 @@ AQR-004 incorpora `ExplanationData` a la misma decisión y conserva evidencia es
 | AnalyticalDimension | Implementado |
 | Donation | Fundación implementada |
 | InKindDonation | **Pendiente** |
-| BankAccount | **Pendiente** |
+| BankAccount | **Implementado AQR-007** |
 | FiscalRuleSet | Implementado |
 | ExplanationData | Implementado e integrado en AQR-004/AQR-005 |
 | UserKnowledgeState | Implementado |
@@ -314,7 +314,7 @@ AQR-015 conserva la responsabilidad del empaquetado/instalación final y de la a
 ## 15. Otras capacidades de producto faltantes
 
 - submayores CxC/CxP operativos;
-- BankAccount y conciliación;
+- conciliación bancaria sobre evidencia externa, matching one-to-one, pendientes y diferencias;
 - fondos/fuentes/restricciones OSC;
 - donativo en especie;
 - CFDI XML productivo;
@@ -350,7 +350,7 @@ Todas están registradas y ordenadas en `PRODUCT_BACKLOG_V1.md`.
 ### P1 — completitud/seguridad de producto
 
 - submayores CxC/CxP operativos pendientes;
-- bancos/conciliación pendientes;
+- fondos/fuentes/restricciones OSC pendientes;
 - OSC incompleto en fondos/fuentes/restricciones;
 - CFDI/cobertura fiscal V1 incompletos;
 - producto no empaquetado.
