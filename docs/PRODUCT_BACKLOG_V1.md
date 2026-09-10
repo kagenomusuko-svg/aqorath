@@ -320,7 +320,7 @@ AQR-003 y AQR-006 cuando el movimiento involucre terceros.
 
 ## AQR-008 — Recursos OSC: fondos, fuentes, restricciones y aplicación
 
-**Estado:** `NEXT`
+**Estado:** `DONE`
 
 ### Resultado de producto
 
@@ -334,6 +334,10 @@ Una OSC puede demostrar de dónde vino un recurso, bajo qué restricción se rec
 
 Implementar `Fund` y `FundingSource`; formalizar recursos restringidos/no restringidos, destino, vigencia y aplicación. Conectar Program, dimensiones y líneas del ledger.
 
+### Cierre de aceptación
+
+Implementado y fusionado mediante PR #43, merge `13133edfd9ed5015f6cb7bfdccbd8f1fc2515a27`, head validado `4ce5fc3e137426fa3923d007c8d5597a912ec574`. Schema 9 es aditivo; la suite Python 3.12 quedó en **2008 passed, 8 warnings**. La trazabilidad de fondos se deriva de `JournalLine`, con provenance canónica, disponibilidad efectiva, reversiones, migración histórica 8→9 y superficie común/profesional; no existe saldo ni ledger paralelo.
+
 ### Criterio de aceptación
 
 Desde un recurso recibido se puede recorrer trazabilidad hasta su aplicación y generar un reporte por programa/fondo/fuente que reconcilie exactamente con el ledger general.
@@ -346,7 +350,7 @@ AQR-004 y AQR-013 para la presentación documental final.
 
 ## AQR-009 — Donativos completos, incluido donativo en especie
 
-**Estado:** `TODO`
+**Estado:** `NEXT`
 
 ### Resultado de producto
 
@@ -551,4 +555,4 @@ Al completar una tarea:
 
 ## SIGUIENTE ACTUAL
 
-`AQR-008 — Recursos OSC: fondos, fuentes, restricciones y aplicación`.
+`AQR-009 — Donativos completos, incluido donativo en especie`.
