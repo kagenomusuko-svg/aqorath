@@ -177,6 +177,15 @@ class LocalPresentationController:
     def funds(self):
         return _application.list_surface_funds()
 
+    def donations(self):
+        return _application.list_surface_donations()
+
+    def create_donation(self, payload):
+        return _application.create_surface_donation(payload)
+
+    def create_inkind_donation(self, payload):
+        return _application.create_surface_inkind_donation(payload)
+
     def create_fund(self, payload):
         return _application.create_surface_fund(payload)
 
