@@ -121,7 +121,7 @@ def test_fund_receipt_and_application_require_exact_canonical_line_amount(tmp_pa
         session.add(expense_entry); session.flush()
         expense_line = JournalLine(entry_id=expense_entry.id, account_id=debit.id, account_code=debit.code, debit="300.00", credit="0")
         session.add(expense_line); session.commit()
-        session.add(AuditEventRecord(entity_id=entity.id, event_type="entry_posted", timestamp=expense_entry.date.isoformat(), details_json='{"decision":{"fact":{"type":"utility_expense"}},"entry_id":%d}' % expense_entry.id)); session.commit()
+        session.add(AuditEventRecord(entity_id=entity.id, event_type="entry_posted", timestamp=expense_entry.date.isoformat(), details_json='{"decision":{"fact":{"type":"utility_expense"},"explanation":{"effects":[{"account_role":"utilities_expense","side":"debit"}]}},"entry_id":%d}' % expense_entry.id)); session.commit()
         application = record_fund_application(session, FundApplication(None, entity.id, fund.id, program.id, expense_line.id, Decimal("300.00"), expense_entry.date, receipt_id=receipt.id))
         assert application.id is not None
         from aqorath.fund_repository import load_fund_balance, load_fund_traceability
@@ -131,3 +131,19 @@ def test_fund_receipt_and_application_require_exact_canonical_line_amount(tmp_pa
         assert trace["receipts"][0]["ledger"]["line_id"] == receipt_line.id
         assert trace["applications"][0]["ledger"]["line_id"] == expense_line.id
         assert session.get(JournalLine, expense_line.id).debit == "300.00"
+
+
+def test_surface_exposes_human_fund_flow_and_professional_traceability(monkeypatch):
+    from aqorath.web_assets import APP_HTML
+    from aqorath.presentation_controller import LocalPresentationController
+    import aqorath.presentation_controller as controller_module
+
+    for endpoint in ("/api/osc/funds", "/api/osc/funding-sources", "/api/osc/fund-candidates?kind=receipt", "/api/osc/fund-receipts", "/api/osc/fund-applications"):
+        assert endpoint in APP_HTML
+    for element in ("oscFundSelect", "oscSourceSelect", "receiptCandidate", "applicationCandidate", "applicationAmount", "fundTraceOutput"):
+        assert f'id="{element}"' in APP_HTML
+    monkeypatch.setattr(controller_module._application, "list_surface_funds", lambda: [{"id": 1}])
+    monkeypatch.setattr(controller_module._application, "list_surface_funding_sources", lambda: [{"id": 2}])
+    controller = LocalPresentationController()
+    assert controller.funds() == [{"id": 1}]
+    assert controller.funding_sources() == [{"id": 2}]
