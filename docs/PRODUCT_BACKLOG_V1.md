@@ -294,7 +294,7 @@ AQR-004.
 
 ## AQR-007 — Bancos y conciliación
 
-**Estado:** `NEXT`
+**Estado:** `DONE`
 
 ### Resultado de producto
 
@@ -303,6 +303,10 @@ Las cuentas bancarias reales pueden administrarse y conciliarse contra el ledger
 ### Trabajo
 
 Implementar `BankAccount`, relación con cuenta contable, importación de estados/movimientos, matching, conciliación, partidas pendientes y cierre de conciliación.
+
+### Cierre de aceptación
+
+Implementado y fusionado en `main` mediante PR #42 (`9117ac085e00e813bb2d5ae30267eb4184d181a6`), con head validado `5c6453a3840774b71a6bfd5892696c8d4cc064af`. La suite Python 3.12 quedó en **2002 passed, 8 warnings**. La evidencia bancaria permanece separada del ledger canónico; matching, diferencias, pendientes, reversión de relaciones y transferencias entre cuentas propias no crean una autoridad monetaria paralela.
 
 ### Criterio de aceptación
 
@@ -316,7 +320,7 @@ AQR-003 y AQR-006 cuando el movimiento involucre terceros.
 
 ## AQR-008 — Recursos OSC: fondos, fuentes, restricciones y aplicación
 
-**Estado:** `TODO`
+**Estado:** `NEXT`
 
 ### Resultado de producto
 
@@ -547,4 +551,4 @@ Al completar una tarea:
 
 ## SIGUIENTE ACTUAL
 
-`AQR-007 — Bancos y conciliación`.
+`AQR-008 — Recursos OSC: fondos, fuentes, restricciones y aplicación`.
