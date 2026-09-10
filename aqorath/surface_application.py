@@ -702,6 +702,13 @@ def get_surface_fund_balance(fund_id, as_of=None):
         return _json_value(_funds.load_fund_balance(session, entity.id, fund_id, _date(as_of, "as_of")))
 
 
+def get_surface_fund_traceability(fund_id, as_of):
+    with _storage.get_session() as session:
+        entity = _application.get_active_entity(session)
+        if entity is None or entity.id is None: raise LookupError("active Entity is required")
+        return _json_value(_funds.load_fund_traceability(session, entity.id, fund_id, _date(as_of, "as_of")))
+
+
 __all__ = [
     "CommonOperationKind",
     "PreparedSurfaceOperation",
@@ -738,4 +745,5 @@ __all__ = [
     "create_surface_fund",
     "create_surface_funding_source",
     "get_surface_fund_balance",
+    "get_surface_fund_traceability",
 ]
