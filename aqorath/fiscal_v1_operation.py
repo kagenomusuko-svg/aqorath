@@ -377,7 +377,7 @@ def execute_fiscal_v1_operation(confirmed):
                 AuditEvent(
                     id=None,
                     entity_id=entity.id,
-                    event_type="fiscal_v1_posted",
+                    event_type="entry_posted",
                     timestamp=datetime.now(timezone.utc),
                     details=_audit_details(
                         confirmed,
@@ -416,8 +416,9 @@ def load_fiscal_v1_operation(session, entity_id, entry_id):
     events = tuple(
         event
         for event in _audit_events.list_audit_events(session, entity_id)
-        if event.event_type == "fiscal_v1_posted"
+        if event.event_type == "entry_posted"
         and event.details.get("entry_id") == entry_id
+        and event.details.get("coverage_version") == _coverage.COVERAGE_VERSION
     )
     if not events:
         raise LookupError("AQR-011 AuditEvent not found for JournalEntry")
