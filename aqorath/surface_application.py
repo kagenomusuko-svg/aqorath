@@ -86,6 +86,7 @@ class PreparedSurfaceSubledgerAction:
 _OPERATION_KINDS = (
     CommonOperationKind("sale_cash", "Venta cobrada en efectivo", "sale", "cash"),
     CommonOperationKind("utility_bank", "Pago de servicios desde banco", "utility_expense", "bank"),
+    CommonOperationKind("donation_bank", "Donativo monetario recibido por banco", "donation", "bank"),
 )
 _OPERATION_BY_KEY = {item.key: item for item in _OPERATION_KINDS}
 
