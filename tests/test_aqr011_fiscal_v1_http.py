@@ -83,4 +83,4 @@ def test_browser_shell_uses_capability_driven_operation_select_and_preview_field
     assert "cap.operations" in APP_HTML
     assert "/api/operations/prepare" in APP_HTML
     assert "out.preview.explanation" in APP_HTML
-    assert "/professional-preview" in APP_HTML
+    assert "previewOperation" in APP_HTML
