@@ -29,6 +29,7 @@ class EconomicFact:
 
     def __post_init__(self):
         valid_payment_methods = {
+            "donation": ("bank",),
             "sale": ("cash", "credit"),
             "utility_expense": ("bank",),
             "utility_expense_incurred": ("credit",),
@@ -140,7 +141,14 @@ class AccountingProposal:
 
 def resolve_economic_fact(fact: EconomicFact) -> AccountingProposal:
     """Deterministically resolve a supported fact to semantic accounting roles."""
-    if fact.type == "sale" and fact.payment_method == "cash":
+    if fact.type == "donation" and fact.payment_method == "bank":
+        debit_role = "bank"
+        credit_role = "donation_income"
+        explanation = (
+            f"Monetary donation: {fact.amount} received in bank. "
+            "Bank resource increased and donation income recognized."
+        )
+    elif fact.type == "sale" and fact.payment_method == "cash":
         debit_role = "cash"
         credit_role = "sales_revenue"
         explanation = (
