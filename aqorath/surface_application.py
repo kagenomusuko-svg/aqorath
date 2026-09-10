@@ -32,6 +32,34 @@ from .models import AccountRoleBinding
 from sqlmodel import select
 
 
+def list_surface_donations():
+    with _storage.get_session() as session:
+        entity = _application.get_active_entity(session)
+        if entity is None:
+            return []
+        return [asdict(item) for item in _application.list_donations(session, entity.id)]
+
+
+def create_surface_donation(payload):
+    from .donation import Donation
+    with _storage.get_session() as session:
+        entity = _application.get_active_entity(session)
+        if entity is None:
+            raise LookupError("active Entity not configured")
+        item = Donation(None, entity.id, datetime.fromisoformat(payload["date"]), _amount(payload["amount"]), payload.get("donor_third_party_id"), payload.get("purpose"), bool(payload.get("is_restricted", False)))
+        return asdict(_application.create_donation(session, item))
+
+
+def create_surface_inkind_donation(payload):
+    from .inkind_donation import InKindDonation
+    with _storage.get_session() as session:
+        entity = _application.get_active_entity(session)
+        if entity is None:
+            raise LookupError("active Entity not configured")
+        item = InKindDonation(None, entity.id, payload.get("donor_third_party_id"), payload.get("document_reference_id"), payload.get("fund_id"), payload.get("program_id"), payload.get("journal_line_id"), datetime.fromisoformat(payload["received_at"]), payload["description"], None if payload.get("quantity") is None else _amount(payload["quantity"]), _amount(payload["valuation_amount"]), payload.get("valuation_currency", "MXN"), payload["valuation_method"], payload["valuation_evidence"], payload["external_reference"])
+        return asdict(_application.create_inkind_donation(session, item))
+
+
 @dataclass(frozen=True)
 class CommonOperationKind:
     key: str
