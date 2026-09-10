@@ -189,6 +189,18 @@ class LocalPresentationController:
     def fund_traceability(self, fund_id, as_of):
         return _application.get_surface_fund_traceability(fund_id, as_of)
 
+    def funding_sources(self):
+        return _application.list_surface_funding_sources()
+
+    def fund_candidates(self, kind):
+        return _application.list_surface_fund_candidates(kind)
+
+    def record_fund_receipt(self, payload):
+        return _application.record_surface_fund_receipt(payload)
+
+    def record_fund_application(self, payload):
+        return _application.record_surface_fund_application(payload)
+
     def bank_transfer(self, payload):
         return _application.execute_surface_bank_transfer(
             payload.get("source_bank_account_id"), payload.get("destination_bank_account_id"),
