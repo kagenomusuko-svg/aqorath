@@ -97,6 +97,10 @@ def test_matching_is_one_to_one_and_never_rewrites_ledger(tmp_path, monkeypatch)
         assert view.lines[0].state == "matched"
         assert view.ledger_balance == Decimal("1000.00")
         assert session.get(JournalLine, debit.id).debit == "1000.00"
+        reconciliation_repository.revoke_match(session, match_id, "corrección documental")
+        reopened = reconciliation_repository.load_reconciliation(session, reconciliation_id)
+        assert reopened.lines[0].state == "unmatched"
+        assert reopened.missing_journal_line_ids == (debit.id,)
 
 
 def test_deposit_in_transit_remains_explicit_difference(tmp_path, monkeypatch):
@@ -123,3 +127,23 @@ def test_deposit_in_transit_remains_explicit_difference(tmp_path, monkeypatch):
         assert view.ledger_balance == Decimal("1000.00")
         assert view.difference == Decimal("100.00")
         assert view.missing_journal_line_ids == (line.id,)
+
+
+def test_common_and_professional_banking_surface_share_reconciliation_truth(tmp_path, monkeypatch):
+    from aqorath.presentation_controller import LocalPresentationController
+    from test_aqr006_subledger import _seed_runtime
+    _, _, _, _, _ = _seed_runtime(tmp_path, monkeypatch, "bank-surface.db")
+    controller = LocalPresentationController()
+    bank = controller.create_bank_account({
+        "institution_name": "Banco V1", "account_identifier": "CLABE-SURFACE", "currency": "MXN",
+    })
+    imported = controller.import_bank_csv({
+        "bank_account_id": bank["id"], "source_name": "enero.csv",
+        "content": "date,reference,amount,balance\n2026-01-31,DEP-1,100.00,100.00\n",
+    })
+    created = controller.create_reconciliation({
+        "bank_account_id": bank["id"], "statement_id": imported["statement_id"], "as_of": "2026-01-31",
+    })
+    professional = controller.reconciliation(created["reconciliation_id"])
+    assert professional["bank_account_id"] == bank["id"]
+    assert professional["lines"][0]["state"] == "unmatched"

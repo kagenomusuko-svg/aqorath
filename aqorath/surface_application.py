@@ -20,6 +20,11 @@ from . import economic_facts as _facts
 from . import open_item_repository as _open_items
 from . import storage as _storage
 from . import subledger_operations as _subledger
+from . import bank_repository as _banks
+from . import reconciliation_repository as _reconciliations
+from .banking import BankAccount
+from .models import AccountRoleBinding
+from sqlmodel import select
 
 
 @dataclass(frozen=True)
@@ -595,6 +600,61 @@ def get_surface_entity():
     }
 
 
+def list_surface_bank_accounts():
+    from .banking_models import BankAccountRecord
+    with _storage.get_session() as session:
+        rows = session.exec(select(BankAccountRecord).order_by(BankAccountRecord.id)).all()
+    return [_json_value(row.__dict__) for row in rows]
+
+
+def create_surface_bank_account(institution_name, account_identifier, currency):
+    from .banking_models import BankAccountRecord
+    with _storage.get_session() as session:
+        entity = _application.get_active_entity(session)
+        if entity is None or entity.id is None:
+            raise LookupError("active Entity is required")
+        binding = session.exec(select(AccountRoleBinding).where(AccountRoleBinding.role == "bank")).first()
+        if binding is None or binding.account_id is None:
+            raise LookupError("bank account binding is required")
+        account = _banks.create_bank_account(session, BankAccount(
+            None, entity.id, binding.account_id, institution_name, account_identifier, currency,
+        ))
+    return _json_value(account)
+
+
+def import_surface_bank_csv(bank_account_id, source_name, content):
+    with _storage.get_session() as session:
+        statement_id = _banks.import_bank_csv(session, bank_account_id, source_name, content)
+    return {"statement_id": statement_id, "bank_account_id": bank_account_id}
+
+
+def create_surface_reconciliation(bank_account_id, statement_id, as_of):
+    with _storage.get_session() as session:
+        reconciliation_id = _reconciliations.create_reconciliation(
+            session, bank_account_id, statement_id, _date(as_of, "as_of"),
+        )
+    return {"reconciliation_id": reconciliation_id}
+
+
+def match_surface_bank_transaction(reconciliation_id, bank_transaction_id, journal_line_id):
+    with _storage.get_session() as session:
+        match_id = _reconciliations.match_transaction(
+            session, reconciliation_id, bank_transaction_id, journal_line_id,
+        )
+    return {"match_id": match_id, "reconciliation_id": reconciliation_id}
+
+
+def revoke_surface_bank_match(match_id, reason):
+    with _storage.get_session() as session:
+        revocation_id = _reconciliations.revoke_match(session, match_id, reason)
+    return {"revocation_id": revocation_id, "match_id": match_id}
+
+
+def load_surface_reconciliation(reconciliation_id):
+    with _storage.get_session() as session:
+        return _json_value(_reconciliations.load_reconciliation(session, reconciliation_id))
+
+
 __all__ = [
     "CommonOperationKind",
     "PreparedSurfaceOperation",
@@ -619,4 +679,11 @@ __all__ = [
     "load_professional_operation",
     "get_professional_trial_balance",
     "get_surface_entity",
+    "list_surface_bank_accounts",
+    "create_surface_bank_account",
+    "import_surface_bank_csv",
+    "create_surface_reconciliation",
+    "match_surface_bank_transaction",
+    "revoke_surface_bank_match",
+    "load_surface_reconciliation",
 ]
