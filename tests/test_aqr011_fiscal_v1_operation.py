@@ -16,6 +16,8 @@ def _session(tmp_path):
     from aqorath.entity_repository import create_entity, register_fiscal_profile
     from aqorath.fiscal_rule_install import install_fiscal_rule_set
     from aqorath.models import Account
+    from aqorath.third_party import ThirdParty
+    from aqorath.third_party_repository import create_third_party
 
     engine = create_engine(f"sqlite:///{tmp_path / 'aqr011-operation.db'}")
     SQLModel.metadata.create_all(engine)
@@ -26,7 +28,7 @@ def _session(tmp_path):
         Entity(
             id=None,
             name="Entidad de prueba AQR-011",
-            rfc="AAA010101AAA",
+            rfc="MER260101AB1",
             legal_personality="persona_moral",
             legal_form="sociedad civil",
             profile=EntityProfile(
@@ -51,6 +53,20 @@ def _session(tmp_path):
             tax_characteristics=(),
             effective_from=date(2026, 1, 1),
             effective_to=None,
+        ),
+    )
+    pf_party = create_third_party(
+        session,
+        ThirdParty(
+            None, entity.id, "Proveedor PF", "COSC8001137NA", None, None,
+            "supplier", None, None, None, True,
+        ),
+    )
+    pm_party = create_third_party(
+        session,
+        ThirdParty(
+            None, entity.id, "Proveedor PM", "AAA010101AAA", None, None,
+            "supplier", None, None, None, True,
         ),
     )
 
@@ -91,7 +107,7 @@ def _session(tmp_path):
         data.MX_RESICO_PERSONA_FISICA_ISR_RETENTION,
     ):
         install_fiscal_rule_set(session, manifest)
-    return engine, session, entity
+    return engine, session, entity, pf_party, pm_party
 
 
 def _facts(fact, **overrides):
@@ -124,6 +140,7 @@ def _assert_no_posting(session):
     assert session.exec(select(JournalEntry)).all() == []
     assert session.exec(select(JournalLine)).all() == []
     assert session.exec(select(FiscalPostingAuditRecord)).all() == []
+    # ThirdParty creation is not a general AuditEvent in the existing authority.
     assert session.exec(select(AuditEventRecord)).all() == []
 
 
@@ -131,7 +148,7 @@ def test_prepare_general_sale_uses_existing_pipeline_and_writes_nothing(tmp_path
     from aqorath.economic_facts import EconomicFact
     from aqorath.fiscal_v1_operation import prepare_fiscal_v1_operation
 
-    engine, session, _ = _session(tmp_path)
+    engine, session, _, _, _ = _session(tmp_path)
     try:
         fact = EconomicFact("sale", Decimal("1000.00"), "cash")
         prepared = prepare_fiscal_v1_operation(session, _facts(fact))
@@ -154,7 +171,7 @@ def test_prepare_zero_rate_keeps_positive_rule_truth_and_zero_line_for_explicit_
     from aqorath.economic_facts import EconomicFact
     from aqorath.fiscal_v1_operation import prepare_fiscal_v1_operation
 
-    engine, session, _ = _session(tmp_path)
+    engine, session, _, _, _ = _session(tmp_path)
     try:
         fact = EconomicFact("sale", Decimal("500.00"), "cash")
         prepared = prepare_fiscal_v1_operation(
@@ -178,7 +195,7 @@ def test_prepare_professional_general_composes_three_effects_and_exact_settlemen
     from aqorath.economic_facts import EconomicFact
     from aqorath.fiscal_v1_operation import prepare_fiscal_v1_operation
 
-    engine, session, _ = _session(tmp_path)
+    engine, session, _, pf_party, _ = _session(tmp_path)
     try:
         fact = EconomicFact("professional_services_expense", Decimal("1000.00"), "bank")
         prepared = prepare_fiscal_v1_operation(
@@ -186,12 +203,15 @@ def test_prepare_professional_general_composes_three_effects_and_exact_settlemen
             _facts(
                 fact,
                 entity_role="recipient",
-                counterparty_legal_personality="persona_fisica",
+                counterparty_legal_personality=None,
                 counterparty_fiscal_regime="general",
                 activity=PROFESSIONAL_ACTIVITY,
                 cfdi_transferred_vat=Decimal("160.0000"),
             ),
+            third_party_id=pf_party.id,
         )
+        assert prepared.third_party_id == pf_party.id
+        assert prepared.facts.counterparty_legal_personality == "persona_fisica"
         assert _lines(prepared.snapshot) == (
             ("professional_services_expense", "debit", Decimal("1000.00")),
             ("bank", "credit", Decimal("953.33")),
@@ -220,7 +240,7 @@ def test_prepare_professional_resico_substitutes_isr_retention_without_integral_
     from aqorath.economic_facts import EconomicFact
     from aqorath.fiscal_v1_operation import prepare_fiscal_v1_operation
 
-    engine, session, _ = _session(tmp_path)
+    engine, session, _, pf_party, _ = _session(tmp_path)
     try:
         fact = EconomicFact("professional_services_expense", Decimal("1000.00"), "bank")
         prepared = prepare_fiscal_v1_operation(
@@ -228,11 +248,12 @@ def test_prepare_professional_resico_substitutes_isr_retention_without_integral_
             _facts(
                 fact,
                 entity_role="recipient",
-                counterparty_legal_personality="persona_fisica",
+                counterparty_legal_personality=None,
                 counterparty_fiscal_regime="resico",
                 activity=PROFESSIONAL_ACTIVITY,
                 cfdi_transferred_vat=Decimal("160.0000"),
             ),
+            third_party_id=pf_party.id,
         )
         assert _lines(prepared.snapshot) == (
             ("professional_services_expense", "debit", Decimal("1000.00")),
@@ -255,7 +276,7 @@ def test_prepare_freight_composes_vat_pending_and_four_percent_retention(tmp_pat
     from aqorath.economic_facts import EconomicFact
     from aqorath.fiscal_v1_operation import prepare_fiscal_v1_operation
 
-    engine, session, _ = _session(tmp_path)
+    engine, session, _, _, pm_party = _session(tmp_path)
     try:
         fact = EconomicFact("freight_expense", Decimal("1000.00"), "bank")
         prepared = prepare_fiscal_v1_operation(
@@ -263,11 +284,13 @@ def test_prepare_freight_composes_vat_pending_and_four_percent_retention(tmp_pat
             _facts(
                 fact,
                 entity_role="recipient",
-                counterparty_legal_personality="persona_moral",
+                counterparty_legal_personality=None,
                 activity="land_freight_goods",
                 cfdi_transferred_vat=Decimal("160.0000"),
             ),
+            third_party_id=pm_party.id,
         )
+        assert prepared.facts.counterparty_legal_personality == "persona_moral"
         assert _lines(prepared.snapshot) == (
             ("freight_expense", "debit", Decimal("1000.00")),
             ("bank", "credit", Decimal("1120.00")),
@@ -284,15 +307,50 @@ def test_prepare_freight_composes_vat_pending_and_four_percent_retention(tmp_pat
         engine.dispose()
 
 
+def test_recipient_fiscal_operation_requires_persisted_third_party_and_rfc_controls_personality(tmp_path):
+    from aqorath.economic_facts import EconomicFact
+    from aqorath.fiscal_v1_coverage import FiscalV1EvidenceConflict, UnsupportedFiscalV1Case
+    from aqorath.fiscal_v1_operation import prepare_fiscal_v1_operation
+
+    engine, session, _, pf_party, _ = _session(tmp_path)
+    try:
+        fact = EconomicFact("professional_services_expense", Decimal("1000.00"), "bank")
+        facts = _facts(
+            fact,
+            entity_role="recipient",
+            counterparty_legal_personality=None,
+            counterparty_fiscal_regime="general",
+            activity=PROFESSIONAL_ACTIVITY,
+            cfdi_transferred_vat=Decimal("160.0000"),
+        )
+        with pytest.raises(UnsupportedFiscalV1Case, match="ThirdParty persistido"):
+            prepare_fiscal_v1_operation(session, facts)
+        with pytest.raises(FiscalV1EvidenceConflict, match="RFC persistido"):
+            prepare_fiscal_v1_operation(
+                session,
+                _facts(
+                    fact,
+                    entity_role="recipient",
+                    counterparty_legal_personality="persona_moral",
+                    counterparty_fiscal_regime="general",
+                    activity=PROFESSIONAL_ACTIVITY,
+                    cfdi_transferred_vat=Decimal("160.0000"),
+                ),
+                third_party_id=pf_party.id,
+            )
+    finally:
+        session.close()
+        engine.dispose()
+
+
 def test_confirm_and_cancel_are_explicit_and_write_nothing(tmp_path):
     from aqorath.economic_facts import EconomicFact
     from aqorath.fiscal_v1_operation import confirm_fiscal_v1_operation, prepare_fiscal_v1_operation
 
-    engine, session, _ = _session(tmp_path)
+    engine, session, _, _, _ = _session(tmp_path)
     try:
         fact = EconomicFact("sale", Decimal("1000.00"), "cash")
         prepared = prepare_fiscal_v1_operation(session, _facts(fact))
-        # Cancellation is deliberately the absence of confirm/execute.
         _assert_no_posting(session)
         confirmed = confirm_fiscal_v1_operation(prepared)
         assert confirmed.prepared is prepared
@@ -314,7 +372,7 @@ def test_execute_professional_is_one_posted_entry_with_fiscal_and_general_audit(
     )
     from aqorath.models import AuditEventRecord, FiscalPostingAuditEffectRecord, FiscalPostingAuditRecord, JournalEntry, JournalLine
 
-    engine, session, entity = _session(tmp_path)
+    engine, session, entity, pf_party, _ = _session(tmp_path)
     try:
         fact = EconomicFact("professional_services_expense", Decimal("1000.00"), "bank")
         prepared = prepare_fiscal_v1_operation(
@@ -322,11 +380,12 @@ def test_execute_professional_is_one_posted_entry_with_fiscal_and_general_audit(
             _facts(
                 fact,
                 entity_role="recipient",
-                counterparty_legal_personality="persona_fisica",
+                counterparty_legal_personality=None,
                 counterparty_fiscal_regime="general",
                 activity=PROFESSIONAL_ACTIVITY,
                 cfdi_transferred_vat=Decimal("160.0000"),
             ),
+            third_party_id=pf_party.id,
         )
         confirmed = confirm_fiscal_v1_operation(prepared)
         session.close()
@@ -349,6 +408,8 @@ def test_execute_professional_is_one_posted_entry_with_fiscal_and_general_audit(
             assert view["entry_state"] == "posted"
             assert view["posting_date"] == "2026-09-10"
             assert view["audit_event_id"] == result.audit_event_id
+            assert view["counterparty"]["third_party_id"] == pf_party.id
+            assert view["counterparty"]["rfc"] == "COSC8001137NA"
             assert [item["rule_key"] for item in view["treatments"]] == [
                 "iva.general_rate",
                 "isr.professional_services_retention_rate",
@@ -372,7 +433,7 @@ def test_execute_zero_rate_omits_zero_line_but_audits_positive_zero_rate_decisio
     from aqorath.fiscal_v1_operation import confirm_fiscal_v1_operation, execute_fiscal_v1_operation, load_fiscal_v1_operation, prepare_fiscal_v1_operation
     from aqorath.models import JournalLine
 
-    engine, session, entity = _session(tmp_path)
+    engine, session, entity, _, _ = _session(tmp_path)
     try:
         fact = EconomicFact("sale", Decimal("500.00"), "cash")
         prepared = prepare_fiscal_v1_operation(
@@ -403,18 +464,19 @@ def test_aqr011_audit_failure_rolls_back_entry_fiscal_audit_and_general_event(tm
     from aqorath.fiscal_v1_operation import confirm_fiscal_v1_operation, execute_fiscal_v1_operation, prepare_fiscal_v1_operation
     from aqorath.models import AuditEventRecord, FiscalPostingAuditEffectRecord, FiscalPostingAuditRecord, JournalEntry, JournalLine
 
-    engine, session, _ = _session(tmp_path)
+    engine, session, _, pf_party, _ = _session(tmp_path)
     fact = EconomicFact("professional_services_expense", Decimal("1000.00"), "bank")
     prepared = prepare_fiscal_v1_operation(
         session,
         _facts(
             fact,
             entity_role="recipient",
-            counterparty_legal_personality="persona_fisica",
+            counterparty_legal_personality=None,
             counterparty_fiscal_regime="general",
             activity=PROFESSIONAL_ACTIVITY,
             cfdi_transferred_vat=Decimal("160.0000"),
         ),
+        third_party_id=pf_party.id,
     )
     confirmed = confirm_fiscal_v1_operation(prepared)
     session.close()
