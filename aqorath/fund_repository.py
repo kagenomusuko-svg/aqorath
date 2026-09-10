@@ -38,8 +38,12 @@ def _line_amount(session, line_id, *, kind):
         raise ValueError("FundReceipt requires a credit JournalLine on a credit-nature account")
     if kind == "application" and (debit <= 0 or account.nature.upper() != "DEBIT"):
         raise ValueError("FundApplication requires a debit JournalLine on a debit-nature account")
-    allowed = {"utility_expense", "utility_expense_incurred", "supplier_payment"}
-    if kind == "application" and (context[0] != "active" or context[1] not in allowed):
+    allowed_roles = {
+        "utility_expense": {"utilities_expense"},
+        "utility_expense_incurred": {"utilities_expense"},
+        "supplier_payment": {"accounts_payable"},
+    }
+    if kind == "application" and (context[0] != "active" or context[1] not in allowed_roles or not set(context[2]) & allowed_roles[context[1]]):
         raise ValueError("FundApplication requires canonical posted expense/payment provenance")
     return line, entry, abs(debit - credit)
 
@@ -55,15 +59,17 @@ def _posting_context(session, entry_id):
             continue
         if details.get("entry_id") != entry_id:
             continue
-        fact_type = details.get("decision", {}).get("fact", {}).get("type")
+        decision = details.get("decision", {})
+        fact_type = decision.get("fact", {}).get("type")
         if type(fact_type) is str:
-            matches.append((event.entity_id, fact_type))
+            roles = tuple(effect["account_role"] for effect in decision.get("explanation", {}).get("effects", ()) if effect.get("side") == "debit" and type(effect.get("account_role")) is str)
+            matches.append((event.entity_id, fact_type, roles))
     if len(matches) != 1:
-        return ("ambiguous", None)
+        return ("ambiguous", None, ())
     active = session.exec(select(EntityRecord).where(EntityRecord.is_active.is_(True))).all()
     if len(active) != 1 or active[0].id != matches[0][0]:
-        return ("foreign", matches[0][1])
-    return ("active", matches[0][1])
+        return ("foreign", matches[0][1], matches[0][2])
+    return ("active", matches[0][1], matches[0][2])
 
 
 def _effective(session, line_id, as_of):
@@ -110,6 +116,7 @@ def record_fund_receipt(session, receipt):
     if entry is None or entry.state not in ("posted", "reversed"): raise ValueError("JournalLine must belong to a posted JournalEntry")
     context = _posting_context(session, entry.id)
     if context[0] != "active": raise ValueError("JournalLine has no unambiguous active Entity ownership")
+    if not _effective(session, receipt.journal_line_id, entry.date.date()): raise ValueError("FundReceipt cannot reference an ineffective or reverted JournalLine")
     line, entry, line_amount = _line_amount(session, receipt.journal_line_id, kind="receipt")
     if line_amount != receipt.amount: raise ValueError("receipt amount must equal the canonical JournalLine amount")
     if receipt.received_at.date() != entry.date.date(): raise ValueError("received_at must equal the canonical JournalEntry date")
@@ -130,6 +137,7 @@ def record_fund_application(session, application):
     if not isinstance(application, FundApplication) or application.id is not None: raise TypeError("application must be a new FundApplication")
     fund = _fund(session, application.entity_id, application.fund_id); _entity(session, application.entity_id); _program(session, application.entity_id, application.program_id)
     line, entry, line_amount = _line_amount(session, application.journal_line_id, kind="application")
+    if not _effective(session, application.journal_line_id, entry.date.date()): raise ValueError("FundApplication cannot reference an ineffective or reverted JournalLine")
     if application.amount > line_amount: raise ValueError("application cannot exceed the canonical JournalLine amount")
     if application.applied_at.date() != entry.date.date(): raise ValueError("applied_at must equal the canonical JournalEntry date")
     if fund.valid_from and entry.date.date().isoformat() < fund.valid_from: raise ValueError("application is before Fund validity")
@@ -138,6 +146,7 @@ def record_fund_application(session, application):
     if application.receipt_id is not None:
         receipt = session.get(FundReceiptRecord, application.receipt_id)
         if receipt is None or receipt.entity_id != application.entity_id or receipt.fund_id != application.fund_id: raise ValueError("application receipt does not belong to Fund and Entity")
+        if not _effective(session, receipt.journal_line_id, entry.date.date()): raise ValueError("application receipt is not effective at the application date")
     existing = session.exec(select(FundApplicationRecord).where(FundApplicationRecord.journal_line_id == application.journal_line_id)).all()
     if sum((Decimal(row.amount) for row in existing), Decimal("0")) + application.amount > line_amount: raise ValueError("applications exceed the canonical JournalLine amount")
     fund_receipts = session.exec(select(FundReceiptRecord).where(FundReceiptRecord.fund_id == application.fund_id)).all()
