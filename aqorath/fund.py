@@ -50,3 +50,22 @@ class FundApplication:
         if type(self.applied_at) is not datetime: raise TypeError("applied_at must be datetime")
         if self.receipt_id is not None: _id(self.receipt_id, "receipt_id")
         if self.purpose is not None: _text(self.purpose, "purpose")
+
+
+@dataclass(frozen=True)
+class FundBalance:
+    fund_id: int
+    as_of: date
+    received: Decimal
+    applied: Decimal
+    available: Decimal
+    restriction: str
+    program_id: int | None
+
+    def __post_init__(self):
+        _id(self.fund_id, "fund_id")
+        if type(self.as_of) is not date: raise TypeError("as_of must be date")
+        for name, value in (("received", self.received), ("applied", self.applied), ("available", self.available)):
+            if type(value) is not Decimal or not value.is_finite(): raise TypeError(f"{name} must be finite Decimal")
+        if self.received < 0 or self.applied < 0 or self.available < 0: raise ValueError("fund balances cannot be negative")
+        if self.available != self.received - self.applied: raise ValueError("available must equal received minus applied")
