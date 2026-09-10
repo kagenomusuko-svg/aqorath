@@ -681,6 +681,30 @@ class DonationRecord(SQLModel, table=True):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class InKindDonationRecord(SQLModel, table=True):
+    """Non-cash donation evidence and valuation, never a parallel ledger."""
+
+    __tablename__ = "inkinddonation"
+    __table_args__ = (UniqueConstraint("entity_id", "external_reference", name="uq_inkind_entity_reference"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    entity_id: int = Field(sa_column=Column(Integer, ForeignKey("entity.id"), nullable=False, index=True))
+    donor_third_party_id: Optional[int] = Field(default=None, sa_column=Column(Integer, ForeignKey("thirdparty.id"), nullable=True, index=True))
+    document_reference_id: Optional[int] = Field(default=None, sa_column=Column(Integer, ForeignKey("documentreference.id"), nullable=True, index=True))
+    fund_id: Optional[int] = Field(default=None, sa_column=Column(Integer, ForeignKey("fund.id"), nullable=True, index=True))
+    program_id: Optional[int] = Field(default=None, sa_column=Column(Integer, ForeignKey("program.id"), nullable=True, index=True))
+    journal_line_id: Optional[int] = Field(default=None, sa_column=Column(Integer, ForeignKey("journalline.id"), nullable=True, index=True))
+    received_at: str = Field(sa_column=Column(String, nullable=False, index=True))
+    description: str = Field(sa_column=Column(Text, nullable=False))
+    quantity: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    valuation_amount: str = Field(sa_column=Column(Text, nullable=False))
+    valuation_currency: str = Field(sa_column=Column(String, nullable=False))
+    valuation_method: str = Field(sa_column=Column(String, nullable=False))
+    valuation_evidence: str = Field(sa_column=Column(Text, nullable=False))
+    external_reference: str = Field(sa_column=Column(String, nullable=False))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class AuditEventRecord(SQLModel, table=True):
     """Persisted append-only general traceability metadata owned by one Entity."""
 
