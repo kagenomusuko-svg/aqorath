@@ -229,9 +229,9 @@ Estado: **FUNDACIONES PARCIALES**
 
 Existen Program, Donation y AnalyticalDimension/valores/asignaciones.
 
-No se localizaron como capacidades completas Fund, FundingSource ni InKindDonation.
+Fund y FundingSource quedaron implementados en AQR-008 como trazabilidad OSC sobre `JournalLine`; InKindDonation sigue pendiente.
 
-Pendientes: AQR-008 (fondos/fuentes/restricciones) y AQR-009 (donativos completos/en especie).
+Pendiente: AQR-009 (donativos completos/en especie).
 
 ---
 
@@ -274,8 +274,8 @@ AQR-004 incorpora `ExplanationData` a la misma decisión y conserva evidencia es
 | ThirdParty | Implementado |
 | DocumentReference | Implementado |
 | Program | Fundación implementada |
-| Fund | **Pendiente** |
-| FundingSource | **Pendiente** |
+| Fund | **Implementado AQR-008** |
+| FundingSource | **Implementado AQR-008** |
 | AnalyticalDimension | Implementado |
 | Donation | Fundación implementada |
 | InKindDonation | **Pendiente** |
@@ -315,7 +315,7 @@ AQR-015 conserva la responsabilidad del empaquetado/instalación final y de la a
 
 - submayores CxC/CxP operativos;
 - conciliación bancaria sobre evidencia externa, matching one-to-one, pendientes y diferencias;
-- fondos/fuentes/restricciones OSC;
+- donativos completos/en especie OSC;
 - donativo en especie;
 - CFDI XML productivo;
 - cobertura fiscal V1 declarada;
@@ -350,8 +350,8 @@ Todas están registradas y ordenadas en `PRODUCT_BACKLOG_V1.md`.
 ### P1 — completitud/seguridad de producto
 
 - submayores CxC/CxP operativos pendientes;
-- fondos/fuentes/restricciones OSC pendientes;
-- OSC incompleto en fondos/fuentes/restricciones;
+- donativos completos/en especie OSC pendientes;
+- OSC incompleto en donativos y tratamiento en especie;
 - CFDI/cobertura fiscal V1 incompletos;
 - producto no empaquetado.
 
