@@ -11,6 +11,9 @@ from . import fiscal_v1_surface_application as _fiscal_v1
 from . import surface_application as _application
 
 
+_COMMON_FISCAL_KEYS = frozenset({"sale_general_paid", "sale_own_publication_paid"})
+
+
 class LocalPresentationController:
     def __init__(self):
         self._pending = {}
@@ -23,14 +26,19 @@ class LocalPresentationController:
         return {"token": token, "preview": preview}
 
     def capabilities(self):
+        fiscal_kinds = tuple(_fiscal_v1.list_fiscal_v1_surface_kinds())
         return {
             "operations": [
                 {"key": item.key, "label": item.label}
                 for item in _application.list_common_operation_kinds()
+            ] + [
+                {"key": item.key, "label": item.label}
+                for item in fiscal_kinds
+                if item.key in _COMMON_FISCAL_KEYS
             ],
             "fiscal_v1_operations": [
                 {"key": item.key, "label": item.label}
-                for item in _fiscal_v1.list_fiscal_v1_surface_kinds()
+                for item in fiscal_kinds
             ],
             "credit_origins": (
                 {"key": "sale_credit", "label": "Venta a crédito"},
@@ -42,6 +50,13 @@ class LocalPresentationController:
         }
 
     def prepare(self, operation_key, amount, posting_date):
+        if operation_key in _COMMON_FISCAL_KEYS:
+            prepared = _fiscal_v1.prepare_fiscal_v1_surface_operation({
+                "operation_key": operation_key,
+                "amount": amount,
+                "operation_date": posting_date,
+            })
+            return self._store(prepared, prepared.common_preview)
         prepared = _application.prepare_common_operation(
             operation_key,
             amount,
