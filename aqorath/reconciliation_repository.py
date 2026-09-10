@@ -2,6 +2,8 @@
 
 from datetime import date
 from decimal import Decimal
+from datetime import datetime, timezone
+import json
 
 from sqlmodel import select
 
@@ -11,7 +13,7 @@ from .banking_models import (
     ReconciliationMatchRecord, ReconciliationMatchRevocationRecord,
     ReconciliationRecord,
 )
-from .models import JournalEntry, JournalLine
+from .models import AuditEventRecord, JournalEntry, JournalLine
 
 
 def create_reconciliation(session, bank_account_id, statement_id, as_of):
@@ -71,6 +73,17 @@ def match_transaction(session, reconciliation_id, bank_transaction_id, journal_l
     )
     try:
         session.add(record)
+        session.flush()
+        session.add(AuditEventRecord(
+            entity_id=account.entity_id,
+            event_type="bank_reconciliation_match",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            details_json=json.dumps({
+                "reconciliation_id": reconciliation_id,
+                "bank_transaction_id": bank_transaction_id,
+                "journal_line_id": journal_line_id,
+            }, sort_keys=True),
+        ))
         session.commit()
     except Exception:
         session.rollback()
@@ -89,8 +102,18 @@ def revoke_match(session, match_id, reason):
     )).first() is not None:
         raise ValueError("match already revoked")
     record = ReconciliationMatchRevocationRecord(match_id=match_id, reason=reason)
+    reconciliation = session.get(ReconciliationRecord, match.reconciliation_id)
+    account = session.get(BankAccountRecord, reconciliation.bank_account_id) if reconciliation else None
+    if account is None:
+        raise RuntimeError("match provenance is incomplete")
     try:
         session.add(record)
+        session.add(AuditEventRecord(
+            entity_id=account.entity_id,
+            event_type="bank_reconciliation_match_revoked",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            details_json=json.dumps({"match_id": match_id, "reason": reason}, sort_keys=True),
+        ))
         session.commit()
     except Exception:
         session.rollback()
