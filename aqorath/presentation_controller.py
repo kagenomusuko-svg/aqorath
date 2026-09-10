@@ -44,6 +44,17 @@ class LocalPresentationController:
         )
         return self._store(prepared, _application.common_preview(prepared))
 
+    def donation_options(self):
+        return _application.list_surface_donation_options()
+
+    def prepare_monetary_donation(self, payload):
+        prepared = _application.prepare_surface_monetary_donation(payload)
+        return self._store(prepared, prepared.preview)
+
+    def prepare_inkind_donation(self, payload):
+        prepared = _application.prepare_surface_inkind_donation(payload)
+        return self._store(prepared, prepared.preview)
+
     def prepare_open_item_origin(self, payload):
         prepared = _application.prepare_surface_open_item_origin(
             payload.get("operation_key"),
@@ -82,6 +93,8 @@ class LocalPresentationController:
         prepared = self._require_pending(token)
         if isinstance(prepared, _application.PreparedSurfaceOperation):
             return _application.professional_preview(prepared)
+        if isinstance(prepared, _application.PreparedSurfaceDonationOperation):
+            return _application.donation_professional_preview(prepared)
         if isinstance(prepared, _application.PreparedSurfaceSubledgerAction):
             return _application.subledger_professional_preview(prepared)
         raise TypeError("unsupported prepared presentation value")
@@ -95,6 +108,8 @@ class LocalPresentationController:
                 "audit_event_id": result.audit_event_id,
                 "state": result.state,
             }
+        elif isinstance(prepared, _application.PreparedSurfaceDonationOperation):
+            response = _application.confirm_surface_donation(prepared)
         elif isinstance(prepared, _application.PreparedSurfaceSubledgerAction):
             response = _application.confirm_and_post_subledger(prepared)
         else:
@@ -142,6 +157,12 @@ class LocalPresentationController:
     def professional_operation(self, entry_id):
         return _application.load_professional_operation(entry_id)
 
+    def professional_donation(self, donation_id):
+        return _application.load_surface_donation_professional("monetary", donation_id)
+
+    def professional_inkind_donation(self, donation_id):
+        return _application.load_surface_donation_professional("inkind", donation_id)
+
     def trial_balance(self, as_of=None):
         return _application.get_professional_trial_balance(as_of)
 
@@ -176,6 +197,15 @@ class LocalPresentationController:
 
     def funds(self):
         return _application.list_surface_funds()
+
+    def donations(self):
+        return _application.list_surface_donations()
+
+    def create_donation(self, payload):
+        return _application.create_surface_donation(payload)
+
+    def create_inkind_donation(self, payload):
+        return _application.create_surface_inkind_donation(payload)
 
     def create_fund(self, payload):
         return _application.create_surface_fund(payload)

@@ -29,6 +29,8 @@ class EconomicFact:
 
     def __post_init__(self):
         valid_payment_methods = {
+            "donation": ("bank",),
+            "inkind_donation": ("noncash",),
             "sale": ("cash", "credit"),
             "utility_expense": ("bank",),
             "utility_expense_incurred": ("credit",),
@@ -40,7 +42,7 @@ class EconomicFact:
             raise ValueError(
                 "type must be one of: 'sale', 'utility_expense', "
                 "'utility_expense_incurred', 'receivable_collection', "
-                "'supplier_payment'. "
+                "'supplier_payment', 'donation', 'inkind_donation'. "
                 f"Got: {self.type}"
             )
 
@@ -140,7 +142,21 @@ class AccountingProposal:
 
 def resolve_economic_fact(fact: EconomicFact) -> AccountingProposal:
     """Deterministically resolve a supported fact to semantic accounting roles."""
-    if fact.type == "sale" and fact.payment_method == "cash":
+    if fact.type == "inkind_donation" and fact.payment_method == "noncash":
+        debit_role = "fixed_asset_computer_equipment"
+        credit_role = "donation_income"
+        explanation = (
+            f"In-kind donation: {fact.amount} recognized as a durable computer asset. "
+            "The asset is recognized without cash or bank movement and donation income is credited."
+        )
+    elif fact.type == "donation" and fact.payment_method == "bank":
+        debit_role = "bank"
+        credit_role = "donation_income"
+        explanation = (
+            f"Monetary donation: {fact.amount} received in bank. "
+            "Bank resource increased and donation income recognized."
+        )
+    elif fact.type == "sale" and fact.payment_method == "cash":
         debit_role = "cash"
         credit_role = "sales_revenue"
         explanation = (

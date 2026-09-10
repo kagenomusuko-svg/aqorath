@@ -10,7 +10,7 @@ carry ThirdParty/document/open-item provenance through the AQR-006 use cases.
 """
 
 from dataclasses import dataclass, asdict, is_dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 
 from . import accounting_operation as _operations
@@ -27,9 +27,38 @@ from . import bank_transfer as _bank_transfer
 from . import fund_repository as _funds
 from .fund import Fund, FundingSource, FundReceipt, FundApplication
 from .fund_models import FundRecord, FundingSourceRecord
-from .models import JournalEntry, JournalLine, AuditEventRecord, DonationRecord, ProgramRecord
+from .models import JournalEntry, JournalLine, AuditEventRecord, DonationRecord, ProgramRecord, ThirdPartyRecord, InKindDonationRecord, FixedAssetRecord
+from .banking_models import BankAccountRecord
 from .models import AccountRoleBinding
 from sqlmodel import select
+
+
+def list_surface_donations():
+    with _storage.get_session() as session:
+        entity = _application.get_active_entity(session)
+        if entity is None:
+            return []
+        return [asdict(item) for item in _application.list_donations(session, entity.id)]
+
+
+def create_surface_donation(payload):
+    from .donation import Donation
+    with _storage.get_session() as session:
+        entity = _application.get_active_entity(session)
+        if entity is None:
+            raise LookupError("active Entity not configured")
+        item = Donation(None, entity.id, datetime.fromisoformat(payload["date"]), _amount(payload["amount"]), payload.get("donor_third_party_id"), payload.get("purpose"), bool(payload.get("is_restricted", False)))
+        return asdict(_application.create_donation(session, item))
+
+
+def create_surface_inkind_donation(payload):
+    from .inkind_donation import InKindDonation
+    with _storage.get_session() as session:
+        entity = _application.get_active_entity(session)
+        if entity is None:
+            raise LookupError("active Entity not configured")
+        item = InKindDonation(None, entity.id, payload.get("donor_third_party_id"), payload.get("document_reference_id"), payload.get("fund_id"), payload.get("program_id"), payload.get("journal_line_id"), payload.get("fixed_asset_id"), datetime.fromisoformat(payload["received_at"]), payload["description"], None if payload.get("quantity") is None else _amount(payload["quantity"]), _amount(payload["valuation_amount"]), payload.get("valuation_currency", "MXN"), payload["valuation_method"], payload["valuation_evidence"], payload["external_reference"])
+        return asdict(_application.create_inkind_donation(session, item))
 
 
 @dataclass(frozen=True)
@@ -53,11 +82,20 @@ class PreparedSurfaceSubledgerAction:
     summary: dict
 
 
+@dataclass(frozen=True)
+class PreparedSurfaceDonationOperation:
+    kind: str
+    prepared: object
+    preview: dict
+
+
 # Only immediate operations may use the generic surface path. Credit origins and
 # settlements require the dedicated AQR-006 provenance workflow below.
 _OPERATION_KINDS = (
     CommonOperationKind("sale_cash", "Venta cobrada en efectivo", "sale", "cash"),
     CommonOperationKind("utility_bank", "Pago de servicios desde banco", "utility_expense", "bank"),
+    CommonOperationKind("donation_bank", "Donativo monetario recibido por banco", "donation", "bank"),
+    CommonOperationKind("donation_inkind", "Donativo en especie: activo durable", "inkind_donation", "noncash"),
 )
 _OPERATION_BY_KEY = {item.key: item for item in _OPERATION_KINDS}
 
@@ -90,6 +128,347 @@ def _date(value, field_name="posting_date"):
         return date.fromisoformat(value)
     except ValueError as exc:
         raise ValueError(f"{field_name} must be YYYY-MM-DD") from exc
+
+
+def _datetime(value, field_name):
+    if isinstance(value, datetime):
+        result = value
+    elif isinstance(value, str):
+        try:
+            result = datetime.fromisoformat(value)
+        except ValueError as exc:
+            raise ValueError(f"{field_name} must be ISO date text") from exc
+    else:
+        raise TypeError(f"{field_name} must be ISO date text")
+    return result if result.tzinfo is not None else result.replace(tzinfo=timezone.utc)
+
+
+def _named_one(rows, value, label, attribute="name"):
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{label} is required")
+    matches = [row for row in rows if getattr(row, attribute) == value.strip()]
+    if len(matches) != 1:
+        raise LookupError(f"{label} must identify exactly one registered choice")
+    return matches[0]
+
+
+def list_surface_donation_options():
+    """Return human-readable choices; this projection performs no writes."""
+    with _storage.get_session() as session:
+        entity = _application.get_active_entity(session)
+        if entity is None or entity.id is None:
+            raise LookupError("active Entity is required")
+        donors = session.exec(
+            select(ThirdPartyRecord).where(
+                ThirdPartyRecord.entity_id == entity.id,
+                ThirdPartyRecord.is_active.is_(True),
+            ).order_by(ThirdPartyRecord.name, ThirdPartyRecord.id)
+        ).all()
+        banks = session.exec(
+            select(BankAccountRecord).where(
+                BankAccountRecord.entity_id == entity.id,
+                BankAccountRecord.is_active.is_(True),
+            ).order_by(BankAccountRecord.institution_name, BankAccountRecord.account_identifier)
+        ).all()
+        programs = session.exec(
+            select(ProgramRecord).where(ProgramRecord.entity_id == entity.id).order_by(ProgramRecord.name, ProgramRecord.id)
+        ).all()
+        funds = session.exec(
+            select(FundRecord).where(FundRecord.entity_id == entity.id).order_by(FundRecord.name, FundRecord.id)
+        ).all()
+        sources = session.exec(
+            select(FundingSourceRecord).where(FundingSourceRecord.entity_id == entity.id).order_by(FundingSourceRecord.name, FundingSourceRecord.id)
+        ).all()
+    return {
+        "donors": [_party_dict(item) for item in donors],
+        "banks": [
+            {
+                "id": item.id,
+                "institution_name": item.institution_name,
+                "account_identifier": item.account_identifier,
+                "currency": item.currency,
+            }
+            for item in banks
+        ],
+        "programs": [{"id": item.id, "name": item.name} for item in programs],
+        "funds": [
+            {
+                "id": item.id,
+                "name": item.name,
+                "code": item.code,
+                "restriction": item.restriction,
+                "program_id": item.program_id,
+            }
+            for item in funds
+        ],
+        "funding_sources": [{"id": item.id, "name": item.name} for item in sources],
+    }
+
+
+def _surface_donation_context(session, payload, *, kind):
+    entity = _application.get_active_entity(session)
+    if entity is None or entity.id is None:
+        raise LookupError("active Entity is required")
+    donor = _named_one(
+        session.exec(select(ThirdPartyRecord).where(ThirdPartyRecord.entity_id == entity.id, ThirdPartyRecord.is_active.is_(True))).all(),
+        payload.get("donor_name"),
+        "donor name",
+    )
+    programs = session.exec(select(ProgramRecord).where(ProgramRecord.entity_id == entity.id)).all()
+    program = _named_one(programs, payload.get("program_name"), "program name")
+    funds = session.exec(select(FundRecord).where(FundRecord.entity_id == entity.id)).all()
+    fund = _named_one(funds, payload.get("fund_name"), "fund name") if payload.get("fund_name") else None
+    if kind == "monetary" and fund is None:
+        raise ValueError("fund name is required for a monetary donation")
+    if fund is not None and fund.program_id not in (None, program.id):
+        raise ValueError("selected fund does not allow the selected program")
+    if fund is not None and payload.get("restriction") and fund.restriction != payload["restriction"]:
+        raise ValueError("selected restriction does not match the selected fund")
+    sources = session.exec(select(FundingSourceRecord).where(FundingSourceRecord.entity_id == entity.id)).all()
+    source = _named_one(sources, payload.get("funding_source_name"), "funding source name") if kind == "monetary" else None
+    bank = None
+    if kind == "monetary":
+        banks = session.exec(select(BankAccountRecord).where(BankAccountRecord.entity_id == entity.id, BankAccountRecord.is_active.is_(True))).all()
+        bank = _named_one(banks, payload.get("bank_account_identifier"), "bank account", "account_identifier") if payload.get("bank_account_identifier") else None
+        if bank is None:
+            raise ValueError("bank account is required")
+        if bank.currency != "MXN":
+            raise ValueError("AQR-009 surface supports MXN bank accounts only")
+    return entity, donor, bank, program, fund, source
+
+
+def _surface_donation_preview(kind, prepared, context):
+    amount = str(prepared.decision.fact.amount)
+    common = {
+        "operation": "Donativo monetario recibido por banco" if kind == "monetary" else "Donativo en especie: activo durable",
+        "kind": kind,
+        "amount": amount,
+        "posting_date": prepared.decision.posting_date.isoformat(),
+        "donor": context["donor"].name,
+        "document_type": prepared.document_type,
+        "document_number": prepared.document_number,
+        "document_date": prepared.document_date.date().isoformat(),
+        "fund": None if context["fund"] is None else context["fund"].name,
+        "funding_source": None if context["source"] is None else context["source"].name,
+        "program": context["program"].name,
+        "restriction": None if context["fund"] is None else context["fund"].restriction,
+        "requires_confirmation": True,
+        "fiscality": "Tratamiento contable determinado. Tratamiento fiscal específico pendiente/no cubierto por la cobertura fiscal declarada.",
+    }
+    if kind == "monetary":
+        common.update({
+            "bank": f"{context['bank'].institution_name} · {context['bank'].account_identifier}",
+            "cash_or_bank": "Banco",
+            "explanation": f"Se reconocerá un donativo monetario de {amount} por banco para {context['program'].name}.",
+        })
+    else:
+        common.update({
+            "asset": prepared.asset_name,
+            "quantity": None if prepared.quantity is None else str(prepared.quantity),
+            "valuation_method": prepared.valuation_method,
+            "evidence": prepared.valuation_evidence,
+            "cash_or_bank": "Sin efectivo ni banco",
+            "explanation": f"Se reconocerá un activo durable por {amount} y un ingreso por donativo; no habrá movimiento de efectivo ni banco.",
+        })
+    return common
+
+
+def prepare_surface_monetary_donation(payload):
+    with _storage.get_session() as session:
+        entity, donor, bank, program, fund, source = _surface_donation_context(session, payload, kind="monetary")
+        for field in ("document_type", "document_number"):
+            if not isinstance(payload.get(field), str) or not payload[field].strip():
+                raise ValueError(f"{field} is required")
+        prepared = _application.prepare_monetary_donation(
+            session,
+            _amount(payload.get("amount")),
+            _datetime(payload.get("date"), "date"),
+            donor_third_party_id=donor.id,
+            document_type=payload.get("document_type"),
+            document_number=payload.get("document_number"),
+            document_date=_datetime(payload.get("document_date"), "document_date"),
+            fund_id=fund.id if fund is not None else None,
+            funding_source_id=source.id,
+            program_id=program.id,
+            purpose=payload.get("purpose"),
+            is_restricted=(fund is not None and fund.restriction == "restricted"),
+            bank_account_id=bank.id,
+        )
+        context = {"entity": entity, "donor": donor, "bank": bank, "program": program, "fund": fund, "source": source}
+    return PreparedSurfaceDonationOperation("monetary", prepared, _surface_donation_preview("monetary", prepared, context))
+
+
+def prepare_surface_inkind_donation(payload):
+    with _storage.get_session() as session:
+        entity, donor, _bank, program, fund, _source = _surface_donation_context(session, payload, kind="inkind")
+        for field in ("description", "valuation_method", "valuation_evidence", "document_type", "document_number", "asset_code", "asset_name"):
+            if not isinstance(payload.get(field), str) or not payload[field].strip():
+                raise ValueError(f"{field} is required")
+        prepared = _application.prepare_inkind_donation(
+            session,
+            _amount(payload.get("valuation_amount")),
+            _datetime(payload.get("date"), "date"),
+            donor_third_party_id=donor.id,
+            document_type=payload.get("document_type"),
+            document_number=payload.get("document_number"),
+            document_date=_datetime(payload.get("document_date"), "document_date"),
+            received_at=_datetime(payload.get("date"), "date"),
+            description=payload.get("description"),
+            quantity=None if payload.get("quantity") in (None, "") else _amount(payload.get("quantity")),
+            valuation_method=payload.get("valuation_method"),
+            valuation_evidence=payload.get("valuation_evidence"),
+            external_reference=payload.get("external_reference") or payload.get("document_number"),
+            asset_code=payload.get("asset_code"),
+            asset_name=payload.get("asset_name") or payload.get("description"),
+            useful_life_months=int(payload.get("useful_life_months")),
+            program_id=program.id,
+            fund_id=None if fund is None else fund.id,
+        )
+        context = {"entity": entity, "donor": donor, "bank": None, "program": program, "fund": fund, "source": None}
+    return PreparedSurfaceDonationOperation("inkind", prepared, _surface_donation_preview("inkind", prepared, context))
+
+
+def donation_professional_preview(value):
+    if not isinstance(value, PreparedSurfaceDonationOperation):
+        raise TypeError("value must be PreparedSurfaceDonationOperation")
+    result = _decision_professional_preview(
+        "donation" if value.kind == "monetary" else "inkind_donation",
+        value.prepared.decision,
+    )
+    result["common"] = value.preview
+    result["donation" if value.kind == "monetary" else "inkind_donation"] = value.preview
+    result["provenance"] = "canonical JournalLine after confirmation"
+    return result
+
+
+def confirm_surface_donation(value):
+    if not isinstance(value, PreparedSurfaceDonationOperation):
+        raise TypeError("value must be PreparedSurfaceDonationOperation")
+    if value.kind == "monetary":
+        return _json_value(_application.confirm_monetary_donation(value.prepared))
+    if value.kind == "inkind":
+        return _json_value(_application.confirm_inkind_donation(value.prepared))
+    raise ValueError("unsupported donation kind")
+
+
+def _named_record(record, name_fields=("name",)):
+    if record is None:
+        return None
+    return {"id": record.id, **{field: getattr(record, field) for field in name_fields}}
+
+
+def load_surface_donation_professional(kind, donation_id):
+    with _storage.get_session() as session:
+        entity = _application.get_active_entity(session)
+        if entity is None or entity.id is None:
+            raise LookupError("active Entity is required")
+        if kind == "monetary":
+            trace = _application.load_monetary_donation_trace(session, entity.id, donation_id)
+            operation = load_professional_operation(trace["ledger"]["entry_id"])
+            receipt = trace["fund_receipt"]
+            fund = session.get(FundRecord, receipt["fund_id"])
+            source = session.get(FundingSourceRecord, receipt["funding_source_id"])
+            program = None if fund is None or fund.program_id is None else session.get(ProgramRecord, fund.program_id)
+            donor_id = trace["donation"]["donor_third_party_id"]
+            donor = None if donor_id is None else session.get(ThirdPartyRecord, donor_id)
+            document = operation["documents"][0] if operation["documents"] else trace["document"]
+            return {
+                "kind": "monetary",
+                "donation": trace["donation"],
+                "donor": _named_record(donor),
+                "document": document,
+                "fund": _named_record(fund, ("name", "code", "restriction")),
+                "funding_source": _named_record(source),
+                "program": _named_record(program),
+                "restriction": None if fund is None else fund.restriction,
+                "fund_receipt": receipt,
+                "ledger": {
+                    "entry_id": operation["entry_id"],
+                    "state": operation["state"],
+                    "lines": operation["lines"],
+                    "reversal_entry_id": None if operation["reversal"] is None else operation["reversal"]["reversal_entry_id"],
+                },
+                "audit": operation["audit"],
+                "reversal": operation["reversal"],
+                "fiscality": {
+                    "supported": False,
+                    "limitation": "Tratamiento contable determinado. Tratamiento fiscal específico pendiente/no cubierto por la cobertura fiscal declarada.",
+                },
+            }
+        if kind == "inkind":
+            trace = _application.load_inkind_donation_trace(session, entity.id, donation_id)
+            operation = load_professional_operation(trace["ledger"]["entry_id"])
+            item = session.get(InKindDonationRecord, donation_id)
+            fund = None if item.fund_id is None else session.get(FundRecord, item.fund_id)
+            program = None if item.program_id is None else session.get(ProgramRecord, item.program_id)
+            donor = None if item.donor_third_party_id is None else session.get(ThirdPartyRecord, item.donor_third_party_id)
+            document = operation["documents"][0] if operation["documents"] else trace["document"]
+            cash_or_bank = [line for line in operation["lines"] if line["account_code"] in ("1101", "1102")]
+            inkind = {
+                "id": item.id,
+                "entity_id": item.entity_id,
+                "donor_third_party_id": item.donor_third_party_id,
+                "document_reference_id": item.document_reference_id,
+                "fund_id": item.fund_id,
+                "program_id": item.program_id,
+                "journal_line_id": item.journal_line_id,
+                "fixed_asset_id": item.fixed_asset_id,
+                "received_at": item.received_at,
+                "description": item.description,
+                "quantity": item.quantity,
+                "valuation_amount": item.valuation_amount,
+                "valuation_currency": item.valuation_currency,
+                "valuation_method": item.valuation_method,
+                "valuation_evidence": item.valuation_evidence,
+                "external_reference": item.external_reference,
+            }
+            asset = trace["fixed_asset"]
+            if asset is not None:
+                persisted_asset = session.get(FixedAssetRecord, item.fixed_asset_id)
+                asset = {
+                    "id": persisted_asset.id,
+                    "entity_id": persisted_asset.entity_id,
+                    "code": persisted_asset.code,
+                    "name": persisted_asset.name,
+                    "acquisition_date": persisted_asset.acquisition_date.isoformat(),
+                    "in_service_date": persisted_asset.in_service_date.isoformat(),
+                    "acquisition_cost": persisted_asset.acquisition_cost,
+                    "residual_value": persisted_asset.residual_value,
+                    "useful_life_months": persisted_asset.useful_life_months,
+                    "depreciation_method": persisted_asset.depreciation_method,
+                    "is_active": persisted_asset.is_active,
+                }
+            return {
+                "kind": "inkind",
+                "inkind_donation": inkind,
+                "donor": _named_record(donor),
+                "document": document,
+                "valuation": {
+                    "amount": trace["inkind_donation"]["valuation_amount"],
+                    "method": trace["inkind_donation"]["valuation_method"],
+                    "evidence": trace["inkind_donation"]["valuation_evidence"],
+                },
+                "evidence": {"valuation": trace["inkind_donation"]["valuation_evidence"]},
+                "fixed_asset": asset,
+                "fund": _named_record(fund, ("name", "code", "restriction")),
+                "program": _named_record(program),
+                "restriction": None if fund is None else fund.restriction,
+                "ledger": {
+                    "entry_id": operation["entry_id"],
+                    "state": operation["state"],
+                    "lines": operation["lines"],
+                    "cash_or_bank_lines": cash_or_bank,
+                    "reversal_entry_id": None if operation["reversal"] is None else operation["reversal"]["reversal_entry_id"],
+                },
+                "cash_or_bank": cash_or_bank,
+                "audit": operation["audit"],
+                "reversal": operation["reversal"],
+                "fiscality": {
+                    "supported": False,
+                    "limitation": "Tratamiento contable determinado. Tratamiento fiscal específico pendiente/no cubierto por la cobertura fiscal declarada.",
+                },
+            }
+    raise ValueError("unsupported donation kind")
 
 
 def prepare_common_operation(operation_key, amount, posting_date):
@@ -769,7 +1148,14 @@ __all__ = [
     "CommonOperationKind",
     "PreparedSurfaceOperation",
     "PreparedSurfaceSubledgerAction",
+    "PreparedSurfaceDonationOperation",
     "list_common_operation_kinds",
+    "list_surface_donation_options",
+    "prepare_surface_monetary_donation",
+    "prepare_surface_inkind_donation",
+    "donation_professional_preview",
+    "confirm_surface_donation",
+    "load_surface_donation_professional",
     "prepare_common_operation",
     "common_preview",
     "professional_preview",

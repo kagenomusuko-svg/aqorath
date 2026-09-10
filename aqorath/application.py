@@ -873,6 +873,41 @@ def list_donations(session, entity_id):
     return _donation_repository.list_donations(session, entity_id)
 
 
+from . import inkind_donation_repository as _inkind_donation_repository
+
+
+def create_inkind_donation(session, donation):
+    """Persist non-cash evidence through its authority; does not post or alter the ledger."""
+    return _inkind_donation_repository.create_inkind_donation(session, donation)
+
+
+from . import donation_operations as _donation_operations
+
+
+def prepare_monetary_donation(session, amount, posting_date, **metadata):
+    return _donation_operations.prepare_monetary_donation(session, amount, posting_date, **metadata)
+
+
+def confirm_monetary_donation(prepared):
+    return _donation_operations.confirm_monetary_donation(prepared)
+
+
+def load_monetary_donation_trace(session, entity_id, donation_id):
+    return _donation_operations.load_monetary_donation_trace(session, entity_id, donation_id)
+
+
+def prepare_inkind_donation(session, amount, posting_date, **metadata):
+    return _donation_operations.prepare_inkind_donation(session, amount, posting_date, **metadata)
+
+
+def confirm_inkind_donation(prepared):
+    return _donation_operations.confirm_inkind_donation(prepared)
+
+
+def load_inkind_donation_trace(session, entity_id, donation_id):
+    return _donation_operations.load_inkind_donation_trace(session, entity_id, donation_id)
+
+
 from . import audit_event_repository as _audit_event_repository
 
 
