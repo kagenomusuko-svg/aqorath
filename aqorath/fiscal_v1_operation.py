@@ -7,7 +7,7 @@ and audit authorities. Preparation is read-only; consent and execution are
 separate boundaries.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -15,6 +15,7 @@ from sqlmodel import select
 
 from . import account_bindings as _bindings
 from . import audit_event_repository as _audit_events
+from . import cfdi_source_repository as _cfdi_sources
 from . import economic_fact_accounting_provenance as _economic
 from . import entity_repository as _entities
 from . import fiscal_accounting_effect as _effect
@@ -57,6 +58,10 @@ class PreparedFiscalV1Operation:
     snapshot: _fiscalized_confirmation.FiscalizedConfirmationSnapshot
     common_explanation: tuple[str, ...]
     limitations: tuple[str, ...]
+    third_party_id: int | None = None
+    cfdi_source_id: int | None = None
+    cfdi_source_uuid: str | None = None
+    cfdi_source_hash: str | None = None
 
     def __post_init__(self):
         for value, name in (
@@ -65,6 +70,12 @@ class PreparedFiscalV1Operation:
         ):
             if type(value) is not int or value <= 0:
                 raise ValueError(f"{name} must be a positive integer")
+        for value, name in (
+            (self.third_party_id, "third_party_id"),
+            (self.cfdi_source_id, "cfdi_source_id"),
+        ):
+            if value is not None and (type(value) is not int or value <= 0):
+                raise ValueError(f"{name} must be a positive integer or None")
         if not isinstance(self.facts, _coverage.FiscalV1Facts):
             raise TypeError("facts must be FiscalV1Facts")
         if not isinstance(self.treatments, tuple) or not self.treatments:
@@ -87,6 +98,11 @@ class PreparedFiscalV1Operation:
             isinstance(item, str) and item.strip() for item in self.limitations
         ):
             raise ValueError("limitations must contain non-empty text")
+        source_fields = (self.cfdi_source_id, self.cfdi_source_uuid, self.cfdi_source_hash)
+        if any(value is not None for value in source_fields) and not all(
+            value is not None for value in source_fields
+        ):
+            raise ValueError("CFDI source identity, UUID and hash must travel together")
 
 
 @dataclass(frozen=True)
@@ -112,12 +128,20 @@ class ConfirmedFiscalV1Operation:
 class FiscalV1OperationResult:
     entry_id: int
     audit_event_id: int
+    cfdi_source_link_id: int | None = None
+    document_reference_id: int | None = None
 
     def __post_init__(self):
         if type(self.entry_id) is not int or self.entry_id <= 0:
             raise ValueError("entry_id must be a positive integer")
         if type(self.audit_event_id) is not int or self.audit_event_id <= 0:
             raise ValueError("audit_event_id must be a positive integer")
+        for value, name in (
+            (self.cfdi_source_link_id, "cfdi_source_link_id"),
+            (self.document_reference_id, "document_reference_id"),
+        ):
+            if value is not None and (type(value) is not int or value <= 0):
+                raise ValueError(f"{name} must be a positive integer or None")
 
 
 def _entity_context(session, facts):
@@ -142,6 +166,158 @@ def _entity_context(session, facts):
             "El perfil fiscal vigente de la entidad no acredita jurisdicción MX."
         )
     return entity, profile
+
+
+def _positive_optional_id(value, field_name):
+    if value is None:
+        return
+    if type(value) is not int or value <= 0:
+        raise ValueError(f"{field_name} must be a positive integer or None")
+
+
+def _personality_from_rfc(rfc):
+    if not isinstance(rfc, str) or not rfc.strip():
+        raise _coverage.UnsupportedFiscalV1Case(
+            f"{_coverage.UNSUPPORTED_MESSAGE} El ThirdParty fiscal requiere RFC persistido."
+        )
+    normalized = rfc.strip().upper()
+    if len(normalized) == 12:
+        return "persona_moral"
+    if len(normalized) == 13:
+        return "persona_fisica"
+    raise _coverage.UnsupportedFiscalV1Case(
+        f"{_coverage.UNSUPPORTED_MESSAGE} El RFC persistido no acredita PF/PM mexicana."
+    )
+
+
+def _cfdi_counterparty_regime(source, personality):
+    code = (
+        source.parsed.issuer_regime
+        if source.document_position == "receiver"
+        else source.parsed.receiver_regime
+    )
+    if personality != "persona_fisica":
+        return None
+    if code == "626":
+        return "resico"
+    if code == "612":
+        return "general"
+    raise _coverage.UnsupportedFiscalV1Case(
+        f"{_coverage.UNSUPPORTED_MESSAGE} "
+        f"El régimen CFDI {code} de la persona física no está clasificado por AQR-011."
+    )
+
+
+def _cfdi_vat(source):
+    return sum(
+        (
+            tax.amount or Decimal("0")
+            for tax in source.parsed.taxes
+            if tax.direction == "transfer" and tax.tax_code == "002"
+        ),
+        Decimal("0"),
+    )
+
+
+def _cfdi_vat_base(source):
+    return sum(
+        (
+            tax.base
+            for tax in source.parsed.taxes
+            if tax.direction == "transfer" and tax.tax_code == "002"
+        ),
+        Decimal("0"),
+    )
+
+
+def _factual_context(session, entity, facts, *, third_party_id=None, cfdi_source_id=None):
+    """Resolve persisted counterparty/document evidence without selecting tax rules."""
+    _positive_optional_id(third_party_id, "third_party_id")
+    _positive_optional_id(cfdi_source_id, "cfdi_source_id")
+
+    source = None
+    if cfdi_source_id is not None:
+        source = _cfdi_sources.load_cfdi_source(session, entity.id, cfdi_source_id)
+        expected_position = "issuer" if facts.entity_role == "provider" else "receiver"
+        if source.document_position != expected_position:
+            raise _coverage.FiscalV1EvidenceConflict(
+                "DETECT → EXPLAIN → STOP: la posición documental del CFDI contradice "
+                "el rol económico/fiscal de la entidad."
+            )
+        if source.parsed.issued_at.date() != facts.operation_date:
+            raise _coverage.FiscalV1EvidenceConflict(
+                "DETECT → EXPLAIN → STOP: la fecha del CFDI contradice la fecha de operación."
+            )
+        if third_party_id is None:
+            third_party_id = source.third_party_id
+        elif source.third_party_id != third_party_id:
+            raise _coverage.FiscalV1EvidenceConflict(
+                "DETECT → EXPLAIN → STOP: el ThirdParty seleccionado contradice el RFC del CFDI."
+            )
+
+    party = None
+    if third_party_id is not None:
+        party = session.get(_models.ThirdPartyRecord, third_party_id)
+        if (
+            party is None
+            or party.entity_id != entity.id
+            or party.is_active is not True
+        ):
+            raise _coverage.UnsupportedFiscalV1Case(
+                f"{_coverage.UNSUPPORTED_MESSAGE} "
+                "El ThirdParty debe existir, estar activo y pertenecer a la Entity."
+            )
+    elif facts.entity_role == "recipient":
+        raise _coverage.UnsupportedFiscalV1Case(
+            f"{_coverage.UNSUPPORTED_MESSAGE} "
+            "Las retenciones V1 requieren un ThirdParty persistido como contraparte factual."
+        )
+
+    effective_facts = facts
+    if facts.entity_role == "recipient":
+        personality = _personality_from_rfc(party.rfc)
+        if (
+            facts.counterparty_legal_personality is not None
+            and facts.counterparty_legal_personality != personality
+        ):
+            raise _coverage.FiscalV1EvidenceConflict(
+                "DETECT → EXPLAIN → STOP: la personalidad indicada contradice el RFC persistido del ThirdParty."
+            )
+        regime = facts.counterparty_fiscal_regime
+        if source is not None:
+            documentary_regime = _cfdi_counterparty_regime(source, personality)
+            if documentary_regime is not None:
+                if regime is not None and regime != documentary_regime:
+                    raise _coverage.FiscalV1EvidenceConflict(
+                        "DETECT → EXPLAIN → STOP: el régimen indicado contradice el régimen del CFDI."
+                    )
+                regime = documentary_regime
+        effective_facts = replace(
+            effective_facts,
+            counterparty_legal_personality=personality,
+            counterparty_fiscal_regime=regime,
+        )
+
+    if source is not None:
+        vat_base = _cfdi_vat_base(source)
+        if vat_base != Decimal("0") and vat_base != facts.base:
+            raise _coverage.FiscalV1EvidenceConflict(
+                "DETECT → EXPLAIN → STOP: la base IVA del CFDI contradice la base fiscal indicada."
+            )
+        documentary_vat = _cfdi_vat(source)
+        if (
+            facts.cfdi_transferred_vat is not None
+            and facts.cfdi_transferred_vat != documentary_vat
+        ):
+            raise _coverage.FiscalV1EvidenceConflict(
+                "DETECT → EXPLAIN → STOP: el IVA indicado contradice la evidencia CFDI persistida."
+            )
+        effective_facts = replace(
+            effective_facts,
+            cfdi_transferred_vat=documentary_vat,
+        )
+
+    return effective_facts, party, source
 
 
 def _round_treatment(facts, treatment):
@@ -203,15 +379,28 @@ def _common_explanation(treatments):
     return tuple(items)
 
 
-def prepare_fiscal_v1_operation(session, facts):
+def prepare_fiscal_v1_operation(
+    session,
+    facts,
+    *,
+    third_party_id=None,
+    cfdi_source_id=None,
+):
     """Prepare one complete supported V1 fiscalized operation without writes."""
     if not isinstance(facts, _coverage.FiscalV1Facts):
         raise TypeError("facts must be FiscalV1Facts")
     entity, profile = _entity_context(session, facts)
-    treatments = tuple(_coverage.resolve_fiscal_v1_treatments(session, facts))
-    effects = tuple(_round_treatment(facts, item) for item in treatments)
-    accounting = _economic.resolve_economic_fact_with_provenance(facts.fact)
-    amount_basis, adjustment_role = _composition_inputs(facts)
+    effective_facts, party, source = _factual_context(
+        session,
+        entity,
+        facts,
+        third_party_id=third_party_id,
+        cfdi_source_id=cfdi_source_id,
+    )
+    treatments = tuple(_coverage.resolve_fiscal_v1_treatments(session, effective_facts))
+    effects = tuple(_round_treatment(effective_facts, item) for item in treatments)
+    accounting = _economic.resolve_economic_fact_with_provenance(effective_facts.fact)
+    amount_basis, adjustment_role = _composition_inputs(effective_facts)
     declaration = _composition.declare_fiscal_economic_composition(
         accounting,
         effects,
@@ -232,7 +421,7 @@ def prepare_fiscal_v1_operation(session, facts):
     return PreparedFiscalV1Operation(
         entity_id=entity.id,
         fiscal_profile_id=profile.id,
-        facts=facts,
+        facts=effective_facts,
         treatments=treatments,
         snapshot=snapshot,
         common_explanation=_common_explanation(treatments),
@@ -242,6 +431,10 @@ def prepare_fiscal_v1_operation(session, facts):
             "No se determina IVA o ISR mensual/anual ni se prepara una declaración fiscal.",
             "Los impuestos declarados por CFDI son evidencia y no seleccionan la regla jurídica.",
         ),
+        third_party_id=None if party is None else party.id,
+        cfdi_source_id=None if source is None else source.id,
+        cfdi_source_uuid=None if source is None else source.parsed.uuid,
+        cfdi_source_hash=None if source is None else source.parsed.sha256,
     )
 
 
@@ -271,7 +464,7 @@ def _zero_policy(snapshot):
     return "omit_confirmed_zero_fiscal_line"
 
 
-def _audit_details(confirmed, entry_id, entity, profile):
+def _audit_details(confirmed, entry_id, entity, profile, party, source):
     prepared = confirmed.prepared
     provenance_effects = prepared.snapshot.provenance.fiscal_effects
     if len(provenance_effects) != len(prepared.treatments):
@@ -325,6 +518,18 @@ def _audit_details(confirmed, entry_id, entity, profile):
             "jurisdiction": profile.jurisdiction,
             "fiscal_regime_code": profile.fiscal_regime_code,
         },
+        "counterparty": None if party is None else {
+            "third_party_id": party.id,
+            "name": party.name,
+            "rfc": party.rfc,
+            "party_type": party.party_type,
+        },
+        "cfdi_source": None if source is None else {
+            "cfdi_source_id": source.id,
+            "uuid": source.parsed.uuid,
+            "file_hash": source.parsed.sha256,
+            "document_position": source.document_position,
+        },
         "facts": {
             "type": facts.fact.type,
             "amount": str(facts.fact.amount),
@@ -366,6 +571,21 @@ def execute_fiscal_v1_operation(confirmed):
                 raise RuntimeError(
                     "Entity/FiscalProfile authority changed after fiscal preparation; prepare again"
                 )
+            effective_facts, party, source = _factual_context(
+                session,
+                entity,
+                confirmed.prepared.facts,
+                third_party_id=confirmed.prepared.third_party_id,
+                cfdi_source_id=confirmed.prepared.cfdi_source_id,
+            )
+            if effective_facts != confirmed.prepared.facts:
+                raise RuntimeError("factual authority changed after fiscal preparation; prepare again")
+            if source is not None and (
+                source.parsed.uuid != confirmed.prepared.cfdi_source_uuid
+                or source.parsed.sha256 != confirmed.prepared.cfdi_source_hash
+            ):
+                raise RuntimeError("CFDI evidence changed after fiscal preparation; prepare again")
+
             entry_id = _persistence.stage_fiscalized_posting_with_audit(
                 session,
                 instruction,
@@ -384,15 +604,30 @@ def execute_fiscal_v1_operation(confirmed):
                         entry_id,
                         entity,
                         profile,
+                        party,
+                        source,
                     ),
                 ),
             )
             if event.id is None:
                 raise RuntimeError("AQR-011 AuditEvent did not receive an identity")
+
+            link = None
+            if source is not None:
+                link = _cfdi_sources.stage_cfdi_source_link(
+                    session,
+                    entity.id,
+                    source.id,
+                    entry_id,
+                )
             session.commit()
             return FiscalV1OperationResult(
                 entry_id=entry_id,
                 audit_event_id=event.id,
+                cfdi_source_link_id=None if link is None else link.id,
+                document_reference_id=(
+                    None if link is None else link.document_reference_id
+                ),
             )
     except Exception:
         if session is not None:
@@ -452,6 +687,8 @@ def load_fiscal_v1_operation(session, entity_id, entry_id):
         "coverage_version": event.details.get("coverage_version"),
         "facts": event.details.get("facts"),
         "entity": event.details.get("entity"),
+        "counterparty": event.details.get("counterparty"),
+        "cfdi_source": event.details.get("cfdi_source"),
         "treatments": treatment_details,
         "accounting_lines": [
             {
