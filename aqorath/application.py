@@ -904,6 +904,10 @@ def confirm_inkind_donation(prepared):
     return _donation_operations.confirm_inkind_donation(prepared)
 
 
+def load_inkind_donation_trace(session, entity_id, donation_id):
+    return _donation_operations.load_inkind_donation_trace(session, entity_id, donation_id)
+
+
 from . import audit_event_repository as _audit_event_repository
 
 
