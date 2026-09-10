@@ -9,8 +9,32 @@ from decimal import Decimal
 import sqlite3
 
 import pytest
-from sqlalchemy import create_engine, inspect as sa_inspect
-from sqlmodel import SQLModel, Session, select
+from sqlalchemy import MetaData, create_engine, inspect as sa_inspect
+from sqlmodel import Session, select
+
+
+def _create_schema_6_fixture(db_path):
+    """Create an isolated snapshot of the pre-AQR-006 schema without runtime v7 metadata."""
+    from aqorath import migrations
+    from aqorath import models as schema6_models
+
+    schema6_tables = {
+        value.__table__.name: value.__table__
+        for value in vars(schema6_models).values()
+        if hasattr(value, "__table__")
+    }
+    assert {"openitem", "openitemapplication"}.isdisjoint(schema6_tables)
+
+    historical_metadata = MetaData()
+    for table in schema6_tables.values():
+        table.to_metadata(historical_metadata)
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    try:
+        historical_metadata.create_all(engine)
+    finally:
+        engine.dispose()
+    migrations._set_schema_version(db_path, 6)
 
 
 def _seed_runtime(tmp_path, monkeypatch, name="aqr006.db"):
@@ -163,13 +187,24 @@ def test_schema_6_to_7_does_not_invent_historical_provenance(tmp_path):
     from aqorath import migrations
 
     db = tmp_path / "historical-v6.db"
-    # Build through v6 explicitly, then insert a historical control movement whose
-    # counterparty/document/application cannot be inferred.
-    for target in range(1, 7):
-        migrations.MIGRATIONS[target](db)
-        migrations._set_schema_version(db, target)
+    _create_schema_6_fixture(db)
 
     with sqlite3.connect(db) as conn:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 6
+        tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+            )
+        }
+        assert {
+            "account", "journalentry", "journalline", "fiscalpostingauditrecord",
+            "accountingcalendar", "fiscalyear", "accountingperiod",
+            "journalentryreversal", "thirdparty", "documentreference", "auditevent",
+        }.issubset(tables)
+        assert "openitem" not in tables
+        assert "openitemapplication" not in tables
+
         conn.execute(
             "INSERT INTO account(code,name,nature,vat_flag,origin,parent_id,created_at) "
             "VALUES ('1103','Clientes','DEBIT',0,'canonical',NULL,?)",
@@ -191,13 +226,58 @@ def test_schema_6_to_7_does_not_invent_historical_provenance(tmp_path):
             "SELECT id,entry_id,account_code,account_id,debit,credit FROM journalline WHERE id=?",
             (line_id,),
         ).fetchone()
+        assert before is not None
+        assert conn.execute("SELECT count(*) FROM thirdparty").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM documentreference").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM auditevent").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM fiscalpostingauditrecord").fetchone()[0] == 0
         conn.commit()
 
     result = migrations.migrate_database(db)
     assert result["from_version"] == 6
-    assert result["to_version"] == 7
+    assert result["to_version"] == migrations.CURRENT_SCHEMA_VERSION
+    assert migrations.get_schema_version(db) == migrations.CURRENT_SCHEMA_VERSION
     assert migrations.validate_sqlite_integrity(db)
+
+    expected_open_item_columns = {
+        "id", "entity_id", "third_party_id", "kind", "source_entry_id",
+        "source_line_id", "source_document_reference_id", "due_date", "created_at",
+    }
+    expected_application_columns = {
+        "id", "open_item_id", "application_entry_id", "application_line_id",
+        "application_document_reference_id", "created_at",
+    }
+
     with sqlite3.connect(db) as conn:
+        tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+            )
+        }
+        assert "openitem" in tables
+        assert "openitemapplication" in tables
+        assert {row[1] for row in conn.execute("PRAGMA table_info(openitem)")} == expected_open_item_columns
+        assert {
+            row[1] for row in conn.execute("PRAGMA table_info(openitemapplication)")
+        } == expected_application_columns
+
+        def unique_column_sets(table):
+            result = set()
+            for row in conn.execute(f"PRAGMA index_list({table})"):
+                if row[2] != 1:
+                    continue
+                result.add(
+                    tuple(
+                        index_row[2]
+                        for index_row in conn.execute(f"PRAGMA index_info({row[1]})")
+                    )
+                )
+            return result
+
+        assert ("source_line_id",) in unique_column_sets("openitem")
+        assert ("application_line_id",) in unique_column_sets("openitemapplication")
+
         after = conn.execute(
             "SELECT id,entry_id,account_code,account_id,debit,credit FROM journalline WHERE id=?",
             (line_id,),
@@ -207,6 +287,46 @@ def test_schema_6_to_7_does_not_invent_historical_provenance(tmp_path):
         assert conn.execute("SELECT count(*) FROM openitemapplication").fetchone()[0] == 0
         assert conn.execute("SELECT count(*) FROM thirdparty").fetchone()[0] == 0
         assert conn.execute("SELECT count(*) FROM documentreference").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM auditevent").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM fiscalpostingauditrecord").fetchone()[0] == 0
+
+        conn.execute("SAVEPOINT source_line_uniqueness")
+        conn.execute(
+            "INSERT INTO openitem(entity_id,third_party_id,kind,source_entry_id,source_line_id,"
+            "source_document_reference_id,due_date,created_at) VALUES (?,?,?,?,?,?,?,?)",
+            (1, 1, "receivable", entry_id, line_id, 1, "2026-01-31", datetime.now(timezone.utc).isoformat()),
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO openitem(entity_id,third_party_id,kind,source_entry_id,source_line_id,"
+                "source_document_reference_id,due_date,created_at) VALUES (?,?,?,?,?,?,?,?)",
+                (1, 1, "receivable", entry_id, line_id, 1, "2026-02-28", datetime.now(timezone.utc).isoformat()),
+            )
+        conn.execute("ROLLBACK TO source_line_uniqueness")
+        conn.execute("RELEASE source_line_uniqueness")
+
+        conn.execute("SAVEPOINT application_line_uniqueness")
+        open_item_id = conn.execute(
+            "INSERT INTO openitem(entity_id,third_party_id,kind,source_entry_id,source_line_id,"
+            "source_document_reference_id,due_date,created_at) VALUES (?,?,?,?,?,?,?,?)",
+            (1, 1, "receivable", entry_id, line_id, 1, "2026-01-31", datetime.now(timezone.utc).isoformat()),
+        ).lastrowid
+        conn.execute(
+            "INSERT INTO openitemapplication(open_item_id,application_entry_id,application_line_id,"
+            "application_document_reference_id,created_at) VALUES (?,?,?,?,?)",
+            (open_item_id, entry_id, line_id, 1, datetime.now(timezone.utc).isoformat()),
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO openitemapplication(open_item_id,application_entry_id,application_line_id,"
+                "application_document_reference_id,created_at) VALUES (?,?,?,?,?)",
+                (open_item_id, entry_id, line_id, 1, datetime.now(timezone.utc).isoformat()),
+            )
+        conn.execute("ROLLBACK TO application_line_uniqueness")
+        conn.execute("RELEASE application_line_uniqueness")
+
+        assert conn.execute("SELECT count(*) FROM openitem").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM openitemapplication").fetchone()[0] == 0
 
 
 def test_receivable_partial_total_aging_and_reconciliation(tmp_path, monkeypatch):
