@@ -838,6 +838,7 @@ def migrate_database(db_path) -> dict:
         _validate_reversal_schema(db_path)
         _validate_subledger_schema(db_path)
         _validate_cfdi_schema(db_path)
+        _validate_inventory_schema(db_path)
         _ensure_additive_current_schema(str(db_path))
         return {
             "from_version": current_version,
@@ -871,6 +872,7 @@ def migrate_database(db_path) -> dict:
     _validate_reversal_schema(db_path)
     _validate_subledger_schema(db_path)
     _validate_cfdi_schema(db_path)
+    _validate_inventory_schema(db_path)
     return {
         "from_version": current_version,
         "to_version": CURRENT_SCHEMA_VERSION,
