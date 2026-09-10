@@ -248,9 +248,10 @@ def test_schema_6_to_7_does_not_invent_historical_provenance(tmp_path):
         }
         assert tables - historical_tables == {
             "openitem", "openitemapplication", "bankaccount", "bankstatement",
-            "banktransaction", "reconciliation", "reconciliationmatch",
-            "reconciliationmatchrevocation",
-        }
+                "banktransaction", "reconciliation", "reconciliationmatch",
+                "reconciliationmatchrevocation", "fund", "fundingsource",
+                "fundreceipt", "fundapplication",
+            }
         assert [r for r in conn.execute(
             "SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY type,name"
         ) if r[2] in historical_tables] == historical_schema
