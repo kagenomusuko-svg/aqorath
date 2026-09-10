@@ -146,10 +146,12 @@ def confirm_fiscal_snapshot(snapshot):
     return ConfirmedFiscalTreatment(snapshot=snapshot)
 
 
+# The Phase 5L export list is intentionally frozen. AQR-011 composes the new
+# resolved-truth factory through this module without rewriting the historical
+# star-import/public-list contract.
 __all__ = [
     "FiscalConfirmationSnapshot",
     "ConfirmedFiscalTreatment",
     "create_fiscal_confirmation_snapshot",
-    "create_resolved_fiscal_confirmation_snapshot",
     "confirm_fiscal_snapshot",
 ]
