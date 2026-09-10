@@ -13,6 +13,7 @@ class InKindDonation:
     fund_id: int | None
     program_id: int | None
     journal_line_id: int | None
+    fixed_asset_id: int | None
     received_at: datetime
     description: str
     quantity: Decimal | None
@@ -25,7 +26,7 @@ class InKindDonation:
     def __post_init__(self):
         for name, value in (("entity_id", self.entity_id),):
             if type(value) is not int or value <= 0: raise ValueError(f"{name} must be positive")
-        for name, value in (("id", self.id), ("donor_third_party_id", self.donor_third_party_id), ("document_reference_id", self.document_reference_id), ("fund_id", self.fund_id), ("program_id", self.program_id), ("journal_line_id", self.journal_line_id)):
+        for name, value in (("id", self.id), ("donor_third_party_id", self.donor_third_party_id), ("document_reference_id", self.document_reference_id), ("fund_id", self.fund_id), ("program_id", self.program_id), ("journal_line_id", self.journal_line_id), ("fixed_asset_id", self.fixed_asset_id)):
             if value is not None and (type(value) is not int or value <= 0): raise ValueError(f"{name} must be positive")
         if type(self.received_at) is not datetime: raise TypeError("received_at must be datetime")
         if type(self.valuation_amount) is not Decimal or not self.valuation_amount.is_finite() or self.valuation_amount <= 0: raise ValueError("valuation_amount must be a positive Decimal")
