@@ -240,7 +240,7 @@ def stage_cfdi_source_link(
         raise ValueError("CFDI issue date differs from JournalEntry date")
     lines = session.exec(select(JournalLine).where(JournalLine.entry_id == entry_id)).all()
     if not _entry_represents_cfdi_total(lines, source.total):
-        raise ValueError("CFDI total is not represented by a canonical JournalLine settlement amount")
+        raise ValueError("CFDI total differs from canonical JournalLine settlement amount")
     existing = session.exec(
         select(CfdiSourceLinkRecord).where(CfdiSourceLinkRecord.cfdi_source_id == source_id)
     ).one_or_none()
