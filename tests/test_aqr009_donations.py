@@ -27,6 +27,6 @@ def test_inkind_donation_persists_exact_valuation_and_never_posts(tmp_path):
     engine = create_engine(f"sqlite:///{path}")
     with Session(engine) as session:
         entity = create_entity(session, Entity(id=None, name="OSC", rfc=None, legal_personality="persona_moral", legal_form="A.C.", profile=EntityProfile("no_lucrativo", False, ("osc",), ("banking",)), is_active=True))
-        item = create_inkind_donation(session, InKindDonation(None, entity.id, None, None, None, None, None, datetime(2026, 1, 2, tzinfo=timezone.utc), "Computadoras", Decimal("2"), Decimal("1500.00"), "MXN", "appraisal", "Avalúo firmado", "IK-001"))
+        item = create_inkind_donation(session, InKindDonation(None, entity.id, None, None, None, None, None, None, datetime(2026, 1, 2, tzinfo=timezone.utc), "Computadoras", Decimal("2"), Decimal("1500.00"), "MXN", "appraisal", "Avalúo firmado", "IK-001"))
         assert item.valuation_amount == Decimal("1500.00")
         assert session.exec(__import__("sqlmodel").select(__import__("aqorath.models", fromlist=["InKindDonationRecord"]).InKindDonationRecord)).one().valuation_amount == "1500.00"
