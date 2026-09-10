@@ -271,7 +271,7 @@ def _validate_documentary_vat(facts, expected):
     documentary = facts.cfdi_transferred_vat
     if documentary is None:
         return
-    if documentary.as_tuple() != expected.as_tuple():
+    if documentary != expected:
         raise FiscalV1EvidenceConflict(
             "DETECT → EXPLAIN → STOP: el IVA trasladado declarado por el CFDI "
             f"({documentary}) diverge del cálculo fiscal V1 soportado ({expected})."
