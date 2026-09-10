@@ -55,29 +55,29 @@ def _session(tmp_path):
     )
 
     accounts = (
-        Account(code="1010", name="Caja", nature="DEBIT"),
-        Account(code="1020", name="Banco", nature="DEBIT"),
+        Account(code="1102", name="Caja chica", nature="DEBIT"),
+        Account(code="1101", name="Bancos", nature="DEBIT"),
         Account(code="1182", name="IVA pendiente de acreditar", nature="DEBIT"),
         Account(code="2080", name="IVA trasladado", nature="CREDIT"),
         Account(code="2160", name="ISR retenido a terceros", nature="CREDIT"),
-        Account(code="2161", name="IVA retenido a terceros", nature="CREDIT"),
-        Account(code="4000", name="Ingresos por servicios", nature="CREDIT"),
+        Account(code="2170", name="IVA retenido a terceros", nature="CREDIT"),
+        Account(code="4101", name="Ventas al contado", nature="CREDIT"),
         Account(code="5303", name="Servicios profesionales", nature="DEBIT"),
-        Account(code="5304", name="Fletes", nature="DEBIT"),
+        Account(code="5105", name="Transporte y mensajería", nature="DEBIT"),
     )
     session.add_all(accounts)
     session.commit()
 
     bindings = {
-        "cash": "1010",
-        "bank": "1020",
+        "cash": "1102",
+        "bank": "1101",
         "vat_pending_credit": "1182",
         "tax_payable": "2080",
         "isr_withholding_payable": "2160",
-        "vat_withholding_payable": "2161",
-        "sales_revenue": "4000",
+        "vat_withholding_payable": "2170",
+        "sales_revenue": "4101",
         "professional_services_expense": "5303",
-        "freight_expense": "5304",
+        "freight_expense": "5105",
     }
     for role, code in bindings.items():
         set_account_binding(session, role, code)
