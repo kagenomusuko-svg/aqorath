@@ -694,6 +694,7 @@ class InKindDonationRecord(SQLModel, table=True):
     fund_id: Optional[int] = Field(default=None, sa_column=Column(Integer, ForeignKey("fund.id"), nullable=True, index=True))
     program_id: Optional[int] = Field(default=None, sa_column=Column(Integer, ForeignKey("program.id"), nullable=True, index=True))
     journal_line_id: Optional[int] = Field(default=None, sa_column=Column(Integer, ForeignKey("journalline.id"), nullable=True, index=True))
+    fixed_asset_id: Optional[int] = Field(default=None, sa_column=Column(Integer, ForeignKey("fixedasset.id"), nullable=True, index=True))
     received_at: str = Field(sa_column=Column(String, nullable=False, index=True))
     description: str = Field(sa_column=Column(Text, nullable=False))
     quantity: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
