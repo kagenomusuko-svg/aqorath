@@ -56,7 +56,7 @@ def create_surface_inkind_donation(payload):
         entity = _application.get_active_entity(session)
         if entity is None:
             raise LookupError("active Entity not configured")
-        item = InKindDonation(None, entity.id, payload.get("donor_third_party_id"), payload.get("document_reference_id"), payload.get("fund_id"), payload.get("program_id"), payload.get("journal_line_id"), datetime.fromisoformat(payload["received_at"]), payload["description"], None if payload.get("quantity") is None else _amount(payload["quantity"]), _amount(payload["valuation_amount"]), payload.get("valuation_currency", "MXN"), payload["valuation_method"], payload["valuation_evidence"], payload["external_reference"])
+        item = InKindDonation(None, entity.id, payload.get("donor_third_party_id"), payload.get("document_reference_id"), payload.get("fund_id"), payload.get("program_id"), payload.get("journal_line_id"), payload.get("fixed_asset_id"), datetime.fromisoformat(payload["received_at"]), payload["description"], None if payload.get("quantity") is None else _amount(payload["quantity"]), _amount(payload["valuation_amount"]), payload.get("valuation_currency", "MXN"), payload["valuation_method"], payload["valuation_evidence"], payload["external_reference"])
         return asdict(_application.create_inkind_donation(session, item))
 
 
