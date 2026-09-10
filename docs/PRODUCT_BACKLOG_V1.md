@@ -350,7 +350,7 @@ AQR-004 y AQR-013 para la presentación documental final.
 
 ## AQR-009 — Donativos completos, incluido donativo en especie
 
-**Estado:** `NEXT`
+**Estado:** `DONE`
 
 ### Resultado de producto
 
@@ -368,11 +368,15 @@ Un donativo monetario o en especie puede registrarse desde el hecho, producir su
 
 AQR-008.
 
+### Cierre de aceptación
+
+Implementado y fusionado mediante PR #44, merge `e3c8cd1f76ec2157c752a245efa74f3711526ffa`, head validado `1f209cd6b1f56e74f57a325942078491c0a4de31`. El tree fusionado coincide con el revisado (`40c1f81749d7ad6689e53564f851acb2c76ef152`); CI remoto quedó verde sobre el head definitivo y la suite completa Python 3.12 registró **2022 passed, 8 warnings**. Los recorridos monetario y en especie son atómicos, idempotentes y reversibles; componen las autoridades de ledger, donante, documento, fondo/programa, activo y auditoría sin duplicar importes, inventar efectivo ni exceder la cobertura fiscal declarada. La superficie común prepara/cancela sin escribir y confirma el snapshot exacto; la profesional reconstruye la misma verdad persistida.
+
 ---
 
 ## AQR-010 — CFDI como documento fuente verificable
 
-**Estado:** `TODO`
+**Estado:** `NEXT`
 
 ### Resultado de producto
 
@@ -555,4 +559,4 @@ Al completar una tarea:
 
 ## SIGUIENTE ACTUAL
 
-`AQR-009 — Donativos completos, incluido donativo en especie`.
+`AQR-010 — CFDI como documento fuente verificable`.

@@ -1,10 +1,10 @@
 # REPO AUDIT V2 — ESTADO ACTUAL DE AQORATH
 
-**Fecha de corte:** 2026-09-09  
+**Fecha de corte:** 2026-09-10
 **Rama de continuidad:** `main`  
 **Baseline histórico de runtime:** `7623e4eb0636064cdab0582ce3c98e7b9c844e93` (PR #30)  
-**Runtime material vigente:** AQR-002 + AQR-003 + AQR-004 + AQR-005  
-**Esquema vigente:** 6
+**Runtime material vigente:** AQR-002 a AQR-009
+**Esquema vigente:** 10
 
 > Este documento sustituye a `REPO_AUDIT_V1.md` como descripción del estado actual. V1 queda únicamente como referencia histórica. Los apartados del baseline PR #30 conservan valor de evidencia; las actualizaciones AQR posteriores prevalecen cuando amplían el estado material.
 
@@ -14,14 +14,14 @@
 
 Aqorath dispone de un núcleo contable local ampliamente endurecido y probado: SQLite como autoridad, dinero exacto, partida doble, catálogo gobernado, resolución de hechos económicos, reporting, fiscalidad versionada, trazabilidad, fundamentos OSC y activos fijos.
 
-AQR-002 añadió la autoridad explícita de período y ejercicio. AQR-003 consolidó inmutabilidad append-only y corrección por reversión con auditoría. AQR-004 compuso las autoridades existentes en un caso de uso Application ordinario completo: **hecho → decisión → consentimiento → posting → auditoría**, sin crear un segundo motor ni una persistencia paralela. AQR-005 añadió una superficie local común + profesional sobre esas mismas autoridades, estrictamente loopback y sin trasladar reglas contables a presentación.
+AQR-002 añadió la autoridad explícita de período y ejercicio. AQR-003 consolidó inmutabilidad append-only y corrección por reversión con auditoría. AQR-004 compuso las autoridades existentes en un caso de uso Application ordinario completo: **hecho → decisión → consentimiento → posting → auditoría**, sin crear un segundo motor ni una persistencia paralela. AQR-005 añadió una superficie local común + profesional sobre esas mismas autoridades. AQR-006 a AQR-009 completaron submayores, conciliación bancaria, trazabilidad OSC y donativos monetarios/en especie manteniendo `JournalLine` como única autoridad contable.
 
 ### Resultado del corte
 
 - **P0 de integridad contable conocidos:** ninguno abierto después de PR #36/#37/#39.
 - **Estado de producción:** **NO declarado listo para producción**; una suite verde no sustituye aceptación profesional/humana ni cobertura fiscal declarada.
-- **Gap de producto principal inmediato:** los flujos de crédito/cobro/pago contabilizan, pero todavía no constituyen submayores operativos CxC/CxP por tercero y partida abierta.
-- **Continuidad:** `PRODUCT_BACKLOG_V1.md` contiene exactamente un `NEXT`: AQR-006.
+- **Gap de producto principal inmediato:** el CFDI XML todavía no se ingiere como evidencia documental verificable y deduplicada.
+- **Continuidad:** `PRODUCT_BACKLOG_V1.md` contiene exactamente un `NEXT`: AQR-010.
 
 ---
 
@@ -73,6 +73,13 @@ AQR-004 añade únicamente composición: `AccountingDecision` inmutable, prepara
 - tree de head y merge idéntico: `d9d41cd0989f588256b46d1b1f40d1b9a0a3545e`.
 
 AQR-005 deriva del repositorio una superficie web local estrictamente `127.0.0.1`. `web_surface.py` es un adaptador FastAPI delgado; `presentation_controller.py` conserva únicamente decisiones preparadas efímeras; `surface_application.py` delega en AQR-004/Application; `accounting_operation_read.py` consulta las autoridades persistidas existentes. La vista común no solicita Debe/Haber ni códigos; la profesional inspecciona la misma `JournalEntry`, período, líneas, documentos, reversión y auditorías. La lista de pólizas recientes consulta directamente `JournalEntry`: no existe índice profesional paralelo.
+
+### AQR-006 a AQR-009 — submayores, bancos y OSC
+
+- AQR-006, PR #41, incorporó `OpenItem`/`OpenItemApplication` line-granulares sin backfill ni saldo paralelo.
+- AQR-007, PR #42, separó evidencia bancaria y ledger, con conciliación, pendientes y diferencias reproducibles.
+- AQR-008, PR #43, incorporó fondos, fuentes y aplicaciones derivados de líneas efectivas, con schema 9 aditivo.
+- AQR-009, PR #44, merge `e3c8cd1f76ec2157c752a245efa74f3711526ffa`, head revisado `1f209cd6b1f56e74f57a325942078491c0a4de31`, tree idéntico `40c1f81749d7ad6689e53564f851acb2c76ef152`, CI verde y suite completa **2022 passed, 8 warnings**. Integra donativos monetarios y en especie con posting, documentos, fondos, activos, auditoría, reversión, idempotencia y superficies común/profesional; no crea efectivo ficticio ni autoridad monetaria o fiscal paralela.
 
 ---
 
@@ -219,19 +226,17 @@ Existen:
 
 La identidad de entidad no se reduce a un selector “Comercial / OSC”.
 
-Pendientes: submayores operativos AQR-006 y CFDI XML real AQR-010.
+Pendiente: CFDI XML real AQR-010.
 
 ---
 
 ## 10. OSC
 
-Estado: **FUNDACIONES PARCIALES**
+Estado: **FLUJOS OSC DE RECURSOS Y DONATIVOS IMPLEMENTADOS**
 
-Existen Program, Donation y AnalyticalDimension/valores/asignaciones.
+Existen Program, Donation, InKindDonation, Fund, FundingSource y AnalyticalDimension/valores/asignaciones. AQR-008 trazó recepción/aplicación sobre `JournalLine`; AQR-009 completó los flujos monetario y en especie, incluida evidencia, activo durable, reversión y superficie humana/profesional.
 
-Fund y FundingSource quedaron implementados en AQR-008 como trazabilidad OSC sobre `JournalLine`; InKindDonation sigue pendiente.
-
-Pendiente: AQR-009 (donativos completos/en especie).
+La fiscalidad específica de donativos permanece deliberadamente limitada a reglas versionadas existentes; AQR-010/AQR-011 son las autoridades siguientes para CFDI y cobertura fiscal.
 
 ---
 
@@ -349,9 +354,6 @@ Todas están registradas y ordenadas en `PRODUCT_BACKLOG_V1.md`.
 
 ### P1 — completitud/seguridad de producto
 
-- submayores CxC/CxP operativos pendientes;
-- donativos completos/en especie OSC pendientes;
-- OSC incompleto en donativos y tratamiento en especie;
 - CFDI/cobertura fiscal V1 incompletos;
 - producto no empaquetado.
 
@@ -369,9 +371,9 @@ La continuidad **NO** se deriva de numeración histórica ni de PR antiguos.
 
 Leer `INSTRUCCIONES.md` y ejecutar la única tarea `NEXT` de `PRODUCT_BACKLOG_V1.md`:
 
-> **AQR-006 — Cuentas por cobrar y pagar como submayores operativos**
+> **AQR-010 — CFDI como documento fuente verificable**
 
-Antes de modelar partidas abiertas, inspeccionar las identidades y relaciones ya persistidas por los flujos de crédito/cobro/pago. El submayor debe ser una proyección operacional explicable del ledger: distinguir origen, aplicaciones y saldo abierto; reutilizar ThirdParty, documentos, posting, períodos, reversión y auditoría; y detectar cualquier diferencia en vez de mantener un balance paralelo mutable.
+Inspeccionar y reutilizar `DocumentReference`, `CfdiImportMetadata`, autoridades de archivo/hash/importación, terceros, hechos, decisiones y fiscalidad versionada. La tarea debe ingerir XML de forma determinística, deduplicar por identidad documental verificable y contrastar sus importes sin convertir el CFDI en ledger ni ampliar silenciosamente la cobertura fiscal.
 
 ---
 
