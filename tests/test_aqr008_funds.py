@@ -66,13 +66,22 @@ def test_fund_receipt_and_application_require_exact_canonical_line_amount(tmp_pa
         fund = create_fund(session, Fund(None, entity.id, "RESTRICTED", "Restricted", "restricted", program_id=program.id))
         source = create_funding_source(session, FundingSource(None, entity.id, "Grant source"))
         debit = Account(code="5101", name="Program expense", nature="DEBIT")
-        session.add(debit); session.flush()
-        entry = JournalEntry(date=datetime(2026, 5, 1, tzinfo=timezone.utc), concept="expense", state="posted")
+        credit = Account(code="4201", name="Grant income", nature="CREDIT")
+        session.add(debit); session.add(credit); session.flush()
+        entry = JournalEntry(date=datetime(2026, 5, 1, tzinfo=timezone.utc), concept="receipt", state="posted")
         session.add(entry); session.flush()
-        line = JournalLine(entry_id=entry.id, account_id=debit.id, account_code=debit.code, debit="100.00", credit="0")
-        session.add(line); session.commit()
+        receipt_line = JournalLine(entry_id=entry.id, account_id=credit.id, account_code=credit.code, debit="0", credit="1000.00")
+        session.add(receipt_line); session.commit()
         with pytest.raises(ValueError, match="equal"):
-            record_fund_receipt(session, FundReceipt(None, entity.id, fund.id, source.id, line.id, Decimal("99.99"), entry.date))
-        application = record_fund_application(session, FundApplication(None, entity.id, fund.id, program.id, line.id, Decimal("100.00"), entry.date))
+            record_fund_receipt(session, FundReceipt(None, entity.id, fund.id, source.id, receipt_line.id, Decimal("99.99"), entry.date))
+        receipt = record_fund_receipt(session, FundReceipt(None, entity.id, fund.id, source.id, receipt_line.id, Decimal("1000.00"), entry.date))
+        expense_entry = JournalEntry(date=datetime(2026, 5, 2, tzinfo=timezone.utc), concept="expense", state="posted")
+        session.add(expense_entry); session.flush()
+        expense_line = JournalLine(entry_id=expense_entry.id, account_id=debit.id, account_code=debit.code, debit="300.00", credit="0")
+        session.add(expense_line); session.commit()
+        application = record_fund_application(session, FundApplication(None, entity.id, fund.id, program.id, expense_line.id, Decimal("300.00"), expense_entry.date, receipt_id=receipt.id))
         assert application.id is not None
-        assert session.exec(select(JournalLine)).one().debit == "100.00"
+        from aqorath.fund_repository import load_fund_balance
+        balance = load_fund_balance(session, entity.id, fund.id, date(2026, 5, 31))
+        assert (balance.received, balance.applied, balance.available) == (Decimal("1000.00"), Decimal("300.00"), Decimal("700.00"))
+        assert session.get(JournalLine, expense_line.id).debit == "300.00"
