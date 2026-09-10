@@ -1,11 +1,9 @@
-"""Phase 5AL.1 — expanded curated Mexican fiscal coverage contracts.
+"""Phase 5AL.1 + AQR-011 — reviewed Mexican fiscal source-data contracts.
 
-This phase freezes additional source-data coverage only. It deliberately does
-not infer applicability from an EconomicFact, counterparty, CFDI, account, or
-legacy template. Every manifest remains explicit, reviewable and effective-
-dated. Exemption is kept semantically distinct from a 0% rate, and the IVA
-"two thirds" withholding is intentionally not approximated with a finite
-Decimal because that would violate Aqorath's exact-money/fiscal-truth rules.
+The historical curated data remains source data only. AQR-011 adds the legally
+exact two-thirds professional-services VAT withholding as numerator semantics,
+never as a truncated repeating decimal rate. Applicability still belongs to the
+AQR-011 factual coverage authority.
 """
 
 from datetime import date
@@ -21,6 +19,7 @@ ZERO_SOURCE = "DOF:1980-12-30:ART8+TRANSITORIO-PRIMERO;LIVA:ART2-A"
 EXEMPT_LAND_SOURCE = "DOF:1978-12-29;LIVA:ART9-I"
 FREIGHT_RETENTION_SOURCE = "DOF:2006-12-04;LIVA:ART1-A-II-c;RLIVA:ART3-II"
 PROFESSIONAL_ISR_SOURCE = "DOF:2013-12-11;LISR:ART106"
+PROFESSIONAL_IVA_SOURCE = "DOF:2006-12-04;LIVA:ART1-A-II-a;RLIVA:ART3-I-a"
 RESICO_ISR_SOURCE = "DOF:2021-11-12;LISR:ART113-J"
 
 
@@ -47,6 +46,7 @@ def test_expanded_curated_mx_public_contract_exists_without_rewriting_phase_5e_l
         data.MX_GENERAL_COMMERCIAL_IVA_EXEMPT_LAND,
         data.MX_GENERAL_PERSONA_MORAL_IVA_FREIGHT_RETENTION,
         data.MX_GENERAL_PERSONA_FISICA_PROFESSIONAL_ISR_RETENTION,
+        data.MX_GENERAL_PERSONA_FISICA_PROFESSIONAL_IVA_RETENTION,
         data.MX_RESICO_PERSONA_FISICA_ISR_RETENTION,
     )
 
@@ -122,7 +122,7 @@ def test_exemption_resolves_as_explicit_non_rate_truth_and_rate_calculator_fails
         engine.dispose()
 
 
-def test_freight_transport_iva_retention_is_exact_four_percent_for_general_persona_moral_context():
+def test_freight_transport_iva_retention_is_exact_four_percent_of_consideration():
     import aqorath.fiscal_rule_data_mx as data
 
     manifest = data.MX_GENERAL_PERSONA_MORAL_IVA_FREIGHT_RETENTION
@@ -158,6 +158,23 @@ def test_general_professional_isr_retention_manifest_is_exact_ten_percent():
     assert str(entry.value) == "0.10"
     assert entry.unit == "rate"
     assert entry.source_ref == PROFESSIONAL_ISR_SOURCE
+
+
+def test_professional_iva_withholding_manifest_encodes_two_thirds_without_fake_rate():
+    import aqorath.fiscal_rule_data_mx as data
+
+    manifest = data.MX_GENERAL_PERSONA_FISICA_PROFESSIONAL_IVA_RETENTION
+    entry = _single_entry(manifest)
+
+    assert manifest.set_key == "mx.general.persona-fisica-profesional.iva-retention"
+    assert manifest.version == "2006.1"
+    assert manifest.context is data.MX_GENERAL_PERSONA_FISICA_PROFESSIONAL_ISR_RETENTION.context
+    assert entry.rule_key == "iva.professional_services_retention_fraction"
+    assert entry.effective_from == date(2006, 12, 5)
+    assert entry.value == Decimal("2")
+    assert entry.unit == "fraction_2_3_of_transferred_vat"
+    assert entry.source_ref == PROFESSIONAL_IVA_SOURCE
+    assert "0.666666" not in str(entry.value)
 
 
 def test_resico_persona_fisica_isr_retention_manifest_is_exact_one_point_two_five_percent():
@@ -295,13 +312,14 @@ def test_expanded_curated_aggregate_has_exact_reviewable_rule_set_and_preserves_
         "iva.exempt.sale.land",
         "iva.freight_transport_retention_rate",
         "isr.professional_services_retention_rate",
+        "iva.professional_services_retention_fraction",
         "isr.resico_retention_rate",
     }
     assert all(isinstance(entry.value, Decimal) for entry in entries)
     assert all(not isinstance(entry.value, float) for entry in entries)
 
 
-def test_two_thirds_iva_withholding_is_not_seeded_as_a_fake_finite_decimal_rate():
+def test_two_thirds_iva_withholding_is_formula_semantics_not_fake_finite_decimal_rate():
     import aqorath.fiscal_rule_data_mx as data
 
     entries = [
@@ -309,6 +327,11 @@ def test_two_thirds_iva_withholding_is_not_seeded_as_a_fake_finite_decimal_rate(
         for manifest in data.CURATED_MX_FISCAL_RULE_SETS
         for entry in manifest.entries
     ]
+    fraction = next(
+        entry
+        for entry in entries
+        if entry.rule_key == "iva.professional_services_retention_fraction"
+    )
     forbidden_rule_keys = {
         "iva.personal_services_retention_rate",
         "iva.commission_retention_rate",
@@ -317,8 +340,9 @@ def test_two_thirds_iva_withholding_is_not_seeded_as_a_fake_finite_decimal_rate(
     }
 
     assert forbidden_rule_keys.isdisjoint({entry.rule_key for entry in entries})
-    assert all("RLIVA:ART3-I" not in entry.source_ref.split(";") for entry in entries)
-    assert all("2/3" not in entry.source_ref for entry in entries)
+    assert fraction.value == Decimal("2")
+    assert fraction.unit == "fraction_2_3_of_transferred_vat"
+    assert fraction.source_ref == PROFESSIONAL_IVA_SOURCE
     assert all("0.666666" not in str(entry.value) for entry in entries)
 
 
