@@ -6,6 +6,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
 
+import aqorath.recovery_infrastructure as recovery_infra
 from aqorath.migrations import CURRENT_SCHEMA_VERSION, get_schema_version, migrate_database
 from aqorath.recovery_infrastructure import (
     BACKUP_FORMAT,
@@ -78,6 +79,33 @@ def _typed_rows(archive: ZipFile, table: str):
     return payload["columns"], payload["rows"]
 
 
+def _package_id(package: Path) -> str:
+    with ZipFile(package, "r") as archive:
+        return json.loads(archive.read(MANIFEST_MEMBER).decode("utf-8"))["package_id"]
+
+
+def _concept(db: Path) -> str:
+    conn = sqlite3.connect(str(db))
+    try:
+        return conn.execute("SELECT concept FROM journalentry WHERE id=1").fetchone()[0]
+    finally:
+        conn.close()
+
+
+def _inject_one_post_commit_failure(monkeypatch, message="fault injected after replacement"):
+    real_validate = recovery_infra._validate_restored_installation
+    calls = {"count": 0}
+
+    def fail_once(db_path):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise RecoveryIntegrityError(message)
+        return real_validate(db_path)
+
+    monkeypatch.setattr(recovery_infra, "_validate_restored_installation", fail_once)
+    return calls
+
+
 def test_backup_restore_clean_install_preserves_ledger_entity_and_external_evidence(tmp_path):
     source_dir = tmp_path / "source"
     source = _make_current_database(source_dir)
@@ -146,11 +174,142 @@ def test_restore_over_healthy_installation_creates_pre_restore_backup(tmp_path):
         assert conn.execute("SELECT concept FROM journalentry WHERE id=1").fetchone()[0] == "target-before-restore"
     finally:
         conn.close()
+    assert _concept(target) == "AQR-014 fixture"
+
+
+def test_post_commit_failure_restores_healthy_target_and_original_documents(tmp_path, monkeypatch):
+    gateway = SqliteRecoveryGateway()
+    source = _make_current_database(tmp_path / "source")
+    target_dir = tmp_path / "target"
+    target = _make_current_database(target_dir, name="aqorath.db")
     conn = sqlite3.connect(str(target))
     try:
-        assert conn.execute("SELECT concept FROM journalentry WHERE id=1").fetchone()[0] == "AQR-014 fixture"
+        conn.execute("UPDATE journalentry SET concept='target-before-restore' WHERE id=1")
+        conn.commit()
     finally:
         conn.close()
+    original_evidence = target_dir / "evidence" / "receipt.txt"
+    original_evidence_hash = _sha256(original_evidence)
+    package = tmp_path / "backup.zip"
+    gateway.create_backup(source, package)
+    package_id = _package_id(package)
+    failed_managed_root = target_dir / recovery_infra.MANAGED_DOCUMENT_ROOT / package_id
+    backup_dir = target_dir / ".aqorath_backups"
+    before_backups = set(backup_dir.glob("*.db")) if backup_dir.exists() else set()
+    _inject_one_post_commit_failure(monkeypatch)
+
+    with pytest.raises(
+        RecoveryIntegrityError,
+        match="previous healthy installation was recovered",
+    ) as exc_info:
+        gateway.restore_backup(package, target)
+
+    assert "fault injected after replacement" in str(exc_info.value)
+    assert _concept(target) == "target-before-restore"
+    assert get_schema_version(str(target)) == CURRENT_SCHEMA_VERSION
+    assert gateway.inspect_installation(target)["healthy"] is True
+    assert original_evidence.is_file()
+    assert _sha256(original_evidence) == original_evidence_hash
+    assert not failed_managed_root.exists()
+    after_backups = set(backup_dir.glob("*.db"))
+    assert after_backups - before_backups
+
+
+def test_post_commit_failure_on_clean_install_removes_database_and_new_documents(tmp_path, monkeypatch):
+    gateway = SqliteRecoveryGateway()
+    source = _make_current_database(tmp_path / "source")
+    package = tmp_path / "backup.zip"
+    gateway.create_backup(source, package)
+    package_id = _package_id(package)
+    target_dir = tmp_path / "clean-target"
+    target_dir.mkdir()
+    target = target_dir / "aqorath.db"
+    failed_managed_root = target_dir / recovery_infra.MANAGED_DOCUMENT_ROOT / package_id
+    _inject_one_post_commit_failure(monkeypatch)
+
+    with pytest.raises(
+        RecoveryIntegrityError,
+        match="clean pre-restore state was recovered with no active database",
+    ):
+        gateway.restore_backup(package, target)
+
+    assert not target.exists()
+    assert not failed_managed_root.exists()
+
+
+def test_post_commit_failure_reinstates_preserved_corrupt_target(tmp_path, monkeypatch):
+    gateway = SqliteRecoveryGateway()
+    source = _make_current_database(tmp_path / "source")
+    package = tmp_path / "backup.zip"
+    gateway.create_backup(source, package)
+    package_id = _package_id(package)
+    target_dir = tmp_path / "corrupt-target"
+    target_dir.mkdir()
+    target = target_dir / "aqorath.db"
+    corrupt_bytes = b"pre-existing corrupt sqlite bytes\n"
+    target.write_bytes(corrupt_bytes)
+    failed_managed_root = target_dir / recovery_infra.MANAGED_DOCUMENT_ROOT / package_id
+    _inject_one_post_commit_failure(monkeypatch)
+
+    with pytest.raises(
+        RecoveryIntegrityError,
+        match="previously corrupt database file was reinstated",
+    ):
+        gateway.restore_backup(package, target)
+
+    assert target.read_bytes() == corrupt_bytes
+    preserved = list((target_dir / ".aqorath_backups").glob("*.corrupt-before-restore.*.db"))
+    assert len(preserved) == 1
+    assert preserved[0].read_bytes() == corrupt_bytes
+    assert not failed_managed_root.exists()
+
+
+def test_rollback_failure_retains_new_documents_and_reports_both_failures(tmp_path, monkeypatch):
+    gateway = SqliteRecoveryGateway()
+    source = _make_current_database(tmp_path / "source")
+    target_dir = tmp_path / "target"
+    target = _make_current_database(target_dir, name="aqorath.db")
+    conn = sqlite3.connect(str(target))
+    try:
+        conn.execute("UPDATE journalentry SET concept='target-before-restore' WHERE id=1")
+        conn.commit()
+    finally:
+        conn.close()
+    package = tmp_path / "backup.zip"
+    gateway.create_backup(source, package)
+    package_id = _package_id(package)
+    managed_root = target_dir / recovery_infra.MANAGED_DOCUMENT_ROOT / package_id
+    _inject_one_post_commit_failure(monkeypatch, message="post-commit validation fault")
+
+    real_restore = recovery_infra.restore_database_backup
+    restore_calls = {"count": 0}
+
+    def fail_second_restore(backup_path, target_path):
+        restore_calls["count"] += 1
+        if restore_calls["count"] == 2:
+            raise RuntimeError("rollback restore fault")
+        return real_restore(backup_path, target_path)
+
+    monkeypatch.setattr(recovery_infra, "restore_database_backup", fail_second_restore)
+
+    with pytest.raises(RecoveryIntegrityError, match="rollback also failed") as exc_info:
+        gateway.restore_backup(package, target)
+
+    message = str(exc_info.value)
+    assert "post-commit validation fault" in message
+    assert "rollback restore fault" in message
+    assert "pre_restore_backup_path=" in message
+    assert _concept(target) == "AQR-014 fixture"
+    assert managed_root.is_dir()
+    conn = sqlite3.connect(str(target))
+    try:
+        restored_path = conn.execute(
+            "SELECT file_path FROM documentreference WHERE id=1"
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    assert restored_path.startswith(".aqorath_documents/restored/")
+    assert (target_dir / restored_path).is_file()
 
 
 def test_restore_rejects_corrupt_package_without_touching_healthy_database(tmp_path):
@@ -299,3 +458,4 @@ def test_recovery_surface_is_part_of_real_local_launcher():
 
     source = inspect.getsource(local_server.run_local_surface)
     assert "aqorath.recovery_web:app" in source
+    assert "aqorath.web_surface:app" in source
