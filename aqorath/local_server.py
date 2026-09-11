@@ -1,4 +1,4 @@
-"""Local launcher for the AQR-005 browser surface."""
+"""Local launcher for the Aqorath browser surface."""
 
 LOCAL_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
@@ -10,6 +10,10 @@ def run_local_surface(port=DEFAULT_PORT):
         raise TypeError("port must be int")
     if not 1 <= port <= 65535:
         raise ValueError("port must be between 1 and 65535")
+
+    # Importing recovery_web registers AQR-014 routes on the canonical web_surface app.
+    # aqorath.recovery_web:app is therefore an alias, not a second local surface.
+    from . import recovery_web as _recovery_web  # noqa: F401
     import uvicorn
 
     uvicorn.run(
