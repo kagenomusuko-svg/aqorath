@@ -19,7 +19,7 @@ def run_local_surface(port=DEFAULT_PORT):
     import uvicorn
 
     uvicorn.run(
-        "aqorath.web_surface:app",
+        "aqorath.recovery_web:app",
         host=LOCAL_HOST,
         port=port,
         log_level="info",
