@@ -1,6 +1,6 @@
 # AQR-015 — Contrato inicial de distribución e instalación
 
-Este documento registra el primer corte ejecutable de AQR-015. No declara todavía la aceptación final V1 ni sustituye `PRODUCT_ACCEPTANCE_V1.md`.
+Este documento registra el corte ejecutable vigente de AQR-015. No declara todavía la aceptación final V1 ni sustituye `PRODUCT_ACCEPTANCE_V1.md`.
 
 ## Autoridad de packaging
 
@@ -57,6 +57,14 @@ No contiene reglas contables ni HTTP. El launcher canónico continúa siendo `aq
 `product_bootstrap` crea únicamente el directorio padre escribible de la DB y delega creación/upgrade a `storage.init_db() -> migrations.migrate_database()`. No contiene DDL, no crea un migrador paralelo y conserva el rechazo de schema futuro y los respaldos pre-migración de la autoridad existente.
 
 La ruta por defecto vigente sigue siendo la autoridad histórica de `storage.py` (`~/.local/share/aqorath/aqorath.db`), con `AQORATH_DB` como override explícito. La instalación no escribe dentro de `site-packages`.
+
+## Onboarding guiado y atomicidad
+
+El onboarding de instalación compone las autoridades existentes de catálogo, Entity/EntityProfile, calendario/períodos, FiscalProfile y account bindings. No crea tablas ni repositorios paralelos.
+
+Toda validación determinística del payload ocurre antes de iniciar escritura. Después, la materialización del catálogo canónico, creación de entidad, declaración del calendario, apertura del primer ejercicio, perfil fiscal y bindings se ejecutan como **una sola transacción propiedad del caso de uso de onboarding**. Las autoridades de entidad/perfil y bindings conservan su comportamiento histórico de auto-commit por defecto, pero admiten staging explícito (`commit=False`) cuando participan en esta composición.
+
+Si cualquier paso tardío falla, la sesión revierte la transacción completa. No puede quedar una entidad activa sin perfil fiscal, calendario o bindings, ni puede un reintento quedar bloqueado por un onboarding parcialmente persistido. Una prueba de fallo inyectado después de haber staged múltiples bindings verifica rollback total y reintento limpio.
 
 ## Smoke reproducible inicial
 
