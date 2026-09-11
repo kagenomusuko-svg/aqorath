@@ -71,8 +71,8 @@ def _fiscal_profile_from_record(record):
     )
 
 
-def create_entity(session, entity, *, commit=True):
-    """Persist one Entity aggregate, optionally staged in the caller transaction."""
+def _stage_entity(session, entity):
+    """Stage one Entity aggregate without owning the caller's transaction."""
     if not isinstance(entity, Entity):
         raise TypeError("entity must be Entity")
     if entity.id is not None:
@@ -92,30 +92,34 @@ def create_entity(session, entity, *, commit=True):
         legal_form=entity.legal_form,
         is_active=entity.is_active,
     )
-    try:
-        session.add(record)
-        session.flush()
-        if record.id is None:
-            raise RuntimeError("entity persistence did not assign identity")
-        session.add(
-            EntityProfileRecord(
-                entity_id=record.id,
-                economic_purpose=entity.profile.economic_purpose,
-                is_donor_authorized=entity.profile.is_donor_authorized,
-                special_capabilities_json=_encode_tuple(
-                    entity.profile.special_capabilities
-                ),
-                modules_enabled_json=_encode_tuple(entity.profile.modules_enabled),
-            )
+    session.add(record)
+    session.flush()
+    if record.id is None:
+        raise RuntimeError("entity persistence did not assign identity")
+    session.add(
+        EntityProfileRecord(
+            entity_id=record.id,
+            economic_purpose=entity.profile.economic_purpose,
+            is_donor_authorized=entity.profile.is_donor_authorized,
+            special_capabilities_json=_encode_tuple(
+                entity.profile.special_capabilities
+            ),
+            modules_enabled_json=_encode_tuple(entity.profile.modules_enabled),
         )
-        session.flush()
-        if commit:
-            session.commit()
+    )
+    session.flush()
+    return replace(entity, id=record.id)
+
+
+def create_entity(session, entity):
+    """Atomically persist one Entity aggregate through the supplied Session."""
+    try:
+        persisted = _stage_entity(session, entity)
+        session.commit()
     except Exception:
         session.rollback()
         raise
-
-    return replace(entity, id=record.id)
+    return persisted
 
 
 def load_active_entity(session):
@@ -139,8 +143,8 @@ def load_active_entity(session):
     return _entity_from_records(entity_record, profiles[0])
 
 
-def register_fiscal_profile(session, profile, *, commit=True):
-    """Persist one explicit fiscal profile, optionally staged in caller transaction."""
+def _stage_fiscal_profile(session, profile):
+    """Stage one fiscal-profile interval without owning the caller transaction."""
     if not isinstance(profile, FiscalProfile):
         raise TypeError("profile must be FiscalProfile")
     if profile.id is not None:
@@ -175,17 +179,22 @@ def register_fiscal_profile(session, profile, *, commit=True):
         effective_from=profile.effective_from,
         effective_to=profile.effective_to,
     )
+    session.add(record)
+    session.flush()
+    if record.id is None:
+        raise RuntimeError("fiscal profile persistence did not assign identity")
+    return replace(profile, id=record.id)
+
+
+def register_fiscal_profile(session, profile):
+    """Persist one explicit non-overlapping fiscal profile interval."""
     try:
-        session.add(record)
-        session.flush()
-        if record.id is None:
-            raise RuntimeError("fiscal profile persistence did not assign identity")
-        if commit:
-            session.commit()
+        persisted = _stage_fiscal_profile(session, profile)
+        session.commit()
     except Exception:
         session.rollback()
         raise
-    return replace(profile, id=record.id)
+    return persisted
 
 
 def resolve_fiscal_profile(session, entity_id, effective_date):
