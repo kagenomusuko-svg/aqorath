@@ -182,7 +182,7 @@ Una tarea sólo pasa de `NEXT` a `DONE` cuando:
 
 ## 11. SIGUIENTE
 
-**`AQR-014 — Backup, restore, integridad y portabilidad como flujo de usuario`**
+**`AQR-015 — Empaquetado, instalación y aceptación V1`**
 
 AQR-006 quedó incorporada mediante PR #41, merge `6617896f1bfe56093697be08f1a996db55930ab6`, con CI verde y suite completa Python 3.12 de **1993 passed, 8 warnings**. Sus submayores operativos conservan `JournalLine` como única autoridad monetaria, sin backfill histórico, y su fixture schema 6 es independiente del metadata runtime.
 
@@ -198,7 +198,9 @@ AQR-011 quedó incorporada mediante PR #46, merge `5dc5640734d46b685ccf8dd9adf9f
 
 AQR-012 quedó incorporada mediante PR #48, merge `79d4ec06a6b5fe9e20b511284cfe105d21dddd40`, head revisado `bf74211975ce4ef19b0cf0243d6f315f8dbe5fd4`, CI verde runs 546/547 y suite completa **2125 passed, 8 warnings**. Inventario perpetuo/costo por promedio ponderado móvil conserva `JournalEntry`/`JournalLine` como autoridad monetaria, reconcilia stock/valuación/COGS, compone crédito/CFDI/fiscalidad/reversión sin duplicar autoridades y expone superficies común/profesional sobre la misma verdad.
 
-AQR-013 quedó incorporada mediante PR #51, merge `46bf21f61dd2d3e1cbadfa681a02e40d9faef63c`, head revisado `cf5f9386844083a60f8dc323b4e0b0b989256d78`, CI canónico verde run 630 y CI post-merge verde run 632. Schema 13 añade presets persistidos owner-scoped sin persistir resultados monetarios; packages permanecen composición y JSON/XLSX formatos de producto, no portabilidad relacional. AQR-014 es el único siguiente trabajo: elevar las autoridades existentes de integridad/backup/restore a un flujo de producto completo y añadir una salida relacional portable, sin confundirla con los reportes AQR-013 ni crear persistencia paralela.
+AQR-013 quedó incorporada mediante PR #51, merge `46bf21f61dd2d3e1cbadfa681a02e40d9faef63c`, head revisado `cf5f9386844083a60f8dc323b4e0b0b989256d78`, CI canónico verde run 630 y CI post-merge verde run 632. Schema 13 añade presets persistidos owner-scoped sin persistir resultados monetarios; packages permanecen composición y JSON/XLSX formatos de producto, no portabilidad relacional.
+
+AQR-014 quedó incorporada mediante PR #53, merge `d7ccd44f53ce607c72cae44054af5236f63edc5f`, head definitivo `b551dae1accf17c1d30915993e3ea3af0ee26d91`, CI canónico verde run 643 y CI post-merge verde run 644. Backup/restore/integridad/portabilidad componen las autoridades de `migrations.py`; el restore valida y migra sólo en staging, conserva un commit point explícito y compensa fallos posteriores sin dejar DB/documentos deliberadamente inconsistentes. El export portable es relacional y autocontenido pero no constituye persistencia runtime. AQR-015 es el único siguiente trabajo.
 
 AQR-001 fue incorporada mediante PR #31 (`bff58de7cad11de6c2ab37c0d3e0b7b6c20ae003`). Su matriz única es `docs/PRODUCT_ACCEPTANCE_V1.md`. Consultar siempre el único `NEXT` del backlog antes de comenzar trabajo.
 
