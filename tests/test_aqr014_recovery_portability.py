@@ -22,11 +22,18 @@ def _sha256(path: Path) -> str:
 
 
 def _make_current_database(tmp_path: Path, name="source.db", with_document=True):
+    tmp_path.mkdir(parents=True, exist_ok=True)
     db = tmp_path / name
     migrate_database(str(db))
     created = "2026-09-11T12:00:00+00:00"
     conn = sqlite3.connect(str(db))
     try:
+        conn.execute(
+            "INSERT INTO entity "
+            "(id, name, rfc, legal_personality, legal_form, is_active, created_at) "
+            "VALUES (1, 'Entidad AQR-014', 'AAA010101AAA', 'moral', 'ac', 1, ?)",
+            (created,),
+        )
         conn.execute(
             "INSERT INTO journalentry "
             "(id, date, concept, doc_ref, period_id, posted_by, state, created_at) "
@@ -71,9 +78,8 @@ def _typed_rows(archive: ZipFile, table: str):
     return payload["columns"], payload["rows"]
 
 
-def test_backup_restore_clean_install_preserves_ledger_and_external_evidence(tmp_path):
+def test_backup_restore_clean_install_preserves_ledger_entity_and_external_evidence(tmp_path):
     source_dir = tmp_path / "source"
-    source_dir.mkdir()
     source = _make_current_database(source_dir)
     gateway = SqliteRecoveryGateway()
     package = tmp_path / "backup.zip"
@@ -97,6 +103,9 @@ def test_backup_restore_clean_install_preserves_ledger_and_external_evidence(tmp
     conn = sqlite3.connect(str(restored))
     try:
         assert conn.execute(
+            "SELECT id, name, rfc, legal_personality, legal_form, is_active FROM entity WHERE id=1"
+        ).fetchone() == (1, "Entidad AQR-014", "AAA010101AAA", "moral", "ac", 1)
+        assert conn.execute(
             "SELECT id, state, concept FROM journalentry WHERE id=1"
         ).fetchone() == (1, "posted", "AQR-014 fixture")
         assert conn.execute(
@@ -115,6 +124,35 @@ def test_backup_restore_clean_install_preserves_ledger_and_external_evidence(tmp
     assert gateway.inspect_installation(restored)["healthy"] is True
 
 
+def test_restore_over_healthy_installation_creates_pre_restore_backup(tmp_path):
+    gateway = SqliteRecoveryGateway()
+    source = _make_current_database(tmp_path / "source")
+    target = _make_current_database(tmp_path / "target", name="aqorath.db")
+    conn = sqlite3.connect(str(target))
+    try:
+        conn.execute("UPDATE journalentry SET concept='target-before-restore' WHERE id=1")
+        conn.commit()
+    finally:
+        conn.close()
+    package = tmp_path / "backup.zip"
+    gateway.create_backup(source, package)
+
+    result = gateway.restore_backup(package, target)
+
+    safety = Path(result["pre_restore_backup_path"])
+    assert safety.is_file()
+    conn = sqlite3.connect(str(safety))
+    try:
+        assert conn.execute("SELECT concept FROM journalentry WHERE id=1").fetchone()[0] == "target-before-restore"
+    finally:
+        conn.close()
+    conn = sqlite3.connect(str(target))
+    try:
+        assert conn.execute("SELECT concept FROM journalentry WHERE id=1").fetchone()[0] == "AQR-014 fixture"
+    finally:
+        conn.close()
+
+
 def test_restore_rejects_corrupt_package_without_touching_healthy_database(tmp_path):
     target = _make_current_database(tmp_path / "target", name="aqorath.db")
     before = _sha256(target)
@@ -130,7 +168,6 @@ def test_restore_rejects_corrupt_package_without_touching_healthy_database(tmp_p
 
 def test_restore_rejects_future_schema_before_replacing_healthy_database(tmp_path):
     target_dir = tmp_path / "target"
-    target_dir.mkdir()
     target = _make_current_database(target_dir, name="aqorath.db", with_document=False)
     before = _sha256(target)
 
@@ -180,9 +217,7 @@ def test_integrity_detects_relational_breakage(tmp_path):
     conn = sqlite3.connect(str(db))
     try:
         conn.execute("PRAGMA foreign_keys = OFF")
-        conn.execute(
-            "UPDATE documentreference SET entry_id=999 WHERE id=1"
-        )
+        conn.execute("UPDATE documentreference SET entry_id=999 WHERE id=1")
         conn.commit()
     finally:
         conn.close()
@@ -204,6 +239,7 @@ def test_portable_export_is_independently_readable_and_relational(tmp_path):
 
     assert summary["format"] == PORTABLE_FORMAT
     assert summary["schema_version"] == CURRENT_SCHEMA_VERSION
+    assert summary["row_counts"]["entity"] == 1
     assert summary["row_counts"]["journalentry"] == 1
     assert summary["row_counts"]["journalline"] == 2
     assert summary["row_counts"]["documentreference"] == 1
@@ -217,7 +253,7 @@ def test_portable_export_is_independently_readable_and_relational(tmp_path):
         doc_columns, doc_rows = _typed_rows(archive, "documentreference")
 
         assert manifest["format"] == PORTABLE_FORMAT
-        assert {"journalentry", "journalline", "documentreference"} <= set(manifest["tables"])
+        assert {"entity", "journalentry", "journalline", "documentreference"} <= set(manifest["tables"])
         assert manifest["encoding"]["text"].startswith("UTF-8")
         assert reconciliation == {
             "available": True,
