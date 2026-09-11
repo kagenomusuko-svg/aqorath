@@ -8,6 +8,7 @@ changing SQLite. All durable work delegates to application-facing surface module
 import secrets
 
 from . import fiscal_v1_surface_application as _fiscal_v1
+from . import inventory_surface_application as _inventory_v1
 from . import surface_application as _application
 
 
@@ -27,6 +28,12 @@ class LocalPresentationController:
 
     def capabilities(self):
         fiscal_kinds = tuple(_fiscal_v1.list_fiscal_v1_surface_kinds())
+        try:
+            inventory_products = _inventory_v1.list_inventory_surface_products()
+            inventory_enabled = True
+        except (LookupError, ValueError):
+            inventory_products = []
+            inventory_enabled = False
         return {
             "operations": [
                 {"key": item.key, "label": item.label}
@@ -47,6 +54,7 @@ class LocalPresentationController:
             "third_parties": _application.list_surface_third_parties(),
             "entity": _application.get_surface_entity(),
             "views": ("common", "professional"),
+            "inventory": {"enabled": inventory_enabled, "products": inventory_products},
         }
 
     def prepare(self, operation_key, amount, posting_date):
@@ -67,6 +75,24 @@ class LocalPresentationController:
     def prepare_fiscal_v1(self, payload):
         prepared = _fiscal_v1.prepare_fiscal_v1_surface_operation(payload)
         return self._store(prepared, prepared.common_preview)
+
+    def prepare_inventory(self, payload):
+        prepared = _inventory_v1.prepare_inventory_surface_operation(payload)
+        return self._store(prepared, prepared.preview)
+
+    def inventory_products(self):
+        return _inventory_v1.list_inventory_surface_products()
+
+    def create_inventory_product(self, payload):
+        return _inventory_v1.create_inventory_surface_product(payload)
+
+    def professional_inventory(self, movement_id):
+        return _inventory_v1.load_inventory_surface_professional(movement_id)
+
+    def reverse_inventory(self, movement_id, payload):
+        return _inventory_v1.reverse_inventory_surface_operation(
+            movement_id, payload.get("reason"), payload.get("reversal_date")
+        )
 
     def professional_fiscal_v1(self, entry_id):
         return _fiscal_v1.load_fiscal_v1_surface_professional(entry_id)
@@ -141,6 +167,8 @@ class LocalPresentationController:
             return _application.subledger_professional_preview(prepared)
         if isinstance(prepared, _fiscal_v1.PreparedFiscalV1SurfaceOperation):
             return _fiscal_v1.professional_fiscal_v1_preview(prepared)
+        if isinstance(prepared, _inventory_v1.PreparedInventorySurfaceOperation):
+            return _inventory_v1.professional_inventory_preview(prepared)
         raise TypeError("unsupported prepared presentation value")
 
     def confirm(self, token):
@@ -160,6 +188,8 @@ class LocalPresentationController:
             response = _application.confirm_and_post_subledger(prepared)
         elif isinstance(prepared, _fiscal_v1.PreparedFiscalV1SurfaceOperation):
             response = _fiscal_v1.confirm_and_execute_fiscal_v1_surface_operation(prepared)
+        elif isinstance(prepared, _inventory_v1.PreparedInventorySurfaceOperation):
+            response = _inventory_v1.confirm_inventory_surface_operation(prepared)
         else:
             raise TypeError("unsupported prepared presentation value")
         del self._pending[token]

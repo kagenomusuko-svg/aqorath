@@ -7,9 +7,14 @@ posting engine. Additional fiscal effects are persisted as ordered child audit
 metadata; the historical v4 parent record remains the projection of effect zero.
 
 AQR-011 exposes the same staging operation to a caller-owned session so general
-applicability AuditEvent evidence can participate in the one transaction. The
-historical executor remains the transaction-owning compatibility wrapper.
+applicability AuditEvent evidence can participate in the one transaction. A
+caller may also contribute an independently balanced set of already-resolved
+accounting lines; those lines are composed into the payload before the single
+canonical JournalEntry is staged. This is used by AQR-012 for COGS/inventory and
+does not alter fiscal provenance or create a second posting authority.
 """
+
+from decimal import Decimal, InvalidOperation
 
 from . import core as _core
 from . import fiscal_posting_audit as _audit
@@ -22,18 +27,68 @@ class FiscalizedPostingPersistenceError(RuntimeError):
     """Canonical fiscalized staging rejected the prepared persistence payload."""
 
 
-def _build_entry_payload(instruction):
+def _decimal(value, field):
+    try:
+        result = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise TypeError(f"{field} must be Decimal-compatible") from exc
+    if not result.is_finite() or result < 0:
+        raise ValueError(f"{field} must be finite and non-negative")
+    return result
+
+
+def _balanced_additional_lines(lines):
+    if lines is None:
+        return []
+    if not isinstance(lines, (tuple, list)):
+        raise TypeError("additional_balanced_lines must be a tuple/list or None")
+    normalized = []
+    debit_total = Decimal("0")
+    credit_total = Decimal("0")
+    for index, line in enumerate(lines):
+        if not isinstance(line, dict):
+            raise TypeError("additional_balanced_lines entries must be dict")
+        account_code = line.get("account_code")
+        if not isinstance(account_code, str) or not account_code.strip():
+            raise ValueError("additional line account_code must be non-empty text")
+        debit = _decimal(line.get("debit", Decimal("0")), f"additional line {index} debit")
+        credit = _decimal(line.get("credit", Decimal("0")), f"additional line {index} credit")
+        if debit == 0 and credit == 0:
+            raise ValueError("additional line must have a debit or credit amount")
+        if debit > 0 and credit > 0:
+            raise ValueError("additional line cannot contain both debit and credit")
+        item = {
+            "account_code": account_code,
+            "debit": debit,
+            "credit": credit,
+        }
+        account_id = line.get("account_id")
+        if account_id is not None:
+            if type(account_id) is not int or account_id <= 0:
+                raise ValueError("additional line account_id must be a positive integer or None")
+            item["account_id"] = account_id
+        normalized.append(item)
+        debit_total += debit
+        credit_total += credit
+    if debit_total != credit_total:
+        raise ValueError("additional accounting lines must be independently balanced")
+    return normalized
+
+
+def _build_entry_payload(instruction, additional_balanced_lines=None):
+    lines = [
+        {
+            "account_id": line.account_id,
+            "account_code": line.account_code,
+            "debit": line.debit,
+            "credit": line.credit,
+        }
+        for line in instruction.lines
+    ]
+    lines.extend(_balanced_additional_lines(additional_balanced_lines))
     return {
         "description": instruction.description,
-        "lines": [
-            {
-                "account_id": line.account_id,
-                "account_code": line.account_code,
-                "debit": line.debit,
-                "credit": line.credit,
-            }
-            for line in instruction.lines
-        ],
+        "lines": lines,
     }
 
 
@@ -123,12 +178,15 @@ def stage_fiscalized_posting_with_audit(
     *,
     posting_date=None,
     state=None,
+    additional_balanced_lines=None,
 ):
     """Stage one fiscalized JournalEntry and fiscal audit without committing.
 
     ``posting_date`` and ``state`` are optional so the Phase 5 historical wrapper
     preserves its exact minimal payload. AQR-011 supplies the operation date and
-    ``posted`` state explicitly. The caller owns commit/rollback.
+    ``posted`` state explicitly. ``additional_balanced_lines`` is caller-owned,
+    must balance independently, and is composed before the one canonical staging
+    call. The caller owns commit/rollback.
     """
     if not isinstance(instruction, _posting.FiscalizedPostingInstruction):
         raise TypeError(
@@ -139,7 +197,7 @@ def stage_fiscalized_posting_with_audit(
             raise ValueError("state must be non-empty text or None")
 
     audit_snapshot = _audit.create_fiscal_posting_audit_snapshot(instruction)
-    entry_payload = _build_entry_payload(instruction)
+    entry_payload = _build_entry_payload(instruction, additional_balanced_lines)
     if posting_date is not None:
         entry_payload["date"] = posting_date
     if state is not None:

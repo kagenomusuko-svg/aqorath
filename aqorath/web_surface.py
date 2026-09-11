@@ -10,6 +10,7 @@ from ipaddress import ip_address
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
+from .inventory_web_assets import INVENTORY_HTML
 from .presentation_controller import LocalPresentationController
 from .web_assets import APP_HTML
 
@@ -49,6 +50,11 @@ def _error(exc):
 @app.get("/", response_class=HTMLResponse)
 def index():
     return HTMLResponse(APP_HTML)
+
+
+@app.get("/inventory", response_class=HTMLResponse)
+def inventory_index():
+    return HTMLResponse(INVENTORY_HTML)
 
 
 @app.get("/api/capabilities")
@@ -131,6 +137,46 @@ def prepare_operation(payload: dict):
             payload.get("amount"),
             payload.get("posting_date"),
         )
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.get("/api/inventory/products")
+def inventory_products():
+    try:
+        return controller.inventory_products()
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/inventory/products")
+def create_inventory_product(payload: dict):
+    try:
+        return controller.create_inventory_product(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/inventory/prepare")
+def prepare_inventory(payload: dict):
+    try:
+        return controller.prepare_inventory(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.get("/api/inventory/movements/{movement_id}/professional")
+def professional_inventory(movement_id: int):
+    try:
+        return controller.professional_inventory(movement_id)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/inventory/movements/{movement_id}/reverse")
+def reverse_inventory(movement_id: int, payload: dict):
+    try:
+        return controller.reverse_inventory(movement_id, payload)
     except Exception as exc:
         raise _error(exc) from exc
 
