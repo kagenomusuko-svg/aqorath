@@ -1256,17 +1256,33 @@ def list_surface_bank_accounts():
 
 
 def create_surface_bank_account(institution_name, account_identifier, currency):
-    from .banking_models import BankAccountRecord
+    from .catalog import _stage_entity_account
+
     with _storage.get_session() as session:
         entity = _application.get_active_entity(session)
         if entity is None or entity.id is None:
             raise LookupError("active Entity is required")
-        binding = session.exec(select(AccountRoleBinding).where(AccountRoleBinding.role == "bank")).first()
-        if binding is None or binding.account_id is None:
-            raise LookupError("bank account binding is required")
-        account = _banks.create_bank_account(session, BankAccount(
-            None, entity.id, binding.account_id, institution_name, account_identifier, currency,
-        ))
+        try:
+            ledger_account = _stage_entity_account(
+                session,
+                "1101",
+                f"{institution_name} · {account_identifier}",
+            )
+            account = _banks._stage_bank_account(
+                session,
+                BankAccount(
+                    None,
+                    entity.id,
+                    ledger_account.id,
+                    institution_name,
+                    account_identifier,
+                    currency,
+                ),
+            )
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
     return _json_value(account)
 
 
