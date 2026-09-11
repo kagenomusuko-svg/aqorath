@@ -89,8 +89,7 @@ def get_period_income_statement(from_date, to_date):
     """Build period P&L from the exact debit-credit movements of the range."""
     trial = get_period_trial_balance(from_date, to_date)
     movement_balances = {
-        line.account_code: line.debit - line.credit
-        for line in trial.lines
+        line.account_code: line.debit - line.credit for line in trial.lines
     }
     identities = {
         line.account_code: SimpleNamespace(
@@ -125,13 +124,14 @@ def generate_report(request):
     if not isinstance(request, ReportRequest):
         raise TypeError("request must be ReportRequest")
     definition = _catalog.get_report_definition(request.report_definition_id)
+    governance = _catalog.get_report_governance(definition)
     validate_governed_report_request(definition, request)
     _require_active_owner(request, definition)
 
-    if definition.key == "financial.trial_balance.period":
+    if governance.key == "financial.trial_balance.period":
         content = get_period_trial_balance(request.from_date, request.to_date)
         authorities = ("JournalEntry", "JournalLine", "Account")
-    elif definition.key == "financial.income_statement.period":
+    elif governance.key == "financial.income_statement.period":
         content = get_period_income_statement(request.from_date, request.to_date)
         authorities = (
             "JournalEntry",
@@ -139,7 +139,7 @@ def generate_report(request):
             "Account",
             "CanonicalCatalog",
         )
-    elif definition.key == "financial.balance_sheet.as_of":
+    elif governance.key == "financial.balance_sheet.as_of":
         content = _reporting_runtime.get_balance_sheet_view(
             as_of=request.as_of_date.isoformat()
         )
@@ -149,14 +149,14 @@ def generate_report(request):
             "Account",
             "CanonicalCatalog",
         )
-    elif definition.key == "professional.journal.period":
+    elif governance.key == "professional.journal.period":
         content = get_journal_report(request.from_date, request.to_date)
         authorities = ("JournalEntry", "JournalLine", "Account")
-    elif definition.key == "professional.general_ledger.period":
+    elif governance.key == "professional.general_ledger.period":
         content = get_general_ledger_report(request.from_date, request.to_date)
         authorities = ("JournalEntry", "JournalLine", "Account")
     else:
-        raise LookupError(f"no report runtime for definition {definition.key!r}")
+        raise LookupError(f"no report runtime for definition {governance.key!r}")
 
     return GeneratedReport(
         definition=definition,
@@ -184,8 +184,9 @@ def _validate_package_format(package, format):
     _require_format(format)
     for definition in package.included_reports:
         if format not in definition.supported_formats:
+            governance = _catalog.get_report_governance(definition)
             raise ValueError(
-                f"format {format!r} is not supported by package component {definition.key!r}"
+                f"format {format!r} is not supported by package component {governance.key!r}"
             )
 
 
