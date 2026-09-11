@@ -14,6 +14,7 @@ from types import SimpleNamespace
 from . import accounting_rules as _accounting_rules
 from . import entity_repository as _entities
 from . import income_statement as _income_statement
+from . import ledger_detail_reporting as _ledger_detail
 from . import period_reporting as _period_reporting
 from . import report_capability_applicability as _capability
 from . import report_fiscal_applicability as _fiscal_applicability
@@ -43,6 +44,11 @@ class GeneratedReportPackage:
 def _require_date(value, field_name):
     if type(value) is not date:
         raise TypeError(f"{field_name} must be date")
+
+
+def _require_format(format):
+    if type(format) is not str or not format or format.strip() != format:
+        raise ValueError("format must be nonblank str without surrounding whitespace")
 
 
 def _require_active_owner(request, definition):
@@ -103,6 +109,18 @@ def get_period_income_statement(from_date, to_date):
     return _income_statement.build_income_statement_view(snapshot)
 
 
+def get_journal_report(from_date, to_date):
+    return _ledger_detail.build_journal_report_from_sqlite(
+        _storage.get_db_path(), from_date, to_date
+    )
+
+
+def get_general_ledger_report(from_date, to_date):
+    return _ledger_detail.build_general_ledger_from_sqlite(
+        _storage.get_db_path(), from_date, to_date
+    )
+
+
 def generate_report(request):
     if not isinstance(request, ReportRequest):
         raise TypeError("request must be ReportRequest")
@@ -131,6 +149,12 @@ def generate_report(request):
             "Account",
             "CanonicalCatalog",
         )
+    elif definition.key == "professional.journal.period":
+        content = get_journal_report(request.from_date, request.to_date)
+        authorities = ("JournalEntry", "JournalLine", "Account")
+    elif definition.key == "professional.general_ledger.period":
+        content = get_general_ledger_report(request.from_date, request.to_date)
+        authorities = ("JournalEntry", "JournalLine", "Account")
     else:
         raise LookupError(f"no report runtime for definition {definition.key!r}")
 
@@ -142,26 +166,10 @@ def generate_report(request):
     )
 
 
-def build_financial_period_requests(entity_id, from_date, to_date, format):
-    _require_date(from_date, "from_date")
-    _require_date(to_date, "to_date")
-    if to_date < from_date:
-        raise ValueError("to_date cannot precede from_date")
-    if type(entity_id) is not int or entity_id <= 0:
-        raise ValueError("entity_id must be positive int")
-    if type(format) is not str or not format or format.strip() != format:
-        raise ValueError("format must be nonblank str without surrounding whitespace")
-
-    package = _catalog.FINANCIAL_PERIOD_PACKAGE
-    for definition in package.included_reports:
-        if format not in definition.supported_formats:
-            raise ValueError(
-                f"format {format!r} is not supported by package component {definition.key!r}"
-            )
-
-    trial = ReportRequest(
+def _range_request(definition, entity_id, from_date, to_date, format):
+    return ReportRequest(
         id=None,
-        report_definition_id=_catalog.TRIAL_BALANCE_PERIOD.id,
+        report_definition_id=definition.id,
         entity_id=entity_id,
         from_date=from_date,
         to_date=to_date,
@@ -170,16 +178,36 @@ def build_financial_period_requests(entity_id, from_date, to_date, format):
         dimensions_to_group=(),
         format=format,
     )
-    income = ReportRequest(
-        id=None,
-        report_definition_id=_catalog.INCOME_STATEMENT_PERIOD.id,
-        entity_id=entity_id,
-        from_date=from_date,
-        to_date=to_date,
-        as_of_date=None,
-        filters=(),
-        dimensions_to_group=(),
-        format=format,
+
+
+def _validate_package_format(package, format):
+    _require_format(format)
+    for definition in package.included_reports:
+        if format not in definition.supported_formats:
+            raise ValueError(
+                f"format {format!r} is not supported by package component {definition.key!r}"
+            )
+
+
+def _validate_range_args(entity_id, from_date, to_date):
+    _require_date(from_date, "from_date")
+    _require_date(to_date, "to_date")
+    if to_date < from_date:
+        raise ValueError("to_date cannot precede from_date")
+    if type(entity_id) is not int or entity_id <= 0:
+        raise ValueError("entity_id must be positive int")
+
+
+def build_financial_period_requests(entity_id, from_date, to_date, format):
+    _validate_range_args(entity_id, from_date, to_date)
+    package = _catalog.FINANCIAL_PERIOD_PACKAGE
+    _validate_package_format(package, format)
+
+    trial = _range_request(
+        _catalog.TRIAL_BALANCE_PERIOD, entity_id, from_date, to_date, format
+    )
+    income = _range_request(
+        _catalog.INCOME_STATEMENT_PERIOD, entity_id, from_date, to_date, format
     )
     balance = ReportRequest(
         id=None,
@@ -195,20 +223,38 @@ def build_financial_period_requests(entity_id, from_date, to_date, format):
     return (trial, income, balance)
 
 
-def generate_financial_period_package(entity_id, from_date, to_date, format="json"):
-    package = _catalog.FINANCIAL_PERIOD_PACKAGE
-    requests = build_financial_period_requests(
-        entity_id, from_date, to_date, format
+def build_professional_detail_requests(entity_id, from_date, to_date, format):
+    _validate_range_args(entity_id, from_date, to_date)
+    package = _catalog.PROFESSIONAL_DETAIL_PACKAGE
+    _validate_package_format(package, format)
+    return tuple(
+        _range_request(definition, entity_id, from_date, to_date, format)
+        for definition in package.included_reports
     )
-    reports = tuple(generate_report(request) for request in requests)
 
+
+def _generate_package(package, requests):
+    reports = tuple(generate_report(request) for request in requests)
     expected = tuple(item.id for item in package.included_reports)
     actual = tuple(item.definition.id for item in reports)
     if actual != expected:
         raise RuntimeError("generated package does not match governed package definition")
-
     return GeneratedReportPackage(
         package=package,
-        requests=requests,
+        requests=tuple(requests),
         reports=reports,
+    )
+
+
+def generate_financial_period_package(entity_id, from_date, to_date, format="json"):
+    return _generate_package(
+        _catalog.FINANCIAL_PERIOD_PACKAGE,
+        build_financial_period_requests(entity_id, from_date, to_date, format),
+    )
+
+
+def generate_professional_detail_package(entity_id, from_date, to_date, format="json"):
+    return _generate_package(
+        _catalog.PROFESSIONAL_DETAIL_PACKAGE,
+        build_professional_detail_requests(entity_id, from_date, to_date, format),
     )
