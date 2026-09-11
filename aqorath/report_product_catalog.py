@@ -66,21 +66,72 @@ BALANCE_SHEET_AS_OF = ReportDefinition(
     version="1",
 )
 
+JOURNAL_PERIOD = ReportDefinition(
+    id=1304,
+    name="Diario por período",
+    description="Pólizas y líneas cronológicas del ledger para un rango explícito.",
+    required_data=("accounts", "journal_entries", "journal_lines"),
+    supported_formats=("json", "xlsx"),
+    requires_capabilities=(),
+    forbidden_capabilities=(),
+    required_fiscal_features=(),
+    renderer_id="journal_period",
+    query_template_id="journal_period",
+    key="professional.journal.period",
+    report_type="professional",
+    allowed_parameters=("from_date", "to_date", "format"),
+    allowed_dimensions=(),
+    period_mode="range",
+    version="1",
+)
+
+GENERAL_LEDGER_PERIOD = ReportDefinition(
+    id=1305,
+    name="Mayor por período",
+    description="Saldo inicial, movimientos y saldo final por cuenta para un rango.",
+    required_data=("accounts", "journal_entries", "journal_lines"),
+    supported_formats=("json", "xlsx"),
+    requires_capabilities=(),
+    forbidden_capabilities=(),
+    required_fiscal_features=(),
+    renderer_id="general_ledger_period",
+    query_template_id="general_ledger_period",
+    key="professional.general_ledger.period",
+    report_type="professional",
+    allowed_parameters=("from_date", "to_date", "format"),
+    allowed_dimensions=(),
+    period_mode="range",
+    version="1",
+)
+
 
 REPORT_DEFINITIONS = (
     TRIAL_BALANCE_PERIOD,
     INCOME_STATEMENT_PERIOD,
     BALANCE_SHEET_AS_OF,
+    JOURNAL_PERIOD,
+    GENERAL_LEDGER_PERIOD,
 )
 
 FINANCIAL_PERIOD_PACKAGE = ReportPackage(
     id=1391,
     name="Paquete financiero por período",
-    included_reports=REPORT_DEFINITIONS,
+    included_reports=(
+        TRIAL_BALANCE_PERIOD,
+        INCOME_STATEMENT_PERIOD,
+        BALANCE_SHEET_AS_OF,
+    ),
     suggested_parameters=(("format", "xlsx"),),
 )
 
-REPORT_PACKAGES = (FINANCIAL_PERIOD_PACKAGE,)
+PROFESSIONAL_DETAIL_PACKAGE = ReportPackage(
+    id=1392,
+    name="Detalle contable por período",
+    included_reports=(JOURNAL_PERIOD, GENERAL_LEDGER_PERIOD, TRIAL_BALANCE_PERIOD),
+    suggested_parameters=(("format", "xlsx"),),
+)
+
+REPORT_PACKAGES = (FINANCIAL_PERIOD_PACKAGE, PROFESSIONAL_DETAIL_PACKAGE)
 
 
 def _validate_catalog():
