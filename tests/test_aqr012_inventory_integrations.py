@@ -258,4 +258,5 @@ def test_cfdi_inventory_late_failure_keeps_preimported_source_and_rolls_back_ope
         assert len(session.exec(select(JournalEntry)).all()) == 1
         event_types = [event.event_type for event in session.exec(select(AuditEventRecord)).all()]
         assert event_types.count("cfdi_source_imported") == 1
-        assert "inventory_operation_posted" not in event_types
+        assert event_types.count("entry_posted") == 1
+        assert event_types.count("inventory_operation_posted") == 1
