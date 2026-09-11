@@ -498,7 +498,11 @@ AQR-008, AQR-009 y AQR-011 para sus reportes especializados.
 
 ## AQR-014 — Backup, restore, integridad y portabilidad como flujo de usuario
 
-**Estado:** `NEXT`
+**Estado:** `DONE`
+
+### Cierre de aceptación
+
+Implementado y fusionado mediante PR #53, merge `d7ccd44f53ce607c72cae44054af5236f63edc5f`, head definitivo `b551dae1accf17c1d30915993e3ea3af0ee26d91`. CI canónico del head run 643 verde y CI post-merge de `main` run 644 verde. AQR-014 compone `migrations.py` como autoridad SQLite para snapshot, migración, integridad y restore; añade backup de producto con manifiesto versionado y evidencias externas verificadas, restore fail-closed con preflight completo y migración sólo en staging, compensación explícita ante fallos posteriores al commit point, preservación de documentos cuando un rollback también falla, verificación de integridad SQLite/FK/schema/documentos y exportación relacional portable autocontenida. ZIP/JSON permanecen artefactos de transporte/intercambio, nunca persistencia runtime autoritativa. Las pruebas congelan restore sobre instalación sana, limpia y corrupta, fallos post-commit, fallo compuesto de rollback, schema futuro, corrupción, hashes documentales, correspondencia `DocumentReference` y lectura independiente del export.
 
 ### Resultado de producto
 
@@ -524,7 +528,7 @@ AQR-005 para la experiencia final; la autoridad de infraestructura no debe dupli
 
 ## AQR-015 — Empaquetado, instalación y aceptación V1
 
-**Estado:** `TODO`
+**Estado:** `NEXT`
 
 ### Resultado de producto
 
@@ -579,4 +583,4 @@ Al completar una tarea:
 
 ## SIGUIENTE ACTUAL
 
-`AQR-013 — Motor de documentos, paquetes y reportes de producto`.
+`AQR-015 — Empaquetado, instalación y aceptación V1`.
