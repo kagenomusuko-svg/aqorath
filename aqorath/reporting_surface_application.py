@@ -1,0 +1,132 @@
+"""Presentation-safe AQR-013 reporting surface over the governed product runtime."""
+
+from dataclasses import asdict, is_dataclass
+from datetime import date, datetime
+from decimal import Decimal
+import base64
+import json
+
+from . import entity_repository as _entities
+from . import report_product_catalog as _catalog
+from . import report_product_rendering as _rendering
+from . import report_product_runtime as _runtime
+from . import storage as _storage
+
+
+def _date(value, field_name):
+    if type(value) is date:
+        return value
+    if type(value) is not str or not value:
+        raise ValueError(f"{field_name} must be ISO date")
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be ISO date") from exc
+
+
+def _json_value(value):
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    if is_dataclass(value):
+        return {key: _json_value(item) for key, item in asdict(value).items()}
+    if isinstance(value, dict):
+        return {str(key): _json_value(item) for key, item in value.items()}
+    if isinstance(value, (tuple, list)):
+        return [_json_value(item) for item in value]
+    return value
+
+
+def list_reporting_surface_catalog():
+    definitions = _catalog.list_report_definitions()
+    packages = _catalog.list_report_packages()
+    return {
+        "definitions": [
+            {
+                "key": item.key,
+                "name": item.name,
+                "description": item.description,
+                "type": item.report_type,
+                "supported_formats": list(item.supported_formats),
+                "allowed_dimensions": list(item.allowed_dimensions),
+                "period_mode": item.period_mode,
+                "version": item.version,
+            }
+            for item in definitions
+        ],
+        "packages": [
+            {
+                "id": item.id,
+                "name": item.name,
+                "reports": [report.key for report in item.included_reports],
+                "suggested_parameters": dict(item.suggested_parameters),
+            }
+            for item in packages
+        ],
+    }
+
+
+def _active_entity_id():
+    with _storage.get_session() as session:
+        entity = _entities.load_active_entity(session)
+        if entity is None or entity.id is None:
+            raise LookupError("active Entity not configured")
+        return entity.id
+
+
+def generate_financial_period_surface(payload):
+    if type(payload) is not dict:
+        raise TypeError("payload must be dict")
+    from_date = _date(payload.get("from_date"), "from_date")
+    to_date = _date(payload.get("to_date"), "to_date")
+    format = payload.get("format", "json")
+    entity_id = _active_entity_id()
+    generated = _runtime.generate_financial_period_package(
+        entity_id, from_date, to_date, format
+    )
+    rendered = _rendering.render_generated_package(generated)
+
+    common = {
+        "package": generated.package.name,
+        "from_date": from_date.isoformat(),
+        "to_date": to_date.isoformat(),
+        "format": rendered.format,
+        "included_reports": [item.definition.name for item in generated.reports],
+        "limitations": [
+            "Las cifras se derivan de las autoridades contables existentes.",
+            "El paquete es un preset y no modifica la semántica de cada reporte.",
+        ],
+    }
+    if rendered.format == "json":
+        common["document"] = json.loads(rendered.payload)
+    else:
+        common["document_base64"] = base64.b64encode(rendered.payload).decode("ascii")
+        common["media_type"] = rendered.media_type
+    return {"common": common, "generated": generated, "rendered": rendered}
+
+
+def professional_financial_period_surface(payload):
+    result = generate_financial_period_surface(payload)
+    generated = result["generated"]
+    return {
+        "package": {
+            "id": generated.package.id,
+            "name": generated.package.name,
+            "official": generated.package.is_official,
+        },
+        "entity_id": generated.requests[0].entity_id,
+        "requests": [
+            {
+                "definition": _json_value(report.definition),
+                "request": _json_value(report.request),
+                "source_authorities": list(report.source_authorities),
+                "content": _json_value(report.content),
+            }
+            for report in generated.reports
+        ],
+        "render": {
+            "format": result["rendered"].format,
+            "media_type": result["rendered"].media_type,
+        },
+    }
