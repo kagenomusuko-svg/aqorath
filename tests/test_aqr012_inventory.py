@@ -143,7 +143,7 @@ def test_v1_21_moving_average_purchase_purchase_sale_e2e(tmp_path, monkeypatch):
         assert by_code["1102"] == (Decimal("100.00"), Decimal("0"))
         assert by_code["4201"] == (Decimal("0"), Decimal("100.00"))
         assert by_code["5101"] == (Decimal("60.00"), Decimal("0"))
-        assert by_code["1104"] == (Decimal("0",), Decimal("60.00"))
+        assert by_code["1104"] == (Decimal("0"), Decimal("60.00"))
         assert r1["entry_id"] != r2["entry_id"] != rs["entry_id"]
 
 
@@ -238,6 +238,7 @@ def test_inventory_requires_entity_profile_capability(tmp_path):
 
 
 def test_inventory_http_routes_delegate_and_present_errors_explicitly(monkeypatch):
+    from fastapi import HTTPException
     import aqorath.web_surface as web
 
     calls = []
@@ -259,6 +260,7 @@ def test_inventory_http_routes_delegate_and_present_errors_explicitly(monkeypatc
     ]
 
     monkeypatch.setattr(web.controller, "prepare_inventory", lambda _payload: (_ for _ in ()).throw(ValueError("bad inventory")))
-    error = web.prepare_inventory({"operation_kind": "sale"})
-    assert error.status_code == 400
-    assert error.detail == "bad inventory"
+    with pytest.raises(HTTPException) as exc_info:
+        web.prepare_inventory({"operation_kind": "sale"})
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == "bad inventory"
