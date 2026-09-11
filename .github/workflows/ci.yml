@@ -67,15 +67,4 @@ jobs:
           AQORATH_DB: ${{ github.workspace }}/tests/test.db
           PYTHONPATH: ${{ github.workspace }}
         run: |
-          set +e
-          python -m pytest -x -vv --tb=short > pytest-output.txt 2>&1
-          status=$?
-          cat pytest-output.txt
-          exit $status
-
-      - name: Upload pytest diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pytest-output
-          path: pytest-output.txt
+          python -m pytest -v
