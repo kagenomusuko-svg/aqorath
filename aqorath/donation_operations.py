@@ -12,7 +12,7 @@ from . import accounting_operation_persistence as _persistence
 from . import confirmation as _confirmation
 from . import posting as _posting
 from . import storage as _storage
-from .models import AuditEventRecord, DonationRecord, InKindDonationRecord, DocumentReferenceRecord, JournalEntry, JournalLine, EntityRecord, FixedAssetRecord
+from .models import Account, AuditEventRecord, DonationRecord, InKindDonationRecord, DocumentReferenceRecord, JournalEntry, JournalLine, EntityRecord, FixedAssetRecord
 from .fund_models import FundRecord, FundingSourceRecord, FundReceiptRecord
 from .banking_models import BankAccountRecord
 
@@ -55,7 +55,28 @@ class PreparedInKindDonationOperation:
 
 
 def prepare_monetary_donation(session, amount, posting_date, *, donor_third_party_id, document_type, document_number, document_date, fund_id, funding_source_id, program_id=None, purpose=None, is_restricted=False, bank_account_id=None):
-    decision = _operations.prepare_accounting_operation(session, EconomicFact("donation", amount, "bank"), posting_date.date() if isinstance(posting_date, datetime) else posting_date)
+    fact = EconomicFact("donation", amount, "bank")
+    operation_date = posting_date.date() if isinstance(posting_date, datetime) else posting_date
+    if bank_account_id is None:
+        decision = _operations.prepare_accounting_operation(session, fact, operation_date)
+    else:
+        entity = session.exec(select(EntityRecord).where(EntityRecord.is_active.is_(True))).one()
+        bank_account = session.get(BankAccountRecord, bank_account_id)
+        if (
+            bank_account is None
+            or bank_account.entity_id != entity.id
+            or bank_account.is_active is not True
+        ):
+            raise ValueError("selected bank account does not belong to the active Entity")
+        ledger_account = session.get(Account, bank_account.ledger_account_id)
+        if ledger_account is None:
+            raise LookupError("selected bank account ledger authority is incomplete")
+        decision = _operations._prepare_accounting_operation_with_binding_overrides(
+            session,
+            fact,
+            operation_date,
+            {"bank": ledger_account.code},
+        )
     return PreparedDonationOperation(decision, donor_third_party_id, document_type, document_number, document_date, fund_id, funding_source_id, program_id, purpose, is_restricted, uuid4().hex, bank_account_id)
 
 
@@ -111,7 +132,7 @@ def stage_monetary_donation(session, prepared, *, document_fields=None):
         ):
             raise ValueError("selected bank account does not belong to the active Entity")
         if bank_line.account_id != bank_account.ledger_account_id:
-            raise ValueError("selected bank account is not the canonical bank line")
+            raise ValueError("selected bank account differs from the prepared bank line")
     donation = DonationRecord(
         entity_id=entity.id,
         date=entry.date.isoformat(),
