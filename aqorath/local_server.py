@@ -11,9 +11,11 @@ def run_local_surface(port=DEFAULT_PORT):
     if not 1 <= port <= 65535:
         raise ValueError("port must be between 1 and 65535")
 
-    # Importing recovery_web registers AQR-014 routes on the canonical web_surface app.
-    # aqorath.recovery_web:app is therefore an alias, not a second local surface.
+    # Decorate the one browser shell before web_surface is materialized, then
+    # register recovery/onboarding routes on that same canonical FastAPI app.
+    from . import onboarding_shell as _onboarding_shell  # noqa: F401
     from . import recovery_web as _recovery_web  # noqa: F401
+    from . import onboarding_web as _onboarding_web  # noqa: F401
     import uvicorn
 
     uvicorn.run(
