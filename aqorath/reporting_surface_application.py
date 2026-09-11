@@ -5,6 +5,7 @@ from datetime import date, datetime
 from decimal import Decimal
 import base64
 
+from . import analytical_dimension_repository as _analytics
 from . import entity_repository as _entities
 from . import report_product_catalog as _catalog
 from . import report_product_rendering as _rendering
@@ -75,6 +76,18 @@ def _active_entity_id():
         if entity is None or entity.id is None:
             raise LookupError("active Entity not configured")
         return entity.id
+
+
+def list_reporting_dimensions():
+    """Return human choices for the active Entity; ids stay server-side."""
+    with _storage.get_session() as session:
+        entity = _entities.load_active_entity(session)
+        if entity is None or entity.id is None:
+            raise LookupError("active Entity not configured")
+        return [
+            {"key": item.key, "name": item.name}
+            for item in _analytics.list_analytical_dimensions(session, entity.id)
+        ]
 
 
 def _export_payload(common, rendered):
