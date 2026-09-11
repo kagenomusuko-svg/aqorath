@@ -16,12 +16,14 @@ from . import audit_event_repository as _audit
 from . import cfdi_source_repository as _cfdi
 from . import core as _core
 from . import document_reference_repository as _documents
+from . import inventory_fiscal_composition as _inventory_fiscal
 from . import inventory_repository as _inventory
 from . import open_item_repository as _open_items
 from . import storage as _storage
 from .account_bindings import get_account_bindings
 from .accounting_period_repository import require_open_period
 from .audit_event import AuditEvent
+from .banking_models import BankAccountRecord
 from .document_reference import DocumentReference
 from .inventory import (
     InventoryState,
@@ -32,7 +34,7 @@ from .inventory import (
     money,
 )
 from .inventory_models import InventoryMovementRecord
-from .models import JournalLine, ThirdPartyRecord
+from .models import Account, JournalEntry, JournalLine, ThirdPartyRecord
 
 
 @dataclass(frozen=True)
@@ -69,11 +71,14 @@ class PreparedInventoryOperation:
     cfdi_source_id: int | None
     due_date: date | None
     explanation: str
+    bank_account_id: int | None = None
+    fiscal_prepared: object | None = None
 
 
 @dataclass(frozen=True)
 class ConfirmedInventoryOperation:
     prepared: PreparedInventoryOperation
+    fiscal_confirmed: object | None = None
 
 
 _SETTLEMENT_PURCHASE = {"bank": "bank", "cash": "cash", "credit": "accounts_payable"}
@@ -93,14 +98,44 @@ def _party(session, entity_id, party_id, kind):
 
 
 def _check_open_period(session, entity_id, operation_date):
-    _inventory.require_inventory_entity(session, entity_id)
+    entity = _inventory.require_inventory_entity(session, entity_id)
     moment = datetime.combine(operation_date, time.min, tzinfo=timezone.utc)
     require_open_period(session, moment, None)
+    return entity
 
 
-def _validate_cfdi(session, entity_id, source_id, party_id, operation_date, position):
+def _bank_account(session, entity_id, settlement_method, bank_account_id):
+    if bank_account_id is None:
+        return None
+    if settlement_method != "bank":
+        raise ValueError("bank_account_id is only valid for bank settlement")
+    if type(bank_account_id) is not int or bank_account_id <= 0:
+        raise ValueError("bank_account_id must be a positive integer or None")
+    row = session.get(BankAccountRecord, bank_account_id)
+    if row is None or row.entity_id != entity_id:
+        raise LookupError("bank account does not belong to active Entity")
+    if row.is_active is not True:
+        raise ValueError("bank account must be active")
+    if row.currency != "MXN":
+        raise ValueError("AQR-012 V1 bank settlement requires MXN bank account")
+    account = session.get(Account, row.ledger_account_id)
+    if account is None:
+        raise LookupError("bank account ledger Account not found")
+    return row, account
+
+
+def _validate_cfdi(
+    session,
+    entity_id,
+    source_id,
+    party_id,
+    operation_date,
+    position,
+    *,
+    expected_total=None,
+):
     if source_id is None:
-        return
+        return None
     if type(source_id) is not int or source_id <= 0:
         raise ValueError("cfdi_source_id must be a positive integer or None")
     source = _cfdi.load_cfdi_source(session, entity_id, source_id)
@@ -110,6 +145,9 @@ def _validate_cfdi(session, entity_id, source_id, party_id, operation_date, posi
         raise ValueError("CFDI document position conflicts with inventory operation")
     if source.parsed.issued_at.date() != operation_date:
         raise ValueError("CFDI issue date differs from inventory operation date")
+    if expected_total is not None and source.parsed.total != expected_total:
+        raise ValueError("CFDI total differs from inventory commercial amount")
+    return source
 
 
 def _credit_due(settlement_method, due_date, operation_date):
@@ -122,6 +160,13 @@ def _credit_due(settlement_method, due_date, operation_date):
         raise ValueError("due_date is only valid for credit inventory operations")
 
 
+def _source_choice(document, cfdi_source_id):
+    if document is not None and not isinstance(document, InventoryDocumentInput):
+        raise TypeError("document must be InventoryDocumentInput or None")
+    if document is not None and cfdi_source_id is not None:
+        raise ValueError("use either InventoryDocumentInput or CfdiSource, not both")
+
+
 def prepare_inventory_purchase(
     session,
     fact,
@@ -129,6 +174,7 @@ def prepare_inventory_purchase(
     document=None,
     cfdi_source_id=None,
     due_date=None,
+    bank_account_id=None,
 ):
     """Prepare a merchandise receipt without writing inventory or ledger state."""
     if not isinstance(fact, MerchandisePurchaseFact):
@@ -138,11 +184,15 @@ def prepare_inventory_purchase(
     if not product.is_active:
         raise ValueError("product must be active")
     _party(session, fact.entity_id, fact.supplier_third_party_id, "supplier")
+    _bank_account(session, fact.entity_id, fact.settlement_method, bank_account_id)
     _credit_due(fact.settlement_method, due_date, fact.operation_date)
-    if document is not None and not isinstance(document, InventoryDocumentInput):
-        raise TypeError("document must be InventoryDocumentInput or None")
+    _source_choice(document, cfdi_source_id)
     if fact.settlement_method == "credit" and document is None and cfdi_source_id is None:
         raise ValueError("credit purchase requires source document or CFDI")
+    _inventory.require_append_date(session, fact.entity_id, fact.product_id, fact.operation_date)
+    before = _inventory.inventory_state(session, fact.entity_id, fact.product_id)
+    transition = apply_purchase(before, fact.quantity, fact.unit_price)
+    amount = transition.value_delta
     _validate_cfdi(
         session,
         fact.entity_id,
@@ -150,29 +200,28 @@ def prepare_inventory_purchase(
         fact.supplier_third_party_id,
         fact.operation_date,
         "receiver",
+        expected_total=amount,
     )
-    _inventory.require_append_date(session, fact.entity_id, fact.product_id, fact.operation_date)
-    before = _inventory.inventory_state(session, fact.entity_id, fact.product_id)
-    transition = apply_purchase(before, fact.quantity, fact.unit_price)
-    amount = transition.value_delta
     explanation = (
         f"Purchase {fact.quantity} {product.unit} of {product.name} at {fact.unit_price}; "
         f"stock {before.quantity} -> {transition.after.quantity}, carrying value "
         f"{before.value} -> {transition.after.value}, moving average {transition.after.average}."
     )
     return PreparedInventoryOperation(
-        uuid4().hex,
-        "purchase",
-        fact,
-        product.name,
-        before,
-        transition.after,
-        amount,
-        amount,
-        document,
-        cfdi_source_id,
-        due_date,
-        explanation,
+        operation_id=uuid4().hex,
+        kind="purchase",
+        fact=fact,
+        product_name=product.name,
+        before=before,
+        after=transition.after,
+        revenue_or_purchase_amount=amount,
+        inventory_cost=amount,
+        document=document,
+        cfdi_source_id=cfdi_source_id,
+        due_date=due_date,
+        explanation=explanation,
+        bank_account_id=bank_account_id,
+        fiscal_prepared=None,
     )
 
 
@@ -183,72 +232,100 @@ def prepare_inventory_sale(
     document=None,
     cfdi_source_id=None,
     due_date=None,
+    bank_account_id=None,
+    fiscal_activity=None,
 ):
     """Prepare one sale plus its cost release, failing before write on insufficient stock."""
     if not isinstance(fact, MerchandiseSaleFact):
         raise TypeError("fact must be MerchandiseSaleFact")
-    _check_open_period(session, fact.entity_id, fact.operation_date)
+    entity = _check_open_period(session, fact.entity_id, fact.operation_date)
     product = _inventory.load_product(session, fact.entity_id, fact.product_id)
     if not product.is_active:
         raise ValueError("product must be active")
     if fact.customer_third_party_id is not None:
         _party(session, fact.entity_id, fact.customer_third_party_id, "customer")
+    _bank_account(session, fact.entity_id, fact.settlement_method, bank_account_id)
     _credit_due(fact.settlement_method, due_date, fact.operation_date)
-    if document is not None and not isinstance(document, InventoryDocumentInput):
-        raise TypeError("document must be InventoryDocumentInput or None")
+    _source_choice(document, cfdi_source_id)
     if fact.settlement_method == "credit" and document is None and cfdi_source_id is None:
         raise ValueError("credit sale requires source document or CFDI")
     if cfdi_source_id is not None and fact.customer_third_party_id is None:
         raise ValueError("CFDI-backed sale requires factual customer ThirdParty")
-    if cfdi_source_id is not None:
-        _validate_cfdi(
-            session,
-            fact.entity_id,
-            cfdi_source_id,
-            fact.customer_third_party_id,
-            fact.operation_date,
-            "issuer",
-        )
     _inventory.require_append_date(session, fact.entity_id, fact.product_id, fact.operation_date)
     before = _inventory.inventory_state(session, fact.entity_id, fact.product_id)
     transition = apply_sale(before, fact.quantity)  # DETECT -> EXPLAIN -> STOP before posting.
     revenue = money(fact.quantity * fact.unit_price)
     cost = -transition.value_delta
+    _validate_cfdi(
+        session,
+        fact.entity_id,
+        cfdi_source_id,
+        fact.customer_third_party_id,
+        fact.operation_date,
+        "issuer",
+        expected_total=None if fiscal_activity is not None else revenue,
+    )
+    fiscal_prepared = _inventory_fiscal.prepare_inventory_sale_fiscal(
+        session,
+        entity,
+        fact,
+        revenue,
+        activity=fiscal_activity,
+        third_party_id=fact.customer_third_party_id,
+        cfdi_source_id=cfdi_source_id,
+    )
     explanation = (
         f"Sale {fact.quantity} {product.unit} of {product.name} at {fact.unit_price}; "
         f"revenue {revenue}, cost {cost}, stock {before.quantity} -> {transition.after.quantity}, "
         f"carrying value {before.value} -> {transition.after.value}."
     )
     return PreparedInventoryOperation(
-        uuid4().hex,
-        "sale",
-        fact,
-        product.name,
-        before,
-        transition.after,
-        revenue,
-        cost,
-        document,
-        cfdi_source_id,
-        due_date,
-        explanation,
+        operation_id=uuid4().hex,
+        kind="sale",
+        fact=fact,
+        product_name=product.name,
+        before=before,
+        after=transition.after,
+        revenue_or_purchase_amount=revenue,
+        inventory_cost=cost,
+        document=document,
+        cfdi_source_id=cfdi_source_id,
+        due_date=due_date,
+        explanation=explanation,
+        bank_account_id=bank_account_id,
+        fiscal_prepared=fiscal_prepared,
     )
 
 
 def confirm_inventory_operation(prepared):
     if not isinstance(prepared, PreparedInventoryOperation):
         raise TypeError("prepared must be PreparedInventoryOperation")
-    return ConfirmedInventoryOperation(prepared)
+    return ConfirmedInventoryOperation(
+        prepared,
+        _inventory_fiscal.confirm_inventory_sale_fiscal(prepared.fiscal_prepared),
+    )
 
 
 def _account_codes(session, prepared):
     if prepared.kind == "purchase":
         settlement = _SETTLEMENT_PURCHASE[prepared.fact.settlement_method]
-        roles = ("inventory", settlement)
+        roles = ["inventory", settlement]
     else:
         settlement = _SETTLEMENT_SALE[prepared.fact.settlement_method]
-        roles = (settlement, "sales_revenue", "cost_of_goods_sold", "inventory")
-    return get_account_bindings(session, roles)
+        roles = [settlement, "sales_revenue", "cost_of_goods_sold", "inventory"]
+    selected_bank = None
+    if settlement == "bank" and prepared.bank_account_id is not None:
+        selected_bank = _bank_account(
+            session,
+            prepared.fact.entity_id,
+            prepared.fact.settlement_method,
+            prepared.bank_account_id,
+        )
+        roles = [role for role in roles if role != "bank"]
+    codes = get_account_bindings(session, tuple(dict.fromkeys(roles)))
+    if selected_bank is not None:
+        codes["bank"] = selected_bank[1].code
+    return codes
 
 
 def _payload(prepared, codes):
@@ -273,6 +350,21 @@ def _payload(prepared, codes):
         "state": "posted",
         "lines": lines,
     }
+
+
+def _fiscal_cost_lines(prepared, codes):
+    return [
+        {
+            "account_code": codes["cost_of_goods_sold"],
+            "debit": prepared.inventory_cost,
+            "credit": Decimal("0"),
+        },
+        {
+            "account_code": codes["inventory"],
+            "debit": Decimal("0"),
+            "credit": prepared.inventory_cost,
+        },
+    ]
 
 
 def _line(session, entry_id, account_code, side, amount):
@@ -372,6 +464,12 @@ def execute_inventory_operation(confirmed):
                 party_id,
                 "supplier" if prepared.kind == "purchase" else "customer",
             )
+            _bank_account(
+                session,
+                entity.id,
+                prepared.fact.settlement_method,
+                prepared.bank_account_id,
+            )
             if prepared.cfdi_source_id is not None:
                 _validate_cfdi(
                     session,
@@ -380,14 +478,32 @@ def execute_inventory_operation(confirmed):
                     party_id,
                     prepared.fact.operation_date,
                     "receiver" if prepared.kind == "purchase" else "issuer",
+                    expected_total=(
+                        None
+                        if prepared.fiscal_prepared is not None
+                        else prepared.revenue_or_purchase_amount
+                    ),
                 )
 
             codes = _account_codes(session, prepared)
-            entry, error = _core._stage_entry_in_session(session, _payload(prepared, codes))
-            if error is not None:
-                raise ValueError(error)
-            if entry is None or entry.id is None:
-                raise RuntimeError("inventory posting did not assign JournalEntry identity")
+            fiscal_result = None
+            if confirmed.fiscal_confirmed is not None:
+                if prepared.kind != "sale":
+                    raise RuntimeError("AQR-012 fiscal composition is only declared for sale")
+                fiscal_result = _inventory_fiscal.stage_inventory_fiscal_sale(
+                    session,
+                    confirmed.fiscal_confirmed,
+                    additional_balanced_lines=_fiscal_cost_lines(prepared, codes),
+                )
+                entry = session.get(JournalEntry, fiscal_result["entry_id"])
+                if entry is None or entry.id is None:
+                    raise RuntimeError("fiscal inventory posting did not assign JournalEntry identity")
+            else:
+                entry, error = _core._stage_entry_in_session(session, _payload(prepared, codes))
+                if error is not None:
+                    raise ValueError(error)
+                if entry is None or entry.id is None:
+                    raise RuntimeError("inventory posting did not assign JournalEntry identity")
             session.flush()
 
             if prepared.kind == "purchase":
@@ -401,7 +517,10 @@ def execute_inventory_operation(confirmed):
                 settlement_role = _SETTLEMENT_SALE[prepared.fact.settlement_method]
                 control_side = "debit"
 
-            document_id = _stage_document(session, prepared, entry.id, party)
+            if fiscal_result is not None and prepared.cfdi_source_id is not None:
+                document_id = fiscal_result["document_reference_id"]
+            else:
+                document_id = _stage_document(session, prepared, entry.id, party)
             if prepared.fact.settlement_method == "credit":
                 if document_id is None:
                     raise ValueError("credit inventory operation requires persisted source document")
@@ -469,6 +588,10 @@ def execute_inventory_operation(confirmed):
                         "value_after": str(prepared.after.value),
                         "moving_average_after": str(prepared.after.average),
                         "document_reference_id": document_id,
+                        "bank_account_id": prepared.bank_account_id,
+                        "fiscal_audit_event_id": (
+                            None if fiscal_result is None else fiscal_result["audit_event_id"]
+                        ),
                     },
                 ),
             )
@@ -481,6 +604,9 @@ def execute_inventory_operation(confirmed):
                 "quantity_after": str(prepared.after.quantity),
                 "value_after": str(prepared.after.value),
                 "moving_average_after": str(prepared.after.average),
+                "fiscal_audit_event_id": (
+                    None if fiscal_result is None else fiscal_result["audit_event_id"]
+                ),
                 "idempotent": False,
             }
     except Exception:
