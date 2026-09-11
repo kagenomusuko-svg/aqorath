@@ -8,6 +8,7 @@ import json
 from openpyxl import Workbook
 from openpyxl.styles import Font
 
+from . import report_product_catalog as _catalog
 from . import reporting_xlsx as _xlsx
 from .report_product_runtime import GeneratedReport, GeneratedReportPackage
 
@@ -152,23 +153,117 @@ def _write_balance_sheet(worksheet, report):
         row += 1
 
 
+def _write_journal(worksheet, report):
+    view = report.content
+    row = _title(
+        worksheet,
+        "Diario por período",
+        (("Desde", view.from_date.isoformat()), ("Hasta", view.to_date.isoformat())),
+    )
+    row = _headers(
+        worksheet,
+        row,
+        ("Fecha", "Póliza", "Estado", "Concepto", "Línea", "Código", "Cuenta", "Debe", "Haber", "Descripción"),
+    )
+    for entry in view.entries:
+        for line in entry.lines:
+            values = (
+                entry.posting_date.isoformat(),
+                entry.entry_id,
+                entry.state,
+                entry.concept,
+                line.line_id,
+                line.account_code,
+                line.account_name,
+                str(line.debit),
+                str(line.credit),
+                line.description,
+            )
+            for col, value in enumerate(values, start=1):
+                worksheet.cell(row=row, column=col, value=value)
+            row += 1
+
+
+def _write_general_ledger(worksheet, report):
+    view = report.content
+    row = _title(
+        worksheet,
+        "Mayor por período",
+        (("Desde", view.from_date.isoformat()), ("Hasta", view.to_date.isoformat())),
+    )
+    row = _headers(
+        worksheet,
+        row,
+        ("Código", "Cuenta", "Naturaleza", "Saldo inicial", "Fecha", "Póliza", "Línea", "Concepto", "Descripción", "Debe", "Haber", "Saldo acumulado", "Saldo final"),
+    )
+    for account in view.accounts:
+        if not account.movements:
+            values = (
+                account.account_code,
+                account.account_name,
+                account.nature,
+                str(account.opening_balance),
+                None,
+                None,
+                None,
+                None,
+                None,
+                "0",
+                "0",
+                str(account.opening_balance),
+                str(account.closing_balance),
+            )
+            for col, value in enumerate(values, start=1):
+                worksheet.cell(row=row, column=col, value=value)
+            row += 1
+            continue
+        for movement in account.movements:
+            values = (
+                account.account_code,
+                account.account_name,
+                account.nature,
+                str(account.opening_balance),
+                movement.posting_date.isoformat(),
+                movement.entry_id,
+                movement.line_id,
+                movement.concept,
+                movement.description,
+                str(movement.debit),
+                str(movement.credit),
+                str(movement.running_balance),
+                str(account.closing_balance),
+            )
+            for col, value in enumerate(values, start=1):
+                worksheet.cell(row=row, column=col, value=value)
+            row += 1
+
+
 _WRITERS = {
     "financial.trial_balance.period": _write_trial_balance,
     "financial.income_statement.period": _write_income_statement,
     "financial.balance_sheet.as_of": _write_balance_sheet,
+    "professional.journal.period": _write_journal,
+    "professional.general_ledger.period": _write_general_ledger,
 }
+
+_NAMES = {
+    "financial.trial_balance.period": "Balanza",
+    "financial.income_statement.period": "Resultados",
+    "financial.balance_sheet.as_of": "Situación financiera",
+    "professional.journal.period": "Diario",
+    "professional.general_ledger.period": "Mayor",
+}
+
+
+def _report_key(report):
+    return _catalog.get_report_governance(report.definition).key
 
 
 def _render_reports_xlsx(reports):
     workbook = Workbook()
     first = True
-    names = {
-        "financial.trial_balance.period": "Balanza",
-        "financial.income_statement.period": "Resultados",
-        "financial.balance_sheet.as_of": "Situación financiera",
-    }
     for report in reports:
-        key = report.definition.key
+        key = _report_key(report)
         try:
             writer = _WRITERS[key]
         except KeyError as exc:
@@ -176,7 +271,7 @@ def _render_reports_xlsx(reports):
             raise ValueError(f"xlsx rendering is not supported for report {key!r}") from exc
         worksheet = workbook.active if first else workbook.create_sheet()
         first = False
-        worksheet.title = names[key]
+        worksheet.title = _NAMES[key]
         writer(worksheet, report)
     data = _xlsx._save_workbook_in_memory(workbook)
     workbook.close()
