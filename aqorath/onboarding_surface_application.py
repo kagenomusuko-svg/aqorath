@@ -20,6 +20,7 @@ from .accounting_period_repository import configure_calendar, open_fiscal_year
 from .catalog import load_catalog
 from .catalog_persistence import ensure_canonical_accounts
 from .entity import Entity, EntityProfile, FiscalProfile
+from .entity_repository import create_entity, register_fiscal_profile
 from .models import Account, FiscalProfileRecord
 
 
@@ -204,39 +205,52 @@ def configure_surface_onboarding(payload):
         normalized_bindings[role] = normalized
 
     # All deterministic validation above occurs before the first durable write.
+    # The complete setup below is one caller-owned transaction: no partial entity,
+    # calendar, fiscal profile or binding state may survive a late failure.
     with _storage.get_session() as session:
         if _application.get_active_entity(session) is not None:
             raise ValueError("active entity already configured")
 
-        ensure_canonical_accounts(session, entity_profile.economic_purpose)
-        persisted = _application.create_entity(session, entity)
+        try:
+            ensure_canonical_accounts(session, entity_profile.economic_purpose)
+            persisted = create_entity(session, entity, commit=False)
 
-        configure_calendar(
-            session,
-            persisted.id,
-            activity_start,
-            historical_states={},
-            legacy_period_assignments={},
-            historical_year_states={},
-        )
-        open_fiscal_year(session, activity_start.year)
-        session.commit()
+            configure_calendar(
+                session,
+                persisted.id,
+                activity_start,
+                historical_states={},
+                legacy_period_assignments={},
+                historical_year_states={},
+            )
+            open_fiscal_year(session, activity_start.year)
 
-        _application.register_fiscal_profile(
-            session,
-            FiscalProfile(
-                id=None,
-                entity_id=persisted.id,
-                jurisdiction=jurisdiction,
-                fiscal_regime_code=regime,
-                tax_characteristics=tax_characteristics,
-                effective_from=fiscal_from,
-                effective_to=fiscal_to,
-            ),
-        )
+            register_fiscal_profile(
+                session,
+                FiscalProfile(
+                    id=None,
+                    entity_id=persisted.id,
+                    jurisdiction=jurisdiction,
+                    fiscal_regime_code=regime,
+                    tax_characteristics=tax_characteristics,
+                    effective_from=fiscal_from,
+                    effective_to=fiscal_to,
+                ),
+                commit=False,
+            )
 
-        for role in sorted(normalized_bindings):
-            set_account_binding(session, role, normalized_bindings[role])
+            for role in sorted(normalized_bindings):
+                set_account_binding(
+                    session,
+                    role,
+                    normalized_bindings[role],
+                    commit=False,
+                )
+
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
 
     return get_surface_onboarding()
 
