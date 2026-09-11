@@ -1,7 +1,10 @@
 name: AQR-013 closeout patch
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [aqr-013-closeout]
+    paths:
+      - '.github/workflows/aqr-013-closeout-patch.yml'
 
 permissions:
   contents: write
