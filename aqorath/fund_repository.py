@@ -4,6 +4,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 import json
 from sqlmodel import select
+from .accounting_rules import normal_balance_amount as _normal_balance_amount
 from .fund import Fund, FundingSource, FundReceipt, FundApplication, FundBalance
 from .fund_models import FundRecord, FundingSourceRecord, FundReceiptRecord, FundApplicationRecord
 from .models import Account, AuditEventRecord, DonationRecord, EntityRecord, JournalEntry, JournalEntryReversalRecord, JournalLine, ProgramRecord, ThirdPartyRecord
@@ -24,6 +25,16 @@ def _program(session, entity_id, program_id):
     row = session.get(ProgramRecord, program_id)
     if row is None or row.entity_id != entity_id: raise LookupError("Program not found for Entity")
     return row
+
+def _account_nature_side(nature):
+    """Project persisted nature through the existing catalog/accounting authority."""
+    probe = _normal_balance_amount(Decimal("1"), nature)
+    if probe == Decimal("1"):
+        return "debit"
+    if probe == Decimal("-1"):
+        return "credit"
+    raise ValueError("account nature does not resolve to debit or credit")
+
 def _line_amount(session, line_id, *, kind):
     line = session.get(JournalLine, line_id)
     if line is None: raise LookupError("JournalLine not found")
@@ -34,9 +45,10 @@ def _line_amount(session, line_id, *, kind):
     if account is None: raise LookupError("JournalLine account not found")
     debit, credit = Decimal(line.debit), Decimal(line.credit)
     if debit != 0 and credit != 0 or debit == credit: raise ValueError("JournalLine must have one nonzero monetary side")
-    if kind == "receipt" and (credit <= 0 or account.nature.upper() != "CREDIT"):
+    nature_side = _account_nature_side(account.nature)
+    if kind == "receipt" and (credit <= 0 or nature_side != "credit"):
         raise ValueError("FundReceipt requires a credit JournalLine on a credit-nature account")
-    if kind == "application" and (debit <= 0 or account.nature.upper() != "DEBIT"):
+    if kind == "application" and (debit <= 0 or nature_side != "debit"):
         raise ValueError("FundApplication requires a debit JournalLine on a debit-nature account")
     allowed_roles = {
         "utility_expense": {"utilities_expense"},
@@ -93,7 +105,6 @@ def create_fund(session, fund):
         session.add(row); session.flush(); _audit(session, fund.entity_id, "fund_created", {"fund_id": row.id}); session.commit()
     except Exception: session.rollback(); raise
     return replace(fund, id=row.id)
-
 def create_funding_source(session, source):
     if not isinstance(source, FundingSource) or source.id is not None: raise TypeError("source must be a new FundingSource")
     _entity(session, source.entity_id)
@@ -106,7 +117,6 @@ def create_funding_source(session, source):
         session.add(row); session.flush(); _audit(session, source.entity_id, "funding_source_created", {"source_id": row.id}); session.commit()
     except Exception: session.rollback(); raise
     return replace(source, id=row.id)
-
 def record_fund_receipt(session, receipt):
     if not isinstance(receipt, FundReceipt) or receipt.id is not None: raise TypeError("receipt must be a new FundReceipt")
     _entity(session, receipt.entity_id); fund = _fund(session, receipt.entity_id, receipt.fund_id); _source(session, receipt.entity_id, receipt.funding_source_id)
@@ -132,7 +142,6 @@ def record_fund_receipt(session, receipt):
         session.add(row); session.flush(); _audit(session, receipt.entity_id, "fund_receipt_recorded", {"receipt_id": row.id, "journal_line_id": line.id}); session.commit()
     except Exception: session.rollback(); raise
     return replace(receipt, id=row.id)
-
 def record_fund_application(session, application):
     if not isinstance(application, FundApplication) or application.id is not None: raise TypeError("application must be a new FundApplication")
     fund = _fund(session, application.entity_id, application.fund_id); _entity(session, application.entity_id); _program(session, application.entity_id, application.program_id)
@@ -163,7 +172,6 @@ def record_fund_application(session, application):
         session.add(row); session.flush(); _audit(session, application.entity_id, "fund_application_recorded", {"application_id": row.id, "journal_line_id": line.id}); session.commit()
     except Exception: session.rollback(); raise
     return replace(application, id=row.id)
-
 def list_fund_applications(session, entity_id, fund_id):
     _fund(session, entity_id, fund_id)
     return tuple(session.exec(select(FundApplicationRecord).where(FundApplicationRecord.entity_id == entity_id, FundApplicationRecord.fund_id == fund_id).order_by(FundApplicationRecord.id)).all())
