@@ -610,20 +610,30 @@ class SqliteRecoveryGateway:
                     managed_root, relocations = _extract_documents_for_restore(
                         archive, manifest, staged_db, target_db_path
                     )
+                    # _extract_documents_for_restore has now proved existence/hash for
+                    # each local payload and persisted its definitive target-relative path.
                     _require_supported_database(staged_db)
-                    staged_documents = _inspect_documents(staged_db)
-                    if any(not item["valid"] for item in staged_documents):
-                        raise RecoveryIntegrityError(
-                            "Staged restore references a local document that failed integrity"
-                        )
 
                     if target_db_path.exists():
+                        target_is_healthy = False
                         if validate_sqlite_integrity(str(target_db_path)):
                             current_target_version = get_schema_version(str(target_db_path))
                             if current_target_version > CURRENT_SCHEMA_VERSION:
                                 raise RecoveryIntegrityError(
                                     f"Installed database schema {current_target_version} is newer than this application; refusing destructive restore"
                                 )
+                            try:
+                                _require_supported_database(target_db_path)
+                                target_documents = _inspect_documents(target_db_path)
+                                if any(not item["valid"] for item in target_documents):
+                                    raise RecoveryIntegrityError(
+                                        "Installed database has invalid local document references"
+                                    )
+                                target_is_healthy = True
+                            except RecoveryIntegrityError:
+                                target_is_healthy = False
+
+                        if target_is_healthy:
                             safety = create_database_backup(
                                 str(target_db_path),
                                 backup_dir=str(target_db_path.parent / ".aqorath_backups"),
