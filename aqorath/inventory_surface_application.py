@@ -146,6 +146,27 @@ def _party_summary(session, party_id):
     return {"id": party.id, "name": party.name, "rfc": party.rfc, "party_type": party.party_type}
 
 
+def _prepared_fiscal_summary(prepared):
+    fiscal = prepared.fiscal_prepared
+    if fiscal is None:
+        return None
+    return {
+        "coverage_version": fiscal.treatments[0].coverage_version,
+        "activity": fiscal.facts.activity,
+        "treatments": [
+            {
+                "name": item.treatment_key,
+                "amount": str(
+                    fiscal.snapshot.provenance.fiscal_effects[index].rounded_fiscal_amount
+                ),
+                "explanation": item.explanation,
+            }
+            for index, item in enumerate(fiscal.treatments)
+        ],
+        "limitations": list(fiscal.limitations),
+    }
+
+
 def _common_preview(kind, prepared, product, party):
     fact = prepared.fact
     result = {
@@ -155,6 +176,7 @@ def _common_preview(kind, prepared, product, party):
         "unit_price": str(fact.unit_price),
         "operation_date": fact.operation_date.isoformat(),
         "settlement_method": fact.settlement_method,
+        "bank_account_id": prepared.bank_account_id,
         "counterparty": party,
         "stock_before": str(prepared.before.quantity),
         "stock_after": str(prepared.after.quantity),
@@ -168,6 +190,7 @@ def _common_preview(kind, prepared, product, party):
             "date": prepared.document.document_date.isoformat(),
         },
         "cfdi_source_id": prepared.cfdi_source_id,
+        "fiscality": _prepared_fiscal_summary(prepared),
         "requires_confirmation": True,
         "explanation": prepared.explanation,
     }
@@ -197,6 +220,14 @@ def prepare_inventory_surface_operation(payload):
     due_date = None if due_date is None else _date(due_date, "due_date")
     document = _document(payload)
     cfdi_source_id = _positive_id(payload.get("cfdi_source_id"), "cfdi_source_id", optional=True)
+    bank_account_id = _positive_id(payload.get("bank_account_id"), "bank_account_id", optional=True)
+    fiscal_activity = payload.get("fiscal_activity")
+    if fiscal_activity is not None and (
+        type(fiscal_activity) is not str or not fiscal_activity.strip()
+    ):
+        raise ValueError("fiscal_activity must be non-empty text or None")
+    if kind == "purchase" and fiscal_activity is not None:
+        raise ValueError("AQR-012 V1 does not declare fiscal treatment for merchandise purchases")
 
     with _storage.get_session() as session:
         entity = _inventory.require_inventory_entity(session)
@@ -218,6 +249,7 @@ def prepare_inventory_surface_operation(payload):
                 document=document,
                 cfdi_source_id=cfdi_source_id,
                 due_date=due_date,
+                bank_account_id=bank_account_id,
             )
         else:
             party_id = _positive_id(payload.get("third_party_id"), "third_party_id", optional=True)
@@ -236,6 +268,8 @@ def prepare_inventory_surface_operation(payload):
                 document=document,
                 cfdi_source_id=cfdi_source_id,
                 due_date=due_date,
+                bank_account_id=bank_account_id,
+                fiscal_activity=fiscal_activity,
             )
         party = _party_summary(session, party_id)
         preview = _common_preview(kind, prepared, product, party)
@@ -258,7 +292,8 @@ def professional_inventory_preview(value):
             "cost_release": None if value.kind == "purchase" else str(prepared.inventory_cost),
         },
         "accounting": "JournalEntry/JournalLine se construyen al confirmar; inventario no almacena un ledger monetario paralelo.",
-        "fiscality": "La operación de inventario no selecciona reglas fiscales; AQR-011 permanece como autoridad fiscal.",
+        "fiscality": _prepared_fiscal_summary(prepared),
+        "fiscal_authority": "AQR-011 resuelve cobertura y reglas; AQR-012 no infiere tratamiento desde producto, inventario o CFDI.",
     }
 
 
