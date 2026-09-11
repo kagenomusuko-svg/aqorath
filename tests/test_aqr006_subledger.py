@@ -252,6 +252,7 @@ def test_schema_6_to_7_does_not_invent_historical_provenance(tmp_path):
                     "reconciliationmatchrevocation", "fund", "fundingsource",
                         "fundreceipt", "fundapplication", "inkinddonation",
                         "cfdisource", "cfditaxevidence", "cfdisourcelink",
+                        "inventoryproduct", "inventorymovement",
                 }
         assert [r for r in conn.execute(
             "SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY type,name"
@@ -306,6 +307,8 @@ def test_schema_6_to_7_does_not_invent_historical_provenance(tmp_path):
         assert after == before
         assert conn.execute("SELECT count(*) FROM openitem").fetchone()[0] == 0
         assert conn.execute("SELECT count(*) FROM openitemapplication").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM inventoryproduct").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM inventorymovement").fetchone()[0] == 0
         assert conn.execute("SELECT count(*) FROM thirdparty").fetchone()[0] == 0
         assert conn.execute("SELECT count(*) FROM documentreference").fetchone()[0] == 0
         assert conn.execute("SELECT count(*) FROM auditevent").fetchone()[0] == 0
