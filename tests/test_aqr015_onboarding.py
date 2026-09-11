@@ -74,6 +74,48 @@ def test_invalid_initial_binding_fails_before_any_product_truth_is_written(tmp_p
         assert session.execute(text("SELECT COUNT(*) FROM accountingcalendar")).scalar_one() == 0
 
 
+def test_late_onboarding_failure_rolls_back_every_staged_product_truth(tmp_path, monkeypatch):
+    _db, engine = _fresh_db(tmp_path, monkeypatch, "atomic.db")
+    import aqorath.onboarding_surface_application as onboarding
+    from aqorath.models import (
+        Account,
+        AccountRoleBinding,
+        EntityProfileRecord,
+        EntityRecord,
+        FiscalProfileRecord,
+    )
+
+    original = onboarding.set_account_binding
+    calls = 0
+
+    def fail_after_staging_second_binding(session, role, account_code, *, commit=True):
+        nonlocal calls
+        calls += 1
+        original(session, role, account_code, commit=commit)
+        if calls == 2:
+            raise RuntimeError("simulated late onboarding failure")
+
+    monkeypatch.setattr(onboarding, "set_account_binding", fail_after_staging_second_binding)
+
+    with pytest.raises(RuntimeError, match="simulated late onboarding failure"):
+        onboarding.configure_surface_onboarding(_payload())
+
+    with Session(engine) as session:
+        assert session.exec(select(Account)).all() == []
+        assert session.exec(select(EntityRecord)).all() == []
+        assert session.exec(select(EntityProfileRecord)).all() == []
+        assert session.exec(select(FiscalProfileRecord)).all() == []
+        assert session.exec(select(AccountRoleBinding)).all() == []
+        assert session.execute(text("SELECT COUNT(*) FROM accountingcalendar")).scalar_one() == 0
+        assert session.execute(text("SELECT COUNT(*) FROM fiscalyear")).scalar_one() == 0
+        assert session.execute(text("SELECT COUNT(*) FROM accountingperiod")).scalar_one() == 0
+
+    monkeypatch.setattr(onboarding, "set_account_binding", original)
+    recovered = onboarding.configure_surface_onboarding(_payload(name="Retry AQR-015"))
+    assert recovered["configured"] is True
+    assert recovered["entity"]["name"] == "Retry AQR-015"
+
+
 def test_clean_onboarding_materializes_governed_catalog_entity_period_profile_and_bindings(tmp_path, monkeypatch):
     _db, engine = _fresh_db(tmp_path, monkeypatch)
     from aqorath.account_bindings import get_account_bindings
