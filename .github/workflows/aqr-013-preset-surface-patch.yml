@@ -1,0 +1,32 @@
+name: AQR-013 preset surface patch
+
+on:
+  push:
+    branches: [aqr-013-reporting-engine]
+    paths:
+      - scripts/aqr_013_preset_surface_patch.py
+      - .github/workflows/aqr-013-preset-surface-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: aqr-013-reporting-engine
+          fetch-depth: 0
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+      - run: python scripts/aqr_013_preset_surface_patch.py
+      - name: Commit effective patch and remove helpers
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add aqorath/presentation_controller.py aqorath/web_surface.py
+          git rm scripts/aqr_013_preset_surface_patch.py .github/workflows/aqr-013-preset-surface-patch.yml
+          git commit -m "feat(aqr-013): expose persisted report presets through controller and HTTP"
+          git push origin HEAD:aqr-013-reporting-engine
