@@ -85,17 +85,21 @@ def test_late_onboarding_failure_rolls_back_every_staged_product_truth(tmp_path,
         FiscalProfileRecord,
     )
 
-    original = onboarding.set_account_binding
+    original = onboarding._stage_account_binding
     calls = 0
 
-    def fail_after_staging_second_binding(session, role, account_code, *, commit=True):
+    def fail_after_staging_second_binding(session, role, account_code):
         nonlocal calls
         calls += 1
-        original(session, role, account_code, commit=commit)
+        original(session, role, account_code)
         if calls == 2:
             raise RuntimeError("simulated late onboarding failure")
 
-    monkeypatch.setattr(onboarding, "set_account_binding", fail_after_staging_second_binding)
+    monkeypatch.setattr(
+        onboarding,
+        "_stage_account_binding",
+        fail_after_staging_second_binding,
+    )
 
     with pytest.raises(RuntimeError, match="simulated late onboarding failure"):
         onboarding.configure_surface_onboarding(_payload())
@@ -110,7 +114,7 @@ def test_late_onboarding_failure_rolls_back_every_staged_product_truth(tmp_path,
         assert session.execute(text("SELECT COUNT(*) FROM fiscalyear")).scalar_one() == 0
         assert session.execute(text("SELECT COUNT(*) FROM accountingperiod")).scalar_one() == 0
 
-    monkeypatch.setattr(onboarding, "set_account_binding", original)
+    monkeypatch.setattr(onboarding, "_stage_account_binding", original)
     recovered = onboarding.configure_surface_onboarding(_payload(name="Retry AQR-015"))
     assert recovered["configured"] is True
     assert recovered["entity"]["name"] == "Retry AQR-015"
