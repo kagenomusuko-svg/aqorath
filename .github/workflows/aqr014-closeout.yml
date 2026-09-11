@@ -1,0 +1,118 @@
+name: AQR-014 closeout
+
+on:
+  push:
+    branches: [aqr-014-closeout]
+
+permissions:
+  contents: write
+
+jobs:
+  closeout:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: aqr-014-closeout
+          fetch-depth: 0
+
+      - name: Apply canonical closeout
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: Path, old: str, new: str) -> None:
+              text = path.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected exactly one match, found {count}: {old!r}")
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          backlog = Path("docs/PRODUCT_BACKLOG_V1.md")
+          replace_once(
+              backlog,
+              "## AQR-014 — Backup, restore, integridad y portabilidad como flujo de usuario\n\n**Estado:** `NEXT`",
+              "## AQR-014 — Backup, restore, integridad y portabilidad como flujo de usuario\n\n**Estado:** `DONE`\n\n### Cierre de aceptación\n\nImplementado y fusionado mediante PR #53, merge `d7ccd44f53ce607c72cae44054af5236f63edc5f`, head definitivo `b551dae1accf17c1d30915993e3ea3af0ee26d91`. CI canónico del head run 643 verde y CI post-merge de `main` run 644 verde. AQR-014 compone `migrations.py` como autoridad SQLite para snapshot, migración, integridad y restore; añade backup de producto con manifiesto versionado y evidencias externas verificadas, restore fail-closed con preflight completo y migración sólo en staging, compensación explícita ante fallos posteriores al commit point, preservación de documentos cuando un rollback también falla, verificación de integridad SQLite/FK/schema/documentos y exportación relacional portable autocontenida. ZIP/JSON permanecen artefactos de transporte/intercambio, nunca persistencia runtime autoritativa. Las pruebas congelan restore sobre instalación sana, limpia y corrupta, fallos post-commit, fallo compuesto de rollback, schema futuro, corrupción, hashes documentales, correspondencia `DocumentReference` y lectura independiente del export."
+          )
+          replace_once(
+              backlog,
+              "## AQR-015 — Empaquetado, instalación y aceptación V1\n\n**Estado:** `TODO`",
+              "## AQR-015 — Empaquetado, instalación y aceptación V1\n\n**Estado:** `NEXT`"
+          )
+          replace_once(
+              backlog,
+              "## SIGUIENTE ACTUAL\n\n`AQR-013 — Motor de documentos, paquetes y reportes de producto`.",
+              "## SIGUIENTE ACTUAL\n\n`AQR-015 — Empaquetado, instalación y aceptación V1`."
+          )
+
+          instructions = Path("INSTRUCCIONES.md")
+          replace_once(
+              instructions,
+              "**`AQR-014 — Backup, restore, integridad y portabilidad como flujo de usuario`**",
+              "**`AQR-015 — Empaquetado, instalación y aceptación V1`**"
+          )
+          marker = (
+              "AQR-013 quedó incorporada mediante PR #51, merge `46bf21f61dd2d3e1cbadfa681a02e40d9faef63c`, head revisado `cf5f9386844083a60f8dc323b4e0b0b989256d78`, CI canónico verde run 630 y CI post-merge verde run 632. Schema 13 añade presets persistidos owner-scoped sin persistir resultados monetarios; packages permanecen composición y JSON/XLSX formatos de producto, no portabilidad relacional. AQR-014 es el único siguiente trabajo: elevar las autoridades existentes de integridad/backup/restore a un flujo de producto completo y añadir una salida relacional portable, sin confundirla con los reportes AQR-013 ni crear persistencia paralela."
+          )
+          replacement = (
+              "AQR-013 quedó incorporada mediante PR #51, merge `46bf21f61dd2d3e1cbadfa681a02e40d9faef63c`, head revisado `cf5f9386844083a60f8dc323b4e0b0b989256d78`, CI canónico verde run 630 y CI post-merge verde run 632. Schema 13 añade presets persistidos owner-scoped sin persistir resultados monetarios; packages permanecen composición y JSON/XLSX formatos de producto, no portabilidad relacional.\n\n"
+              "AQR-014 quedó incorporada mediante PR #53, merge `d7ccd44f53ce607c72cae44054af5236f63edc5f`, head definitivo `b551dae1accf17c1d30915993e3ea3af0ee26d91`, CI canónico verde run 643 y CI post-merge verde run 644. Backup/restore/integridad/portabilidad componen las autoridades de `migrations.py`; el restore valida y migra sólo en staging, conserva un commit point explícito y compensa fallos posteriores sin dejar DB/documentos deliberadamente inconsistentes. El export portable es relacional y autocontenido pero no constituye persistencia runtime. AQR-015 es el único siguiente trabajo."
+          )
+          replace_once(instructions, marker, replacement)
+
+          audit = Path("docs/REPO_AUDIT_V2.md")
+          replace_once(audit, "**Fecha de corte:** 2026-09-10", "**Fecha de corte:** 2026-09-11")
+          replace_once(audit, "**Runtime material vigente:** AQR-002 a AQR-012", "**Runtime material vigente:** AQR-002 a AQR-014")
+          replace_once(audit, "**Esquema vigente:** 12", "**Esquema vigente:** 13")
+          replace_once(
+              audit,
+              "AQR-002 añadió la autoridad explícita de período y ejercicio. AQR-003 consolidó inmutabilidad append-only y corrección por reversión con auditoría. AQR-004 compuso las autoridades existentes en un caso de uso Application ordinario completo: **hecho → decisión → consentimiento → posting → auditoría**, sin crear un segundo motor ni una persistencia paralela. AQR-005 añadió una superficie local común + profesional sobre esas mismas autoridades. AQR-006 a AQR-009 completaron submayores, conciliación bancaria, trazabilidad OSC y donativos monetarios/en especie manteniendo `JournalLine` como única autoridad contable. AQR-010 incorporó CFDI XML como evidencia externa verificable y lo vinculó a esas autoridades sin convertirlo en ledger ni regla fiscal. AQR-011 cerró la cobertura fiscal mexicana V1 mediante matriz normativa versionada, aplicabilidad factual fail-closed, cálculo exacto y superficies común/profesional sobre la misma autoridad contable. AQR-012 incorporó inventario perpetuo y costo por promedio ponderado móvil manteniendo `JournalEntry`/`JournalLine` como única autoridad monetaria y reconciliando existencia, valuación y COGS con el ledger.",
+              "AQR-002 añadió la autoridad explícita de período y ejercicio. AQR-003 consolidó inmutabilidad append-only y corrección por reversión con auditoría. AQR-004 compuso las autoridades existentes en un caso de uso Application ordinario completo: **hecho → decisión → consentimiento → posting → auditoría**, sin crear un segundo motor ni una persistencia paralela. AQR-005 añadió una superficie local común + profesional sobre esas mismas autoridades. AQR-006 a AQR-009 completaron submayores, conciliación bancaria, trazabilidad OSC y donativos monetarios/en especie manteniendo `JournalLine` como única autoridad contable. AQR-010 incorporó CFDI XML como evidencia externa verificable y lo vinculó a esas autoridades sin convertirlo en ledger ni regla fiscal. AQR-011 cerró la cobertura fiscal mexicana V1 mediante matriz normativa versionada, aplicabilidad factual fail-closed, cálculo exacto y superficies común/profesional sobre la misma autoridad contable. AQR-012 incorporó inventario perpetuo y costo por promedio ponderado móvil manteniendo `JournalEntry`/`JournalLine` como única autoridad monetaria y reconciliando existencia, valuación y COGS con el ledger. AQR-013 incorporó presets/reportes de producto owner-scoped sobre schema 13 sin persistir resultados monetarios. AQR-014 elevó las autoridades existentes de migración, integridad y snapshot SQLite a un flujo de backup/restore de producto con evidencias externas, commit point y compensación post-commit, y añadió exportación relacional portable sin crear una segunda persistencia."
+          )
+          replace_once(
+              audit,
+              "- **Continuidad:** `PRODUCT_BACKLOG_V1.md` contiene exactamente un `NEXT`: AQR-013.",
+              "- **Continuidad:** `PRODUCT_BACKLOG_V1.md` contiene exactamente un `NEXT`: AQR-015."
+          )
+          anchor = "---\n\n## 3. Ledger y persistencia"
+          insert = """### AQR-013 — documentos, paquetes y reportes de producto
+
+- PR #51, merge `46bf21f61dd2d3e1cbadfa681a02e40d9faef63c`;
+- head revisado `cf5f9386844083a60f8dc323b4e0b0b989256d78`;
+- CI canónico run 630 verde; CI post-merge run 632 verde;
+- schema 13 aditivo para presets owner-scoped, sin resultados monetarios persistidos;
+- `ReportDefinition`/`ReportRequest` mantienen responsabilidades separadas y packages son composición, no autoridad;
+- JSON/XLSX son formatos de producto y no mecanismo de portabilidad relacional.
+
+### AQR-014 — backup, restore, integridad y portabilidad
+
+- PR #53, merge `d7ccd44f53ce607c72cae44054af5236f63edc5f`;
+- head definitivo `b551dae1accf17c1d30915993e3ea3af0ee26d91`;
+- CI canónico run 643 verde; CI post-merge de `main` run 644 verde;
+- `migrations.py` permanece autoridad de snapshot, migración, validación SQLite y sustitución segura; no se creó un segundo motor de restore;
+- backup de producto incorpora DB consistente, manifest versionado y evidencias externas referenciadas con hash;
+- restore realiza preflight completo, rechaza schema futuro/corrupción, migra únicamente el candidato en staging y fija las rutas documentales definitivas antes del commit point;
+- ante fallo post-commit recupera la instalación sana previa, revierte una instalación limpia a ausencia de DB y preserva el estado previo corrupto cuando corresponde; si el rollback también falla conserva los documentos que la DB instalada pueda referenciar y reporta ambas excepciones;
+- integridad incluye `integrity_check`, FK, schema y correspondencia/hash de documentos, sin reparación silenciosa;
+- export portable es relacional, autocontenido, conserva IDs y Decimal monetario como texto exacto y puede leerse sin importar Aqorath; ZIP/JSON no son persistencia runtime.
+
+---
+
+## 3. Ledger y persistencia"""
+          replace_once(audit, anchor, insert)
+
+          workflow = Path(".github/workflows/aqr014-closeout.yml")
+          workflow.unlink()
+          PY
+
+      - name: Commit closeout only
+        shell: bash
+        run: |
+          git config user.name "kagenomusuko-svg"
+          git config user.email "kage.no.musuko@gmail.com"
+          git add INSTRUCCIONES.md docs/PRODUCT_BACKLOG_V1.md docs/REPO_AUDIT_V2.md .github/workflows/aqr014-closeout.yml
+          git diff --cached --check
+          git diff --cached --stat
+          git commit -m "docs: close AQR-014 and advance AQR-015"
+          git push origin HEAD:aqr-014-closeout
