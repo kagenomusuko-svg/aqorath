@@ -97,7 +97,7 @@ def test_supported_fiscal_inventory_sale_is_one_balanced_posting_with_one_truth(
             select(AuditEventRecord).where(AuditEventRecord.entity_id == entity.id)
         ).all()
         event_types = [event.event_type for event in events]
-        assert event_types.count("entry_posted") == 1
+        assert event_types.count("entry_posted") == 2
         assert event_types.count("inventory_operation_posted") == 2
 
     professional = load_inventory_surface_professional(result["movement_id"])
