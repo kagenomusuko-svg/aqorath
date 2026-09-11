@@ -1,0 +1,27 @@
+name: AQR-013 schema patch
+
+on:
+  push:
+    branches: [aqr-013-report-product-engine]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply schema patch
+        run: python .github/aqr013_schema_patch.py
+      - name: Commit schema 13
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add aqorath/migrations.py tests/test_aqr012_inventory_reversal_schema.py
+          git rm .github/aqr013_schema_patch.py .github/workflows/aqr013-schema-patch.yml
+          git commit -m "feat: add schema 13 report package configuration"
+          git push origin HEAD:aqr-013-report-product-engine
