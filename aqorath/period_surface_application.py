@@ -4,7 +4,6 @@ This module owns no calendar, ledger or closing rules. It exposes the canonical
 accounting-period repository and annual-close authority in user-operable projections.
 """
 
-from datetime import date
 from pathlib import Path
 
 from sqlalchemy import text
@@ -74,13 +73,17 @@ def list_period_surface(year):
 def open_period_surface_year(year):
     target = _year(year)
     with _storage.get_session() as session:
-        try:
-            fy = load_fiscal_year(session, target)
-        except Exception:
+        exists = session.execute(
+            text("SELECT 1 FROM fiscalyear WHERE year=:y"),
+            {"y": target},
+        ).scalar_one_or_none()
+        if exists is None:
             fy = open_fiscal_year(session, target)
             session.commit()
             created = True
         else:
+            # Existing persisted truth is validated, never hidden behind a fallback.
+            fy = load_fiscal_year(session, target)
             created = False
         return {
             "year": fy.year,
