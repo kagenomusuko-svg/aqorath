@@ -48,36 +48,56 @@ parte del snapshot SQLite. No se inventa una segunda copia externa para ellos.
 
 ## 4. Restore V1
 
-La restauración sigue `DETECT → EXPLAIN → STOP` y no reemplaza la base activa hasta
-que el candidato está completamente validado.
+La restauración sigue `DETECT → EXPLAIN → STOP`. `restore_database_backup()` de
+`migrations.py` conserva una responsabilidad estrictamente SQLite; AQR-014 coordina
+por encima de esa autoridad la base y las evidencias documentales sin crear un
+segundo motor de restore.
 
-Secuencia:
+Antes del punto de commit deben estar demostrados:
 
-1. validar ZIP, `manifest.json`, nombres de miembros y SHA-256 del snapshot;
-2. validar integridad SQLite y rechazar schema futuro;
-3. si el snapshot usa un schema histórico soportado, migrarlo **en staging** con
-   `migrate_database()`; no existe un migrador alternativo;
-4. comprobar `foreign_key_check` y correspondencia exacta del manifiesto con las
-   `DocumentReference` persistidas;
-5. extraer y verificar las evidencias locales a un directorio administrado nuevo
-   `.aqorath_documents/restored/<package_id>/...`;
-6. actualizar, dentro de la base staging, únicamente la ubicación física
-   `DocumentReference.file_path` para esos archivos. Identidad, hash, vínculo al
-   asiento y hechos económicos no se reinterpretan;
-7. si existe una base sana, crear antes un backup preventivo mediante la autoridad
-   de `migrations.py`; si la base instalada está corrupta, preservar sus bytes como
-   evidencia antes de recuperar;
-8. sustituir la base mediante `restore_database_backup()`, que usa base temporal y
-   `os.replace`;
-9. reconstruir el pool SQLAlchemy para que nuevas sesiones abran el archivo
-   restaurado y no un descriptor del inode anterior.
+1. ZIP, `manifest.json`, nombres de miembros, formato y SHA-256 del snapshot;
+2. integridad SQLite y compatibilidad de schema; un schema futuro se rechaza;
+3. migración **en staging** mediante `migrate_database()` cuando el snapshot use un
+   schema histórico soportado;
+4. `foreign_key_check` y correspondencia exacta manifest ↔ `DocumentReference`;
+5. existencia y SHA-256 de todas las evidencias locales incluidas;
+6. rutas finales de restore ya persistidas en la base staging, sin cambiar identidad,
+   hash, vínculo al asiento ni hechos económicos;
+7. estado previo del target: backup preventivo mediante `create_database_backup()`
+   si la instalación es sana, o copia byte-preservada si el archivo previo no puede
+   demostrarse íntegro;
+8. evidencias nuevas preparadas en el directorio único
+   `.aqorath_documents/restored/<package_id>/...`.
 
-Los documentos restaurados se escriben en un directorio nuevo antes de la
-conmutación de la base. Por eso el estado anterior no pierde ni sobrescribe sus
-archivos documentales. La sustitución SQLite es el punto de conmutación autoritativo.
+Sólo entonces `restore_database_backup(staged_db, target_db)` ejecuta la sustitución
+SQLite validada y atómica mediante archivo temporal + `os.replace`. Ese retorno es
+el **commit point** compuesto de AQR-014. Tras él se vuelve a validar schema,
+integridad relacional y documentos instalados.
+
+Si una validación posterior al commit falla, AQR-014 compensa explícitamente:
+
+- **target sano previo**: restaura el backup preventivo con la autoridad canónica,
+  vuelve a validar la instalación recuperada y sólo entonces elimina el managed root
+  perteneciente al restore fallido;
+- **instalación limpia previa**: elimina la DB recién instalada y el managed root,
+  volviendo al estado sin DB activa;
+- **target previo corrupto/no demostrablemente íntegro**: reinstala de forma atómica
+  los bytes preservados sin fingir que constituyen un backup SQLite válido y elimina
+  el managed root sólo después de recuperar ese estado previo.
+
+Si la compensación de DB también falla, los documentos nuevos **no se eliminan**:
+la DB que quedó instalada puede seguir referenciándolos. Se conservan la evidencia,
+los backups disponibles y el estado investigable, y se emite un
+`RecoveryIntegrityError` compuesto con el fallo original, el fallo de rollback y las
+ubicaciones de recuperación. No se oculta la segunda excepción.
+
+El composition root dispone el pool SQLAlchemy antes de la conmutación y lo
+reconstruye después contra la DB que haya sobrevivido, incluida una DB recuperada por
+compensación.
 
 Un paquete corrupto, una relación rota o un schema futuro no sustituyen una base
-sana.
+sana. Un fallo pre-commit deja intactos DB y documentos anteriores y elimina las
+evidencias nuevas preparadas.
 
 ## 5. Portable export V1
 
@@ -110,8 +130,12 @@ recuperar una instalación Aqorath se usa el backup SQLite gobernado.
 
 ## 6. Superficie de usuario
 
-El launcher local carga `aqorath.recovery_web:app`. La aplicación principal expone
-un acceso a `/recovery`, desde donde el usuario puede:
+El launcher conserva `aqorath.web_surface:app` como superficie local canónica.
+`recovery_web` se importa antes de servir para registrar sobre **esa misma app** las
+rutas AQR-014 y decorar el acceso a `/recovery`; no existe una segunda aplicación
+local autoritativa.
+
+Desde `/recovery` el usuario puede:
 
 - verificar integridad;
 - descargar backup completo;
