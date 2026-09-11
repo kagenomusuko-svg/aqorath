@@ -1,0 +1,6 @@
+# Development / CI dependencies only.
+# Runtime dependencies are declared by the installable package in setup.cfg.
+pytest>=7.0
+build>=1.2
+pyinstaller>=5.10
+requests

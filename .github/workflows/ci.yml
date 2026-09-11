@@ -28,43 +28,37 @@ jobs:
           ls -la
           echo "aqorath directory entries:"
           ls -la aqorath || true
-          echo "Check for catalog JSON:"
-          if [ -f "aqorath/data/catalogo_base.json" ]; then
-            echo "FOUND: aqorath/data/catalogo_base.json"
-            head -n 20 aqorath/data/catalogo_base.json || true
-          else
-            echo "NOT FOUND: aqorath/data/catalogo_base.json"
-          fi
+          echo "Check for governed catalog JSON:"
+          test -f aqorath/data/catalogo_base.json
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install dependencies
+      - name: Install development and product dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f "requirements.txt" ]; then
-            pip install -r requirements.txt
-          fi
+          pip install -r requirements-dev.txt
           pip install -e .
 
-      - name: Ensure catalog JSON exists
-        run: |
-          set -euo pipefail
-          if [ -f "aqorath/data/catalogo_base.json" ]; then
-            echo "Catalog JSON already present"
-          else
-            echo "Catalog JSON missing — creating minimal JSON"
-            mkdir -p aqorath/data
-            python -c 'import json,os; os.makedirs("aqorath/data", exist_ok=True); json.dump({"version":"generated-for-ci","notes":"Auto-generated minimal catalog to allow tests in CI","accounts":{}}, open("aqorath/data/catalogo_base.json","w"))'
-          fi
-          echo "Listing aqorath/data:"
-          ls -la aqorath/data || true
-
-      - name: Run tests
+      - name: Run source-tree tests
         env:
           AQORATH_DB: ${{ github.workspace }}/tests/test.db
           PYTHONPATH: ${{ github.workspace }}
         run: |
           python -m pytest -v
+
+      - name: Build sdist and wheel once
+        run: |
+          rm -rf dist build aqorath.egg-info
+          python -m build --sdist --wheel
+          ls -lh dist
+
+      - name: Smoke installed distribution outside checkout
+        run: |
+          WHEEL="$(find dist -maxdepth 1 -type f -name '*.whl' -print -quit)"
+          SDIST="$(find dist -maxdepth 1 -type f -name '*.tar.gz' -print -quit)"
+          test -n "$WHEEL"
+          test -n "$SDIST"
+          python scripts/verify_distribution.py --wheel "$WHEEL" --sdist "$SDIST"
