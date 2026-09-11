@@ -24,8 +24,8 @@ from aqorath.money import to_decimal_exact
 # Version Control
 # ============================================================
 
-CURRENT_SCHEMA_VERSION = 12
-"""Schema 12 adds AQR-012 product identity and inventory movement provenance."""
+CURRENT_SCHEMA_VERSION = 13
+"""Schema 13 adds AQR-013 custom report-package configuration only."""
 
 # ============================================================
 # Migration Registry
@@ -37,6 +37,7 @@ def _create_current_schema(db_path):
     from aqorath import fund_models as _fund_models  # noqa: F401
     from aqorath import cfdi_models as _cfdi_models  # noqa: F401
     from aqorath import inventory_models as _inventory_models  # noqa: F401
+    from aqorath import report_product_models as _report_product_models  # noqa: F401
     from sqlmodel import SQLModel
     from sqlalchemy import create_engine
 
@@ -610,6 +611,19 @@ def _migrate_11_to_12(db_path):
         engine.dispose()
 
 
+def _migrate_12_to_13(db_path):
+    """Add Entity-owned custom report presets without persisting report results."""
+    from aqorath.report_product_models import CustomReportPackageRecord
+    from sqlalchemy import create_engine
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    try:
+        with engine.begin() as conn:
+            CustomReportPackageRecord.__table__.create(conn, checkfirst=True)
+    finally:
+        engine.dispose()
+
+
 def _validate_inventory_schema(db_path):
     required = {
         "inventoryproduct": {
@@ -639,6 +653,36 @@ def _validate_inventory_schema(db_path):
         for key in (("operation_id",), ("inventory_line_id",), ("cogs_line_id",), ("source_movement_id",)):
             if key not in movement_unique:
                 raise RuntimeError(f"Invalid schema 12 movement uniqueness: {key}")
+
+
+def _validate_report_product_schema(db_path):
+    required = {
+        "id",
+        "entity_id",
+        "name",
+        "report_definition_ids_json",
+        "created_at",
+    }
+    with sqlite3.connect(str(db_path)) as conn:
+        found = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(customreportpackage)")
+        }
+        if found != required:
+            raise RuntimeError("Invalid schema 13 custom report package table")
+
+        unique_sets = {
+            tuple(
+                item[2]
+                for item in conn.execute(
+                    f"PRAGMA index_info('{row[1]}')"
+                )
+            )
+            for row in conn.execute("PRAGMA index_list(customreportpackage)")
+            if row[2] == 1
+        }
+        if ("entity_id", "name") not in unique_sets:
+            raise RuntimeError("Invalid schema 13 custom report package ownership uniqueness")
 
 
 def _validate_cfdi_schema(db_path):
@@ -693,6 +737,7 @@ MIGRATIONS = {
     10: _migrate_9_to_10,
     11: _migrate_10_to_11,
     12: _migrate_11_to_12,
+    13: _migrate_12_to_13,
 }
 """Registry of migration callables. Key: target version."""
 
@@ -839,6 +884,7 @@ def migrate_database(db_path) -> dict:
         _validate_subledger_schema(db_path)
         _validate_cfdi_schema(db_path)
         _validate_inventory_schema(db_path)
+        _validate_report_product_schema(db_path)
         _ensure_additive_current_schema(str(db_path))
         return {
             "from_version": current_version,
@@ -873,6 +919,7 @@ def migrate_database(db_path) -> dict:
     _validate_subledger_schema(db_path)
     _validate_cfdi_schema(db_path)
     _validate_inventory_schema(db_path)
+    _validate_report_product_schema(db_path)
     return {
         "from_version": current_version,
         "to_version": CURRENT_SCHEMA_VERSION,
