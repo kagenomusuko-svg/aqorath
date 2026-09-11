@@ -335,6 +335,39 @@ def _extract_documents_for_restore(
         raise
 
 
+def _validate_restored_installation(db_path: Path) -> tuple[int, list[dict]]:
+    """Validate the installed restore after the SQLite commit point."""
+    version, _ = _require_supported_database(db_path)
+    documents = _inspect_documents(db_path)
+    if any(not item["valid"] for item in documents):
+        raise RecoveryIntegrityError(
+            "Restored database references a local document that failed integrity"
+        )
+    return version, documents
+
+
+def _restore_preserved_corrupt_file(preserved_path: Path, target_path: Path) -> None:
+    """Safely reinstate a deliberately preserved corrupt pre-restore file."""
+    preserved_path = Path(preserved_path)
+    target_path = Path(target_path)
+    if not preserved_path.is_file():
+        raise RecoveryIntegrityError(
+            f"Preserved corrupt database {preserved_path} is unavailable for rollback"
+        )
+    expected_hash = _sha256_path(preserved_path)
+    temp_path = target_path.parent / f".{target_path.name}.rollback.{uuid4()}.tmp"
+    try:
+        shutil.copy2(preserved_path, temp_path)
+        os.replace(temp_path, target_path)
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
+    if _sha256_path(target_path) != expected_hash:
+        raise RecoveryIntegrityError(
+            "Reinstated corrupt pre-restore database does not match its preserved copy"
+        )
+
+
 def _sqlite_tables(conn: sqlite3.Connection) -> list[str]:
     return [
         row[0]
@@ -549,6 +582,8 @@ class SqliteRecoveryGateway:
         managed_root = None
         pre_restore_backup_path = None
         preserved_corrupt_path = None
+        previous_state = "absent"
+        database_replaced = False
         try:
             with TemporaryDirectory(prefix="aqorath-aqr014-restore-") as tmp:
                 tmp_path = Path(tmp)
@@ -576,6 +611,11 @@ class SqliteRecoveryGateway:
                         archive, manifest, staged_db, target_db_path
                     )
                     _require_supported_database(staged_db)
+                    staged_documents = _inspect_documents(staged_db)
+                    if any(not item["valid"] for item in staged_documents):
+                        raise RecoveryIntegrityError(
+                            "Staged restore references a local document that failed integrity"
+                        )
 
                     if target_db_path.exists():
                         if validate_sqlite_integrity(str(target_db_path)):
@@ -589,6 +629,7 @@ class SqliteRecoveryGateway:
                                 backup_dir=str(target_db_path.parent / ".aqorath_backups"),
                             )
                             pre_restore_backup_path = safety["backup_path"]
+                            previous_state = "healthy"
                         else:
                             preserve_dir = target_db_path.parent / ".aqorath_backups"
                             preserve_dir.mkdir(parents=True, exist_ok=True)
@@ -597,28 +638,95 @@ class SqliteRecoveryGateway:
                             )
                             shutil.copy2(target_db_path, preserved)
                             preserved_corrupt_path = str(preserved)
+                            previous_state = "corrupt"
 
+                    # Commit point: all package, schema, relational, document and safety
+                    # checks above have completed. The canonical migration authority owns
+                    # the SQLite copy + os.replace; this layer only coordinates compensation.
                     restore_database_backup(str(staged_db), str(target_db_path))
-                    _require_supported_database(target_db_path)
-                    restored_documents = _inspect_documents(target_db_path)
-                    if any(not item["valid"] for item in restored_documents):
-                        raise RecoveryIntegrityError(
-                            "Restored database references a local document that failed integrity"
-                        )
+                    database_replaced = True
+                    restored_schema_version, _ = _validate_restored_installation(target_db_path)
                     return {
                         "restored": True,
                         "package_id": manifest["package_id"],
                         "source_schema_version": candidate_version,
-                        "restored_schema_version": get_schema_version(str(target_db_path)),
+                        "restored_schema_version": restored_schema_version,
                         "pre_restore_backup_path": pre_restore_backup_path,
                         "preserved_corrupt_path": preserved_corrupt_path,
                         "document_relocations": relocations,
                         "database_path": str(target_db_path),
                     }
-        except Exception:
+        except Exception as original_error:
+            if not database_replaced:
+                if managed_root is not None:
+                    shutil.rmtree(managed_root, ignore_errors=True)
+                raise
+
+            rollback_error = None
+            try:
+                if previous_state == "healthy":
+                    if pre_restore_backup_path is None:
+                        raise RecoveryIntegrityError(
+                            "Healthy pre-restore state has no preventive backup for rollback"
+                        )
+                    restore_database_backup(pre_restore_backup_path, str(target_db_path))
+                    _validate_restored_installation(target_db_path)
+                elif previous_state == "corrupt":
+                    if preserved_corrupt_path is None:
+                        raise RecoveryIntegrityError(
+                            "Corrupt pre-restore state has no preserved file for rollback"
+                        )
+                    _restore_preserved_corrupt_file(
+                        Path(preserved_corrupt_path), target_db_path
+                    )
+                elif previous_state == "absent":
+                    if target_db_path.exists():
+                        target_db_path.unlink()
+                else:
+                    raise RecoveryIntegrityError(
+                        f"Unknown pre-restore state {previous_state!r}; cannot compensate safely"
+                    )
+            except Exception as exc:
+                rollback_error = exc
+
+            managed_root_present = bool(managed_root is not None and managed_root.exists())
+            if rollback_error is not None:
+                raise RecoveryIntegrityError(
+                    "Restore failed after database replacement and rollback also failed; "
+                    "new restore documents were retained because the active database may "
+                    "still reference them. "
+                    f"Original failure: {type(original_error).__name__}: {original_error}. "
+                    f"Rollback failure: {type(rollback_error).__name__}: {rollback_error}. "
+                    f"pre_restore_backup_path={pre_restore_backup_path!r}; "
+                    f"preserved_corrupt_path={preserved_corrupt_path!r}; "
+                    f"database_path={str(target_db_path)!r}; "
+                    f"database_present={target_db_path.exists()}; "
+                    f"managed_root={str(managed_root) if managed_root is not None else None!r}; "
+                    f"managed_root_present={managed_root_present}."
+                ) from rollback_error
+
             if managed_root is not None:
-                shutil.rmtree(managed_root, ignore_errors=True)
-            raise
+                try:
+                    shutil.rmtree(managed_root)
+                except Exception as cleanup_error:
+                    raise RecoveryIntegrityError(
+                        "Restore failed after database replacement; the previous database "
+                        "state was recovered, but failed-restore documents could not be "
+                        f"removed from {managed_root}. Original failure: "
+                        f"{type(original_error).__name__}: {original_error}."
+                    ) from cleanup_error
+
+            if previous_state == "healthy":
+                recovery_message = "the previous healthy installation was recovered"
+            elif previous_state == "corrupt":
+                recovery_message = "the previously corrupt database file was reinstated from its preserved copy"
+            else:
+                recovery_message = "the clean pre-restore state was recovered with no active database"
+            raise RecoveryIntegrityError(
+                "Restore failed after database replacement; "
+                f"{recovery_message}. Original failure: "
+                f"{type(original_error).__name__}: {original_error}."
+            ) from original_error
 
     def create_portable_export(self, db_path: Path, output_path: Path) -> dict:
         db_path = Path(db_path)
