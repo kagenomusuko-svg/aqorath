@@ -10,6 +10,7 @@ from ipaddress import ip_address
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
+from .inventory_web_assets import INVENTORY_HTML
 from .presentation_controller import LocalPresentationController
 from .web_assets import APP_HTML
 
@@ -49,6 +50,11 @@ def _error(exc):
 @app.get("/", response_class=HTMLResponse)
 def index():
     return HTMLResponse(APP_HTML)
+
+
+@app.get("/inventory", response_class=HTMLResponse)
+def inventory_index():
+    return HTMLResponse(INVENTORY_HTML)
 
 
 @app.get("/api/capabilities")
