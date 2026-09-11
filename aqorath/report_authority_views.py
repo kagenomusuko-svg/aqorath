@@ -114,11 +114,7 @@ def build_analytical_period_view(session, entity_id, dimension_key, from_date, t
     if to_date < from_date:
         raise ValueError("to_date cannot precede from_date")
 
-    dimensions = [
-        item
-        for item in _analytics.list_analytical_dimensions(session, entity_id)
-        if item.key == dimension_key
-    ]
+    dimensions = [item for item in _analytics.list_analytical_dimensions(session, entity_id) if item.key == dimension_key]
     if not dimensions:
         raise LookupError(f"analytical dimension {dimension_key!r} not found for Entity")
     if len(dimensions) != 1:
@@ -149,26 +145,19 @@ def build_analytical_period_view(session, entity_id, dimension_key, from_date, t
         current[3] += credit
 
     segments = tuple(
-        AnalyticalSegment(
-            value_id=value_id,
-            value_code=values[0],
-            value_name=values[1],
-            debit=values[2],
-            credit=values[3],
-            net=values[2] - values[3],
-        )
+        AnalyticalSegment(value_id, values[0], values[1], values[2], values[3], values[2] - values[3])
         for value_id, values in sorted(totals.items(), key=lambda item: (item[1][0], item[0]))
     )
     return AnalyticalPeriodView(
-        entity_id=entity_id,
-        dimension_id=dimension.id,
-        dimension_key=dimension.key,
-        dimension_name=dimension.name,
-        from_date=from_date,
-        to_date=to_date,
-        segments=segments,
-        total_debit=sum((item.debit for item in segments), Decimal("0")),
-        total_credit=sum((item.credit for item in segments), Decimal("0")),
+        entity.id if False else entity_id,
+        dimension.id,
+        dimension.key,
+        dimension.name,
+        from_date,
+        to_date,
+        segments,
+        sum((item.debit for item in segments), Decimal("0")),
+        sum((item.credit for item in segments), Decimal("0")),
     )
 
 
@@ -178,29 +167,27 @@ def build_inventory_valuation_view(session, entity_id, as_of):
         raise TypeError("as_of must be date")
     _inventory.require_inventory_entity(session, entity_id)
     products = session.exec(
-        select(ProductRecord)
-        .where(ProductRecord.entity_id == entity_id)
-        .order_by(ProductRecord.id)
+        select(ProductRecord).where(ProductRecord.entity_id == entity_id).order_by(ProductRecord.id)
     ).all()
     lines = []
     for product in products:
         state = _inventory.inventory_state(session, entity_id, product.id, as_of)
         lines.append(
             InventoryValuationLine(
-                product_id=product.id,
-                sku=product.sku,
-                name=product.name,
-                unit=product.unit,
-                quantity=state.quantity,
-                carrying_value=state.carrying_value,
-                moving_average=state.moving_average,
+                product.id,
+                product.sku,
+                product.name,
+                product.unit,
+                state.quantity,
+                state.value,
+                state.average,
             )
         )
     return InventoryValuationView(
-        entity_id=entity_id,
-        as_of=as_of,
-        lines=tuple(lines),
-        total_carrying_value=sum((item.carrying_value for item in lines), Decimal("0")),
+        entity_id,
+        as_of,
+        tuple(lines),
+        sum((item.carrying_value for item in lines), Decimal("0")),
     )
 
 
@@ -213,14 +200,10 @@ def _document_evidence(session, entry_id):
     result = []
     for document in documents:
         legacy_cfdi = session.exec(
-            select(CfdiImportMetadataRecord).where(
-                CfdiImportMetadataRecord.document_reference_id == document.id
-            )
+            select(CfdiImportMetadataRecord).where(CfdiImportMetadataRecord.document_reference_id == document.id)
         ).one_or_none()
         link = session.exec(
-            select(CfdiSourceLinkRecord).where(
-                CfdiSourceLinkRecord.document_reference_id == document.id
-            )
+            select(CfdiSourceLinkRecord).where(CfdiSourceLinkRecord.document_reference_id == document.id)
         ).one_or_none()
         source = None
         if link is not None:
@@ -229,24 +212,16 @@ def _document_evidence(session, entry_id):
                 raise RuntimeError("CFDI source link references missing AQR-010 source")
         result.append(
             DocumentEvidence(
-                document_reference_id=document.id,
-                cfdi_source_id=None if source is None else source.id,
-                document_type=document.document_type,
-                document_number=document.document_number,
-                issuer_name=document.issuer_name,
-                document_date=document.date,
-                third_party_id=document.third_party_id,
-                is_validated=document.is_validated,
-                cfdi_uuid=(
-                    source.uuid
-                    if source is not None
-                    else (None if legacy_cfdi is None else legacy_cfdi.uuid)
-                ),
-                cfdi_version=(
-                    source.version
-                    if source is not None
-                    else (None if legacy_cfdi is None else legacy_cfdi.cfdi_version)
-                ),
+                document.id,
+                None if source is None else source.id,
+                document.document_type,
+                document.document_number,
+                document.issuer_name,
+                document.date,
+                document.third_party_id,
+                document.is_validated,
+                source.uuid if source is not None else (None if legacy_cfdi is None else legacy_cfdi.uuid),
+                source.version if source is not None else (None if legacy_cfdi is None else legacy_cfdi.cfdi_version),
             )
         )
     return tuple(result)
@@ -268,10 +243,10 @@ def build_fiscal_evidence_period_view(session, from_date, to_date):
     ).all()
     items = tuple(
         FiscalEvidenceItem(
-            entry_id=record.entry_id,
-            effective_date=record.effective_date,
-            audit_snapshot=_fiscal_read.load_fiscal_posting_audit_snapshot(session, record.entry_id),
-            documents=_document_evidence(session, record.entry_id),
+            record.entry_id,
+            record.effective_date,
+            _fiscal_read.load_fiscal_posting_audit_snapshot(session, record.entry_id),
+            _document_evidence(session, record.entry_id),
         )
         for record in records
     )
