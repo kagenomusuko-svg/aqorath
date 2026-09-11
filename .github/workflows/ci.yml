@@ -73,4 +73,16 @@ jobs:
           SDIST="$(find dist -maxdepth 1 -type f -name '*.tar.gz' -print -quit)"
           test -n "$WHEEL"
           test -n "$SDIST"
-          python scripts/verify_distribution.py --wheel "$WHEEL" --sdist "$SDIST"
+          set +e
+          python scripts/verify_distribution.py --wheel "$WHEEL" --sdist "$SDIST" > distribution-smoke-output.txt 2>&1
+          status=$?
+          cat distribution-smoke-output.txt
+          exit $status
+
+      - name: Upload distribution smoke diagnostic output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: distribution-smoke-output
+          path: distribution-smoke-output.txt
+          if-no-files-found: error
