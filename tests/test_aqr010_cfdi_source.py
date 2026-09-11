@@ -439,14 +439,17 @@ def test_schema10_to_11_uses_historical_snapshot_preserves_history_and_adds_no_c
 
     result = migrate_database(path)
     assert result["from_version"] == 10
-    assert result["to_version"] == CURRENT_SCHEMA_VERSION == 11
+    assert result["to_version"] == CURRENT_SCHEMA_VERSION
+    assert CURRENT_SCHEMA_VERSION >= 11
     assert validate_sqlite_integrity(path)
     with sqlite3.connect(path) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 11
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == CURRENT_SCHEMA_VERSION
         assert conn.execute("SELECT * FROM journalline WHERE id=801").fetchone() == before
         assert conn.execute("SELECT count(*) FROM cfdisource").fetchone()[0] == 0
         assert conn.execute("SELECT count(*) FROM cfditaxevidence").fetchone()[0] == 0
         assert conn.execute("SELECT count(*) FROM cfdisourcelink").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM inventoryproduct").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM inventorymovement").fetchone()[0] == 0
         assert {row[1] for row in conn.execute("PRAGMA table_info(cfdisource)")} >= {
             "entity_id", "third_party_id", "document_position", "uuid", "file_hash", "xml_bytes",
             "subtotal", "total", "total_transferred", "total_withheld",
