@@ -71,8 +71,8 @@ def _fiscal_profile_from_record(record):
     )
 
 
-def create_entity(session, entity):
-    """Atomically persist one Entity aggregate through the supplied Session."""
+def create_entity(session, entity, *, commit=True):
+    """Persist one Entity aggregate, optionally staged in the caller transaction."""
     if not isinstance(entity, Entity):
         raise TypeError("entity must be Entity")
     if entity.id is not None:
@@ -108,7 +108,9 @@ def create_entity(session, entity):
                 modules_enabled_json=_encode_tuple(entity.profile.modules_enabled),
             )
         )
-        session.commit()
+        session.flush()
+        if commit:
+            session.commit()
     except Exception:
         session.rollback()
         raise
@@ -137,8 +139,8 @@ def load_active_entity(session):
     return _entity_from_records(entity_record, profiles[0])
 
 
-def register_fiscal_profile(session, profile):
-    """Persist one explicit non-overlapping fiscal profile interval."""
+def register_fiscal_profile(session, profile, *, commit=True):
+    """Persist one explicit fiscal profile, optionally staged in caller transaction."""
     if not isinstance(profile, FiscalProfile):
         raise TypeError("profile must be FiscalProfile")
     if profile.id is not None:
@@ -178,7 +180,8 @@ def register_fiscal_profile(session, profile):
         session.flush()
         if record.id is None:
             raise RuntimeError("fiscal profile persistence did not assign identity")
-        session.commit()
+        if commit:
+            session.commit()
     except Exception:
         session.rollback()
         raise
