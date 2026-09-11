@@ -18,6 +18,9 @@ def run_local_surface(port=DEFAULT_PORT):
     from . import recovery_web as _recovery_web  # noqa: F401
     # AQR-015 onboarding routes extend that same canonical FastAPI app.
     from . import onboarding_web as _onboarding_web  # noqa: F401
+    # V1-08/V1-09 and V1-10 are product adapters over their existing authorities.
+    from . import fixed_asset_web as _fixed_asset_web  # noqa: F401
+    from . import period_web as _period_web  # noqa: F401
     import uvicorn
 
     uvicorn.run(
