@@ -7,6 +7,7 @@ _LINKS = (
     ("aqorath-onboarding-link", "/onboarding", "Configuración", 66),
     ("aqorath-fixed-assets-link", "/fixed-assets", "Activos fijos", 114),
     ("aqorath-periods-link", "/periods", "Períodos", 162),
+    ("aqorath-programs-link", "/programs", "Programas", 210),
 )
 
 for element_id, href, label, bottom in _LINKS:

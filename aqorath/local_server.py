@@ -21,6 +21,8 @@ def run_local_surface(port=DEFAULT_PORT):
     # V1-08/V1-09 and V1-10 are product adapters over their existing authorities.
     from . import fixed_asset_web as _fixed_asset_web  # noqa: F401
     from . import period_web as _period_web  # noqa: F401
+    # OSC Program management is identity-only composition over the existing authority.
+    from . import program_web as _program_web  # noqa: F401
     import uvicorn
 
     uvicorn.run(
