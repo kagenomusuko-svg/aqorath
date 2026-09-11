@@ -1,6 +1,7 @@
 """SQLModel metadata for external bank evidence and reconciliation relations."""
 from datetime import datetime, timezone
 from typing import Optional
+from aqorath import models as _core_models  # noqa: F401 - register FK target metadata
 from sqlalchemy import Column, String, Text, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
