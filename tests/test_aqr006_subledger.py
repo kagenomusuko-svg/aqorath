@@ -253,6 +253,7 @@ def test_schema_6_to_7_does_not_invent_historical_provenance(tmp_path):
                         "fundreceipt", "fundapplication", "inkinddonation",
                         "cfdisource", "cfditaxevidence", "cfdisourcelink",
                         "inventoryproduct", "inventorymovement",
+                        "reportpreset", "reportpresetitem",
                 }
         assert [r for r in conn.execute(
             "SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY type,name"

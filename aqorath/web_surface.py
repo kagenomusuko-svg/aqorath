@@ -65,6 +65,158 @@ def capabilities():
         raise _error(exc) from exc
 
 
+@app.get("/api/reports/catalog")
+def reporting_catalog():
+    try:
+        return controller.reporting_catalog()
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.get("/api/reports/dimensions")
+def reporting_dimensions():
+    try:
+        return controller.reporting_dimensions()
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.get("/api/reports/presets")
+def report_presets():
+    try:
+        return controller.report_presets()
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.get("/api/reports/presets/{preset_id}")
+def report_preset(preset_id: int):
+    try:
+        return controller.report_preset(preset_id)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/reports/presets")
+def create_report_preset(payload: dict):
+    try:
+        return controller.create_report_preset(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.put("/api/reports/presets/{preset_id}")
+def update_report_preset(preset_id: int, payload: dict):
+    try:
+        return controller.update_report_preset(preset_id, payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.delete("/api/reports/presets/{preset_id}")
+def delete_report_preset(preset_id: int):
+    try:
+        return controller.delete_report_preset(preset_id)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/reports/presets/{preset_id}/execute")
+def execute_report_preset(preset_id: int, payload: dict):
+    try:
+        return controller.execute_report_preset(preset_id, payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/reports/presets/{preset_id}/professional")
+def professional_report_preset(preset_id: int, payload: dict):
+    try:
+        return controller.professional_report_preset(preset_id, payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/reports/packages/financial")
+def generate_financial_reports(payload: dict):
+    try:
+        return controller.generate_financial_reports(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/reports/packages/financial/professional")
+def professional_financial_reports(payload: dict):
+    try:
+        return controller.professional_financial_reports(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/reports/packages/professional-detail")
+def generate_professional_detail_reports(payload: dict):
+    try:
+        return controller.generate_professional_detail_reports(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/reports/packages/professional-detail/professional")
+def professional_detail_reports(payload: dict):
+    try:
+        return controller.professional_detail_reports(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/reports/analytical")
+def generate_analytical_report(payload: dict):
+    try:
+        return controller.generate_analytical_report(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/reports/analytical/professional")
+def professional_analytical_report(payload: dict):
+    try:
+        return controller.professional_analytical_report(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/reports/inventory-valuation")
+def generate_inventory_valuation_report(payload: dict):
+    try:
+        return controller.generate_inventory_valuation_report(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/reports/inventory-valuation/professional")
+def professional_inventory_valuation_report(payload: dict):
+    try:
+        return controller.professional_inventory_valuation_report(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/reports/fiscal-evidence")
+def generate_fiscal_evidence_report(payload: dict):
+    try:
+        return controller.generate_fiscal_evidence_report(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/reports/fiscal-evidence/professional")
+def professional_fiscal_evidence_report(payload: dict):
+    try:
+        return controller.professional_fiscal_evidence_report(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
 @app.get("/api/osc/donations")
 def donations():
     try:

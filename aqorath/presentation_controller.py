@@ -9,6 +9,8 @@ import secrets
 
 from . import fiscal_v1_surface_application as _fiscal_v1
 from . import inventory_surface_application as _inventory_v1
+from . import reporting_surface_application as _reporting
+from . import report_preset_surface_application as _report_presets
 from . import surface_application as _application
 
 
@@ -55,6 +57,8 @@ class LocalPresentationController:
             "entity": _application.get_surface_entity(),
             "views": ("common", "professional"),
             "inventory": {"enabled": inventory_enabled, "products": inventory_products},
+            "reporting": _reporting.list_reporting_surface_catalog(),
+            "reporting_dimensions": _reporting.list_reporting_dimensions(),
         }
 
     def prepare(self, operation_key, amount, posting_date):
@@ -96,6 +100,63 @@ class LocalPresentationController:
 
     def professional_fiscal_v1(self, entry_id):
         return _fiscal_v1.load_fiscal_v1_surface_professional(entry_id)
+
+    def reporting_catalog(self):
+        return _reporting.list_reporting_surface_catalog()
+
+    def reporting_dimensions(self):
+        return _reporting.list_reporting_dimensions()
+
+    def report_presets(self):
+        return _report_presets.list_report_presets_surface()
+
+    def report_preset(self, preset_id):
+        return _report_presets.get_report_preset_surface(preset_id)
+
+    def create_report_preset(self, payload):
+        return _report_presets.create_report_preset_surface(payload)
+
+    def update_report_preset(self, preset_id, payload):
+        return _report_presets.update_report_preset_surface(preset_id, payload)
+
+    def delete_report_preset(self, preset_id):
+        return _report_presets.delete_report_preset_surface(preset_id)
+
+    def execute_report_preset(self, preset_id, payload):
+        return _report_presets.execute_report_preset_surface(preset_id, payload)
+
+    def professional_report_preset(self, preset_id, payload):
+        return _report_presets.professional_report_preset_surface(preset_id, payload)
+
+    def generate_financial_reports(self, payload):
+        return _reporting.generate_financial_period_surface(payload)["common"]
+
+    def professional_financial_reports(self, payload):
+        return _reporting.professional_financial_period_surface(payload)
+
+    def generate_professional_detail_reports(self, payload):
+        return _reporting.generate_professional_detail_surface(payload)["common"]
+
+    def professional_detail_reports(self, payload):
+        return _reporting.professional_detail_surface(payload)
+
+    def generate_analytical_report(self, payload):
+        return _reporting.generate_analytical_surface(payload)["common"]
+
+    def professional_analytical_report(self, payload):
+        return _reporting.generate_analytical_surface(payload)["professional"]
+
+    def generate_inventory_valuation_report(self, payload):
+        return _reporting.generate_inventory_valuation_surface(payload)["common"]
+
+    def professional_inventory_valuation_report(self, payload):
+        return _reporting.generate_inventory_valuation_surface(payload)["professional"]
+
+    def generate_fiscal_evidence_report(self, payload):
+        return _reporting.generate_fiscal_evidence_surface(payload)["common"]
+
+    def professional_fiscal_evidence_report(self, payload):
+        return _reporting.generate_fiscal_evidence_surface(payload)["professional"]
 
     def donation_options(self):
         return _application.list_surface_donation_options()
