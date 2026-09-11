@@ -15,12 +15,12 @@ from sqlmodel import select
 
 from . import application as _application
 from . import storage as _storage
-from .account_bindings import get_account_binding, set_account_binding
+from .account_bindings import get_account_binding, _stage_account_binding
 from .accounting_period_repository import configure_calendar, open_fiscal_year
 from .catalog import load_catalog
 from .catalog_persistence import ensure_canonical_accounts
 from .entity import Entity, EntityProfile, FiscalProfile
-from .entity_repository import create_entity, register_fiscal_profile
+from .entity_repository import _stage_entity, _stage_fiscal_profile
 from .models import Account, FiscalProfileRecord
 
 
@@ -213,7 +213,7 @@ def configure_surface_onboarding(payload):
 
         try:
             ensure_canonical_accounts(session, entity_profile.economic_purpose)
-            persisted = create_entity(session, entity, commit=False)
+            persisted = _stage_entity(session, entity)
 
             configure_calendar(
                 session,
@@ -225,7 +225,7 @@ def configure_surface_onboarding(payload):
             )
             open_fiscal_year(session, activity_start.year)
 
-            register_fiscal_profile(
+            _stage_fiscal_profile(
                 session,
                 FiscalProfile(
                     id=None,
@@ -236,16 +236,10 @@ def configure_surface_onboarding(payload):
                     effective_from=fiscal_from,
                     effective_to=fiscal_to,
                 ),
-                commit=False,
             )
 
             for role in sorted(normalized_bindings):
-                set_account_binding(
-                    session,
-                    role,
-                    normalized_bindings[role],
-                    commit=False,
-                )
+                _stage_account_binding(session, role, normalized_bindings[role])
 
             session.commit()
         except Exception:
