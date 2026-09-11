@@ -152,8 +152,8 @@ def test_fiscal_document_view_reads_aqr011_audit_and_current_aqr010_link(tmp_pat
         assert len(item.documents) == 1
         document = item.documents[0]
         assert document.cfdi_source_id == source.id
-        assert document.cfdi_uuid == source.uuid
-        assert document.cfdi_version == source.version
+        assert document.cfdi_uuid == source.parsed.uuid
+        assert document.cfdi_version == source.parsed.version
 
 
 def test_closed_period_remains_readable_and_wrong_entity_is_rejected(tmp_path, monkeypatch):
