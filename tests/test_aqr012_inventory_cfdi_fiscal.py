@@ -172,4 +172,4 @@ def test_late_failure_in_cfdi_fiscal_inventory_keeps_only_independent_source_and
         event_types = [event.event_type for event in session.exec(select(AuditEventRecord)).all()]
         assert event_types.count("cfdi_source_imported") == 1
         assert event_types.count("inventory_operation_posted") == 1
-        assert "entry_posted" not in event_types
+        assert event_types.count("entry_posted") == 1
