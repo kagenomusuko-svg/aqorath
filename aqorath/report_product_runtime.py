@@ -176,8 +176,9 @@ def generate_report(request):
         authorities = (
             "AQR-011.FiscalPostingAuditRecord",
             "AQR-011.load_fiscal_posting_audit_snapshot",
+            "AQR-010.CfdiSourceRecord",
+            "AQR-010.CfdiSourceLinkRecord",
             "AQR-010.DocumentReferenceRecord",
-            "AQR-010.CfdiImportMetadataRecord",
         )
     else:
         raise LookupError(f"no report runtime for definition {governance.key!r}")
