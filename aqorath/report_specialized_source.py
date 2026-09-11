@@ -116,7 +116,7 @@ def build_osc_fund_report(session, entity_id, *, as_of):
     for row in rows:
         balance = _funds.load_fund_balance(session, entity_id, row.id, as_of)
         traceability = _funds.load_fund_traceability(session, entity_id, row.id, as_of)
-        amount = balance.available_amount
+        amount = balance.available
         total += amount
         items.append(
             FundReportItem(
