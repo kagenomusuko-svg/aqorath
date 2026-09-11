@@ -76,30 +76,27 @@ jobs:
               "- **Continuidad:** `PRODUCT_BACKLOG_V1.md` contiene exactamente un `NEXT`: AQR-015."
           )
           anchor = "---\n\n## 3. Ledger y persistencia"
-          insert = """### AQR-013 — documentos, paquetes y reportes de producto
-
-- PR #51, merge `46bf21f61dd2d3e1cbadfa681a02e40d9faef63c`;
-- head revisado `cf5f9386844083a60f8dc323b4e0b0b989256d78`;
-- CI canónico run 630 verde; CI post-merge run 632 verde;
-- schema 13 aditivo para presets owner-scoped, sin resultados monetarios persistidos;
-- `ReportDefinition`/`ReportRequest` mantienen responsabilidades separadas y packages son composición, no autoridad;
-- JSON/XLSX son formatos de producto y no mecanismo de portabilidad relacional.
-
-### AQR-014 — backup, restore, integridad y portabilidad
-
-- PR #53, merge `d7ccd44f53ce607c72cae44054af5236f63edc5f`;
-- head definitivo `b551dae1accf17c1d30915993e3ea3af0ee26d91`;
-- CI canónico run 643 verde; CI post-merge de `main` run 644 verde;
-- `migrations.py` permanece autoridad de snapshot, migración, validación SQLite y sustitución segura; no se creó un segundo motor de restore;
-- backup de producto incorpora DB consistente, manifest versionado y evidencias externas referenciadas con hash;
-- restore realiza preflight completo, rechaza schema futuro/corrupción, migra únicamente el candidato en staging y fija las rutas documentales definitivas antes del commit point;
-- ante fallo post-commit recupera la instalación sana previa, revierte una instalación limpia a ausencia de DB y preserva el estado previo corrupto cuando corresponde; si el rollback también falla conserva los documentos que la DB instalada pueda referenciar y reporta ambas excepciones;
-- integridad incluye `integrity_check`, FK, schema y correspondencia/hash de documentos, sin reparación silenciosa;
-- export portable es relacional, autocontenido, conserva IDs y Decimal monetario como texto exacto y puede leerse sin importar Aqorath; ZIP/JSON no son persistencia runtime.
-
----
-
-## 3. Ledger y persistencia"""
+          insert = (
+              "### AQR-013 — documentos, paquetes y reportes de producto\n\n"
+              "- PR #51, merge `46bf21f61dd2d3e1cbadfa681a02e40d9faef63c`;\n"
+              "- head revisado `cf5f9386844083a60f8dc323b4e0b0b989256d78`;\n"
+              "- CI canónico run 630 verde; CI post-merge run 632 verde;\n"
+              "- schema 13 aditivo para presets owner-scoped, sin resultados monetarios persistidos;\n"
+              "- `ReportDefinition`/`ReportRequest` mantienen responsabilidades separadas y packages son composición, no autoridad;\n"
+              "- JSON/XLSX son formatos de producto y no mecanismo de portabilidad relacional.\n\n"
+              "### AQR-014 — backup, restore, integridad y portabilidad\n\n"
+              "- PR #53, merge `d7ccd44f53ce607c72cae44054af5236f63edc5f`;\n"
+              "- head definitivo `b551dae1accf17c1d30915993e3ea3af0ee26d91`;\n"
+              "- CI canónico run 643 verde; CI post-merge de `main` run 644 verde;\n"
+              "- `migrations.py` permanece autoridad de snapshot, migración, validación SQLite y sustitución segura; no se creó un segundo motor de restore;\n"
+              "- backup de producto incorpora DB consistente, manifest versionado y evidencias externas referenciadas con hash;\n"
+              "- restore realiza preflight completo, rechaza schema futuro/corrupción, migra únicamente el candidato en staging y fija las rutas documentales definitivas antes del commit point;\n"
+              "- ante fallo post-commit recupera la instalación sana previa, revierte una instalación limpia a ausencia de DB y preserva el estado previo corrupto cuando corresponde; si el rollback también falla conserva los documentos que la DB instalada pueda referenciar y reporta ambas excepciones;\n"
+              "- integridad incluye `integrity_check`, FK, schema y correspondencia/hash de documentos, sin reparación silenciosa;\n"
+              "- export portable es relacional, autocontenido, conserva IDs y Decimal monetario como texto exacto y puede leerse sin importar Aqorath; ZIP/JSON no son persistencia runtime.\n\n"
+              "---\n\n"
+              "## 3. Ledger y persistencia"
+          )
           replace_once(audit, anchor, insert)
 
           workflow = Path(".github/workflows/aqr014-closeout.yml")
