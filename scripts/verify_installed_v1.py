@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""AQR-015 clean-wheel V1-01 acceptance smoke.
+"""AQR-015 clean-wheel installed-product acceptance smoke.
 
 This harness deliberately runs the product from an isolated virtual environment
-and a working directory outside the repository.  It drives the canonical
-loopback HTTP surface through onboarding, a common V1-01 sale/cash flow, the
-professional readback of the same persisted truth, and AQR-014 recovery/export
-endpoints while an offline guard rejects any non-loopback network access.
+and a working directory outside the repository. It drives the canonical loopback
+HTTP surface through onboarding and representative V1 journeys while an offline
+guard rejects any non-loopback network access.
+
+The harness is evidence of technical product composition. It does not claim the
+professional-review or human-acceptance gates required by PRODUCT_ACCEPTANCE_V1.
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ from pathlib import Path
 import sqlite3
 import subprocess
 import tempfile
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 import venv
 
@@ -60,6 +63,22 @@ def _request_json(method: str, path: str, payload=None):
         return json.loads(body)
 
 
+def _request_error(method: str, path: str, payload=None, expected_status=400):
+    try:
+        _request_json(method, path, payload)
+    except HTTPError as exc:
+        body = exc.read().decode("utf-8")
+        if exc.code != expected_status:
+            raise AssertionError(
+                f"{method} {path} returned {exc.code}, expected {expected_status}: {body}"
+            ) from exc
+        try:
+            return json.loads(body)
+        except json.JSONDecodeError:
+            return {"detail": body}
+    raise AssertionError(f"{method} {path} unexpectedly succeeded")
+
+
 def _onboarding_payload() -> dict:
     return {
         "name": "Negocio AQR-015 instalado",
@@ -82,6 +101,20 @@ def _onboarding_payload() -> dict:
     }
 
 
+def _assert_common_preview(prepared: dict, *, amount: str | None = None) -> str:
+    token = prepared.get("token")
+    common = prepared.get("preview", {})
+    if not token:
+        raise AssertionError(f"prepared operation lacks consent token: {prepared}")
+    if amount is not None and common.get("amount") != amount:
+        raise AssertionError(f"unexpected common preview amount: {prepared}")
+    if "account_code" in json.dumps(common, sort_keys=True):
+        raise AssertionError(f"common preview leaked professional account codes: {common}")
+    if common.get("requires_confirmation") is not True:
+        raise AssertionError(f"common preview did not require confirmation: {common}")
+    return token
+
+
 def _assert_v1_01_http_flow() -> int:
     initial = _request_json("GET", "/api/onboarding")
     if initial.get("configured") is not False:
@@ -102,12 +135,7 @@ def _assert_v1_01_http_flow() -> int:
             "posting_date": "2026-09-10",
         },
     )
-    token = prepared.get("token")
-    common = prepared.get("preview", {})
-    if not token or common.get("amount") != "200.00":
-        raise AssertionError(f"invalid common V1-01 preview: {prepared}")
-    if "account_code" in json.dumps(common, sort_keys=True):
-        raise AssertionError(f"common preview leaked professional account codes: {common}")
+    token = _assert_common_preview(prepared, amount="200.00")
 
     professional_preview = _request_json(
         "GET", f"/api/operations/{token}/professional-preview"
@@ -148,6 +176,248 @@ def _assert_v1_01_http_flow() -> int:
     if consent != "explicit_confirmation":
         raise AssertionError(f"unexpected persisted consent: {consent}")
     return entry_id
+
+
+def _create_party(name: str, party_type: str) -> dict:
+    party = _request_json(
+        "POST",
+        "/api/subledger/third-parties",
+        {"name": name, "party_type": party_type},
+    )
+    parties = _request_json("GET", "/api/subledger/third-parties")
+    if party not in parties:
+        raise AssertionError(f"created ThirdParty is not reusable from product surface: {party}")
+    return party
+
+
+def _prepare_credit_origin(
+    *,
+    operation_key: str,
+    amount: str,
+    posting_date: str,
+    party_id: int,
+    due_date: str,
+    document_number: str,
+) -> dict:
+    prepared = _request_json(
+        "POST",
+        "/api/subledger/origins/prepare",
+        {
+            "operation_key": operation_key,
+            "amount": amount,
+            "posting_date": posting_date,
+            "third_party_id": party_id,
+            "due_date": due_date,
+            "document_type": "invoice",
+            "document_number": document_number,
+            "document_date": posting_date,
+        },
+    )
+    token = _assert_common_preview(prepared, amount=amount)
+    professional = _request_json(
+        "GET", f"/api/operations/{token}/professional-preview"
+    )
+    if professional.get("subledger", {}).get("third_party_id") != party_id:
+        raise AssertionError(f"professional preview lost ThirdParty provenance: {professional}")
+    return prepared
+
+
+def _apply_open_item(
+    open_item_id: int,
+    amount: str,
+    posting_date: str,
+    document_number: str,
+) -> dict:
+    prepared = _request_json(
+        "POST",
+        "/api/subledger/applications/batch/prepare",
+        {
+            "allocations": [{"open_item_id": open_item_id, "amount": amount}],
+            "posting_date": posting_date,
+            "document_type": "payment",
+            "document_number": document_number,
+            "document_date": posting_date,
+        },
+    )
+    token = _assert_common_preview(prepared, amount=amount)
+    professional = _request_json(
+        "GET", f"/api/operations/{token}/professional-preview"
+    )
+    allocations = professional.get("subledger", {}).get("allocations", [])
+    if len(allocations) != 1 or allocations[0].get("open_item_id") != open_item_id:
+        raise AssertionError(f"professional preview lost OpenItem allocation: {professional}")
+    result = _request_json("POST", f"/api/operations/{token}/confirm")
+    if result.get("state") != "posted" or not result.get("entry_id"):
+        raise AssertionError(f"subledger application did not post canonically: {result}")
+    return result
+
+
+def _assert_credit_journey(
+    *,
+    case_id: str,
+    kind: str,
+    operation_key: str,
+    party_name: str,
+    party_type: str,
+    original_amount: str,
+    first_amount: str,
+    second_amount: str,
+    balance_after_first: str,
+    source_date: str,
+    due_date: str,
+    first_date: str,
+    second_date: str,
+) -> dict:
+    party = _create_party(party_name, party_type)
+
+    # Cancellation is a real product action: a prepared decision must leave no ledger
+    # or subledger truth if the user declines consent.
+    cancelled = _prepare_credit_origin(
+        operation_key=operation_key,
+        amount="1.00",
+        posting_date=source_date,
+        party_id=party["id"],
+        due_date=due_date,
+        document_number=f"{case_id}-CANCEL",
+    )
+    _request_json("DELETE", f"/api/operations/{cancelled['token']}")
+    before = _request_json(
+        "GET", f"/api/subledger/open-items?kind={kind}&as_of={source_date}"
+    )
+    if before:
+        raise AssertionError(f"{case_id} cancelled preview persisted an OpenItem: {before}")
+
+    origin = _prepare_credit_origin(
+        operation_key=operation_key,
+        amount=original_amount,
+        posting_date=source_date,
+        party_id=party["id"],
+        due_date=due_date,
+        document_number=f"{case_id}-SOURCE",
+    )
+    posted = _request_json("POST", f"/api/operations/{origin['token']}/confirm")
+    if posted.get("state") != "posted" or not posted.get("open_item_id"):
+        raise AssertionError(f"{case_id} credit origin did not post: {posted}")
+    open_item_id = int(posted["open_item_id"])
+
+    source_view = _request_json(
+        "GET", f"/api/subledger/open-items/{open_item_id}?as_of={source_date}"
+    )
+    if source_view.get("original_amount") != original_amount:
+        raise AssertionError(f"{case_id} original amount differs: {source_view}")
+    if source_view.get("third_party_id") != party["id"]:
+        raise AssertionError(f"{case_id} OpenItem lost ThirdParty: {source_view}")
+    if source_view.get("document_number") != f"{case_id}-SOURCE":
+        raise AssertionError(f"{case_id} OpenItem lost source document: {source_view}")
+
+    first = _apply_open_item(
+        open_item_id,
+        first_amount,
+        first_date,
+        f"{case_id}-PARTIAL",
+    )
+    partial = _request_json(
+        "GET", f"/api/subledger/open-items/{open_item_id}?as_of={first_date}"
+    )
+    if partial.get("open_balance") != balance_after_first or partial.get("status") != "open":
+        raise AssertionError(f"{case_id} partial settlement is wrong: {partial}")
+
+    rejected = _request_error(
+        "POST",
+        "/api/subledger/applications/batch/prepare",
+        {
+            "allocations": [
+                {
+                    "open_item_id": open_item_id,
+                    "amount": str(float(balance_after_first) + 1),
+                }
+            ],
+            "posting_date": second_date,
+            "document_type": "payment",
+            "document_number": f"{case_id}-OVER",
+            "document_date": second_date,
+        },
+    )
+    if "exceeds" not in rejected.get("detail", ""):
+        raise AssertionError(f"{case_id} overapplication failed for the wrong reason: {rejected}")
+
+    second = _apply_open_item(
+        open_item_id,
+        second_amount,
+        second_date,
+        f"{case_id}-FINAL",
+    )
+    settled = _request_json(
+        "GET", f"/api/subledger/open-items/{open_item_id}?as_of={second_date}"
+    )
+    if settled.get("open_balance") != "0" or settled.get("status") != "settled":
+        raise AssertionError(f"{case_id} did not settle exactly: {settled}")
+
+    professional = _request_json(
+        "GET",
+        f"/api/subledger/open-items/{open_item_id}/professional?as_of={second_date}",
+    )
+    pro_item = professional.get("open_item", {})
+    if pro_item.get("open_balance") != "0" or pro_item.get("third_party_id") != party["id"]:
+        raise AssertionError(f"{case_id} professional readback differs: {professional}")
+    source_operation = professional.get("source_operation", {})
+    documents = source_operation.get("documents", [])
+    if len(documents) != 1 or documents[0].get("third_party_id") != party["id"]:
+        raise AssertionError(f"{case_id} professional source document differs: {professional}")
+    if source_operation.get("entry_id") != posted.get("entry_id"):
+        raise AssertionError(f"{case_id} professional source ledger differs: {professional}")
+    if source_operation.get("audit", {}).get("event_type") != "entry_posted":
+        raise AssertionError(f"{case_id} canonical posting audit is missing: {professional}")
+    if not professional.get("reconciliation", {}).get("is_reconciled"):
+        raise AssertionError(f"{case_id} professional subledger is not reconciled: {professional}")
+
+    reconciliation = _request_json(
+        "GET", f"/api/subledger/reconciliation/{kind}?as_of={second_date}"
+    )
+    if not reconciliation.get("is_reconciled"):
+        raise AssertionError(f"{case_id} control account does not reconcile: {reconciliation}")
+
+    return {
+        "party_id": party["id"],
+        "open_item_id": open_item_id,
+        "source_entry_id": posted["entry_id"],
+        "partial_entry_id": first["entry_id"],
+        "final_entry_id": second["entry_id"],
+    }
+
+
+def _assert_v1_02_and_v1_04_http_flows() -> dict:
+    receivable = _assert_credit_journey(
+        case_id="V1-02",
+        kind="receivable",
+        operation_key="sale_credit",
+        party_name="Ana Cliente",
+        party_type="customer",
+        original_amount="200.00",
+        first_amount="80.00",
+        second_amount="120.00",
+        balance_after_first="120.00",
+        source_date="2026-01-10",
+        due_date="2026-01-30",
+        first_date="2026-01-20",
+        second_date="2026-01-21",
+    )
+    payable = _assert_credit_journey(
+        case_id="V1-04",
+        kind="payable",
+        operation_key="utility_credit",
+        party_name="Proveedor Servicios",
+        party_type="supplier",
+        original_amount="1500.00",
+        first_amount="500.00",
+        second_amount="1000.00",
+        balance_after_first="1000.00",
+        source_date="2026-02-10",
+        due_date="2026-02-28",
+        first_date="2026-02-20",
+        second_date="2026-02-21",
+    )
+    return {"V1-02": receivable, "V1-04": payable}
 
 
 def _install_and_run(wheel: Path) -> None:
@@ -200,14 +470,16 @@ def _install_and_run(wheel: Path) -> None:
                 if not integrity.get("healthy"):
                     raise AssertionError(f"clean installed integrity failed: {integrity}")
                 entry_id = _assert_v1_01_http_flow()
+                credit_results = _assert_v1_02_and_v1_04_http_flows()
                 post_integrity = _request_json("GET", "/api/system/integrity")
                 if not post_integrity.get("healthy"):
                     raise AssertionError(
-                        f"post-V1-01 integrity check failed: {post_integrity}"
+                        f"post-V1-flow integrity check failed: {post_integrity}"
                     )
                 _post_artifact("/api/system/backup")
                 _post_artifact("/api/system/portable-export")
                 print(f"installed V1-01 entry_id={entry_id}")
+                print("installed credit journeys=" + json.dumps(credit_results, sort_keys=True))
             finally:
                 if process.poll() is None:
                     process.terminate()
@@ -231,8 +503,22 @@ def _install_and_run(wheel: Path) -> None:
             rows = conn.execute(
                 "SELECT account_code,debit,credit FROM journalline ORDER BY id"
             ).fetchall()
-        if rows != [("1102", "200.00", "0"), ("4201", "0", "200.00")]:
-            raise AssertionError(f"installed SQLite truth differs from V1-01: {rows}")
+            entries = conn.execute(
+                "SELECT COUNT(*) FROM journalentry WHERE state='posted'"
+            ).fetchone()[0]
+            open_items = conn.execute("SELECT COUNT(*) FROM openitemrecord").fetchone()[0]
+            applications = conn.execute(
+                "SELECT COUNT(*) FROM openitemapplicationrecord"
+            ).fetchone()[0]
+        if rows[:2] != [("1102", "200.00", "0"), ("4201", "0", "200.00")]:
+            raise AssertionError(f"installed SQLite lost V1-01 truth: {rows[:2]}")
+        if entries != 7:
+            raise AssertionError(f"expected 7 canonical posted entries, found {entries}")
+        if open_items != 2 or applications != 4:
+            raise AssertionError(
+                "installed subledger relationship counts differ from V1-02/V1-04: "
+                f"open_items={open_items}, applications={applications}"
+            )
 
 
 def main() -> int:
@@ -243,7 +529,7 @@ def main() -> int:
     if not wheel.is_file():
         raise SystemExit(f"wheel not found: {wheel}")
     _install_and_run(wheel)
-    print("AQR-015 installed V1-01 smoke: OK")
+    print("AQR-015 installed V1-01/V1-02/V1-04 smoke: OK")
     return 0
 
 
