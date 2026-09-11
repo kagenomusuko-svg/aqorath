@@ -18,7 +18,7 @@ from . import fiscalized_posting as _posting
 from . import fiscalized_posting_persistence as _persistence
 from .audit_event import AuditEvent
 from .economic_facts import EconomicFact
-from .fiscal_v1_coverage import FiscalV1Facts
+from .fiscal_v1_coverage import FiscalV1Facts, UnsupportedFiscalV1Case, UNSUPPORTED_MESSAGE
 
 
 def prepare_inventory_sale_fiscal(
@@ -38,6 +38,11 @@ def prepare_inventory_sale_fiscal(
         raise ValueError("fiscal_activity must be non-empty text or None")
     if not isinstance(revenue, Decimal) or not revenue.is_finite() or revenue <= 0:
         raise ValueError("inventory fiscal revenue must be a positive Decimal")
+    if fact.settlement_method not in {"cash", "credit"}:
+        raise UnsupportedFiscalV1Case(
+            f"{UNSUPPORTED_MESSAGE} AQR-011 no declara la liquidación "
+            f"{fact.settlement_method!r} para una venta fiscalizada de inventario."
+        )
     facts = FiscalV1Facts(
         fact=EconomicFact("sale", revenue, fact.settlement_method),
         operation_date=fact.operation_date,
