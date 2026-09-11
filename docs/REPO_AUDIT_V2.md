@@ -247,7 +247,7 @@ Existe cobertura para:
 
 También existen fundamentos de ReportDefinition, ReportRequest, ReportPackage y CustomReportPackage.
 
-Pendiente: convertirlos en motor completo de documentos/reportes de producto (AQR-013) y añadir reportes especializados conforme se completen OSC/fiscalidad.
+AQR-013 materializa el motor gobernado de documentos/reportes de producto sobre las autoridades existentes: schema 13 aditivo, presets owner-scoped persistidos como configuración, packages como composición y ejecución fresca sin resultados monetarios persistidos ni shadow ledger. Las superficies común/profesional, controlador y HTTP consumen las mismas autoridades; inventario proviene de AQR-012, fiscalidad de AQR-011, CFDI de AQR-010 y dimensiones de AQR-008. JSON/XLSX son formatos de producto; la exportación relacional portable permanece separada y corresponde a AQR-014.
 
 ---
 
