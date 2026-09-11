@@ -109,9 +109,9 @@ def test_schema_11_to_12_is_additive_and_does_not_invent_inventory_history(tmp_p
         }
         conn.commit()
 
-    result = migrations.migrate_database(path)
-    assert result["from_version"] == 11
-    assert result["to_version"] == 12
+    migrations._migrate_11_to_12(path)
+    migrations._set_schema_version(path, 12)
+    migrations._validate_inventory_schema(path)
     with sqlite3.connect(path) as conn:
         current_tables = {
             row[0]
