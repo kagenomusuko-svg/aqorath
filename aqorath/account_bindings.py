@@ -32,8 +32,8 @@ def _validate_account_code(account_code):
         raise ValueError("account code must be non-empty and contain no surrounding whitespace")
 
 
-def set_account_binding(session, role, account_code):
-    """Persist or replace one role binding after validating the concrete Account."""
+def set_account_binding(session, role, account_code, *, commit=True):
+    """Persist or stage one role binding after validating the concrete Account."""
     _validate_role(role)
     _validate_account_code(account_code)
 
@@ -58,7 +58,9 @@ def set_account_binding(session, role, account_code):
             binding.account_id = account.id
 
         session.add(binding)
-        session.commit()
+        session.flush()
+        if commit:
+            session.commit()
     except Exception:
         session.rollback()
         raise
