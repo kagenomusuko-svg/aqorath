@@ -14,6 +14,7 @@ from . import entity_repository as _entities
 from . import report_capability_applicability as _capability
 from . import report_period_runtime as _period_runtime
 from . import report_product_catalog as _catalog
+from . import report_product_rendering as _rendering
 from . import report_request_compatibility as _compatibility
 from .report_definition import ReportDefinition
 from .report_package import ReportPackage
@@ -244,12 +245,7 @@ def _json_value(value):
     raise TypeError(f"unsupported report JSON value: {type(value).__name__}")
 
 
-def render_report_product(result):
-    """Render one semantic result using the explicitly requested governed format."""
-    if not isinstance(result, ReportProductResult):
-        raise TypeError("result must be ReportProductResult")
-    if result.request.format != "json":
-        raise ValueError("requested report format has no AQR-013 renderer")
+def _render_json_result(result):
     payload = {
         "definition": _json_value(result.definition),
         "request": _json_value(result.request),
@@ -260,24 +256,45 @@ def render_report_product(result):
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
+def render_report_product(result):
+    """Render one semantic result using exactly the requested governed format."""
+    if not isinstance(result, ReportProductResult):
+        raise TypeError("result must be ReportProductResult")
+    format_key = result.request.format
+    if format_key == "json":
+        return _render_json_result(result)
+    if format_key == "xlsx":
+        return _rendering.render_report_xlsx(result)
+    if format_key == "pdf":
+        return _rendering.render_report_pdf(result)
+    raise ValueError("requested report format has no AQR-013 renderer")
+
+
 def render_report_package(result):
-    """Render one package without recalculating any of its semantic reports."""
+    """Render one package without recalculating any semantic report."""
     if not isinstance(result, ReportPackageResult):
         raise TypeError("result must be ReportPackageResult")
     formats = {report.request.format for report in result.reports}
-    if formats != {"json"}:
-        raise ValueError("requested package format has no AQR-013 renderer")
-    payload = {
-        "package": _json_value(result.package),
-        "requests": _json_value(result.requests),
-        "reports": [
-            {
-                "definition": _json_value(report.definition),
-                "policy_version": report.policy_version,
-                "source_authority": report.source_authority,
-                "content": _json_value(report.content),
-            }
-            for report in result.reports
-        ],
-    }
-    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    if len(formats) != 1:
+        raise ValueError("package reports must share one explicit output format")
+    format_key = next(iter(formats))
+    if format_key == "json":
+        payload = {
+            "package": _json_value(result.package),
+            "requests": _json_value(result.requests),
+            "reports": [
+                {
+                    "definition": _json_value(report.definition),
+                    "policy_version": report.policy_version,
+                    "source_authority": report.source_authority,
+                    "content": _json_value(report.content),
+                }
+                for report in result.reports
+            ],
+        }
+        return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    if format_key == "xlsx":
+        return _rendering.render_package_xlsx(result)
+    if format_key == "pdf":
+        return _rendering.render_package_pdf(result)
+    raise ValueError("requested package format has no AQR-013 renderer")
