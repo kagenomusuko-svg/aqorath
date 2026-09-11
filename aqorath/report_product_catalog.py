@@ -1,12 +1,14 @@
 """Governed AQR-013 report products and official packages.
 
-The catalog describes information products only. It owns no balances, SQL, fiscal
-classification, rendering or generated results. Runtime execution resolves these
-opaque query/renderer identifiers through the existing reporting authorities.
+The frozen ReportDefinition remains the authority for WHAT document exists. Product
+metadata in ReportProductGovernance is a deterministic 1:1 constraint keyed by that
+definition identity; it is not another report definition and owns no monetary truth,
+SQL, rendering, fiscal classification or generated result.
 """
 
 from .report_definition import ReportDefinition
 from .report_package import ReportPackage
+from .report_product_governance import ReportProductGovernance
 
 
 TRIAL_BALANCE_PERIOD = ReportDefinition(
@@ -20,12 +22,6 @@ TRIAL_BALANCE_PERIOD = ReportDefinition(
     required_fiscal_features=(),
     renderer_id="period_trial_balance",
     query_template_id="period_trial_balance",
-    key="financial.trial_balance.period",
-    report_type="financial",
-    allowed_parameters=("from_date", "to_date", "format"),
-    allowed_dimensions=(),
-    period_mode="range",
-    version="1",
 )
 
 INCOME_STATEMENT_PERIOD = ReportDefinition(
@@ -39,12 +35,6 @@ INCOME_STATEMENT_PERIOD = ReportDefinition(
     required_fiscal_features=(),
     renderer_id="period_income_statement",
     query_template_id="period_income_statement",
-    key="financial.income_statement.period",
-    report_type="financial",
-    allowed_parameters=("from_date", "to_date", "format"),
-    allowed_dimensions=(),
-    period_mode="range",
-    version="1",
 )
 
 BALANCE_SHEET_AS_OF = ReportDefinition(
@@ -58,12 +48,6 @@ BALANCE_SHEET_AS_OF = ReportDefinition(
     required_fiscal_features=(),
     renderer_id="balance_sheet",
     query_template_id="financial_snapshot",
-    key="financial.balance_sheet.as_of",
-    report_type="financial",
-    allowed_parameters=("as_of_date", "format"),
-    allowed_dimensions=(),
-    period_mode="as_of",
-    version="1",
 )
 
 JOURNAL_PERIOD = ReportDefinition(
@@ -77,12 +61,6 @@ JOURNAL_PERIOD = ReportDefinition(
     required_fiscal_features=(),
     renderer_id="journal_period",
     query_template_id="journal_period",
-    key="professional.journal.period",
-    report_type="professional",
-    allowed_parameters=("from_date", "to_date", "format"),
-    allowed_dimensions=(),
-    period_mode="range",
-    version="1",
 )
 
 GENERAL_LEDGER_PERIOD = ReportDefinition(
@@ -96,14 +74,7 @@ GENERAL_LEDGER_PERIOD = ReportDefinition(
     required_fiscal_features=(),
     renderer_id="general_ledger_period",
     query_template_id="general_ledger_period",
-    key="professional.general_ledger.period",
-    report_type="professional",
-    allowed_parameters=("from_date", "to_date", "format"),
-    allowed_dimensions=(),
-    period_mode="range",
-    version="1",
 )
-
 
 REPORT_DEFINITIONS = (
     TRIAL_BALANCE_PERIOD,
@@ -111,6 +82,59 @@ REPORT_DEFINITIONS = (
     BALANCE_SHEET_AS_OF,
     JOURNAL_PERIOD,
     GENERAL_LEDGER_PERIOD,
+)
+
+REPORT_GOVERNANCE = (
+    ReportProductGovernance(
+        1301,
+        "financial.trial_balance.period",
+        "financial",
+        ("from_date", "to_date", "format"),
+        (),
+        "range",
+        "1",
+        ("ledger-derived",),
+    ),
+    ReportProductGovernance(
+        1302,
+        "financial.income_statement.period",
+        "financial",
+        ("from_date", "to_date", "format"),
+        (),
+        "range",
+        "1",
+        ("ledger-derived", "canonical-catalog-semantics"),
+    ),
+    ReportProductGovernance(
+        1303,
+        "financial.balance_sheet.as_of",
+        "financial",
+        ("as_of_date", "format"),
+        (),
+        "as_of",
+        "1",
+        ("ledger-derived", "canonical-catalog-semantics"),
+    ),
+    ReportProductGovernance(
+        1304,
+        "professional.journal.period",
+        "professional",
+        ("from_date", "to_date", "format"),
+        (),
+        "range",
+        "1",
+        ("ledger-detail",),
+    ),
+    ReportProductGovernance(
+        1305,
+        "professional.general_ledger.period",
+        "professional",
+        ("from_date", "to_date", "format"),
+        (),
+        "range",
+        "1",
+        ("ledger-detail",),
+    ),
 )
 
 FINANCIAL_PERIOD_PACKAGE = ReportPackage(
@@ -136,24 +160,28 @@ REPORT_PACKAGES = (FINANCIAL_PERIOD_PACKAGE, PROFESSIONAL_DETAIL_PACKAGE)
 
 def _validate_catalog():
     ids = [item.id for item in REPORT_DEFINITIONS]
-    keys = [item.key for item in REPORT_DEFINITIONS]
     if any(value is None for value in ids):
         raise RuntimeError("governed report definitions require stable ids")
-    if any(value is None for value in keys):
-        raise RuntimeError("governed report definitions require stable keys")
     if len(ids) != len(set(ids)):
         raise RuntimeError("report definition ids must be unique")
+
+    governed_ids = [item.definition_id for item in REPORT_GOVERNANCE]
+    keys = [item.key for item in REPORT_GOVERNANCE]
+    if governed_ids != ids:
+        raise RuntimeError("report governance must match definitions 1:1 and in order")
     if len(keys) != len(set(keys)):
-        raise RuntimeError("report definition keys must be unique")
-    for item in REPORT_DEFINITIONS:
-        if item.report_type is None or item.period_mode is None or item.version is None:
-            raise RuntimeError("governed report definitions require product metadata")
+        raise RuntimeError("report product keys must be unique")
 
     package_ids = [item.id for item in REPORT_PACKAGES]
     if any(value is None for value in package_ids):
         raise RuntimeError("official report packages require stable ids")
     if len(package_ids) != len(set(package_ids)):
         raise RuntimeError("report package ids must be unique")
+    governed = set(ids)
+    for package in REPORT_PACKAGES:
+        for definition in package.included_reports:
+            if definition.id not in governed:
+                raise RuntimeError("report package contains ungoverned definition")
 
 
 _validate_catalog()
@@ -163,6 +191,10 @@ def list_report_definitions():
     return REPORT_DEFINITIONS
 
 
+def list_report_governance():
+    return REPORT_GOVERNANCE
+
+
 def get_report_definition(definition_id):
     for item in REPORT_DEFINITIONS:
         if item.id == definition_id:
@@ -170,10 +202,18 @@ def get_report_definition(definition_id):
     raise LookupError(f"unknown report definition: {definition_id!r}")
 
 
-def get_report_definition_by_key(key):
-    for item in REPORT_DEFINITIONS:
-        if item.key == key:
+def get_report_governance(definition_or_id):
+    definition_id = getattr(definition_or_id, "id", definition_or_id)
+    for item in REPORT_GOVERNANCE:
+        if item.definition_id == definition_id:
             return item
+    raise LookupError(f"unknown report governance: {definition_id!r}")
+
+
+def get_report_definition_by_key(key):
+    for governance in REPORT_GOVERNANCE:
+        if governance.key == key:
+            return get_report_definition(governance.definition_id)
     raise LookupError(f"unknown report definition key: {key!r}")
 
 
