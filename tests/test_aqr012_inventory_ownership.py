@@ -103,6 +103,7 @@ def test_owned_bank_account_selects_its_canonical_ledger_account(tmp_path, monke
             session,
             BankAccount(None, entity.id, selected_ledger.id, "Banco propio", "OWN-1", "MXN"),
         )
+        selected_ledger_id = selected_ledger.id
         prepared = prepare_inventory_purchase(
             session,
             MerchandisePurchaseFact(
@@ -115,7 +116,7 @@ def test_owned_bank_account_selects_its_canonical_ledger_account(tmp_path, monke
     with Session(engine) as session:
         lines = session.exec(select(JournalLine).where(JournalLine.entry_id == result["entry_id"])).all()
         settlement = next(line for line in lines if Decimal(line.credit) == Decimal("100.00"))
-        assert settlement.account_id == selected_ledger.id
+        assert settlement.account_id == selected_ledger_id
         assert settlement.account_code == "1105"
 
 
@@ -142,6 +143,8 @@ def test_foreign_cfdi_source_fails_before_inventory_truth_is_created(tmp_path, m
         row.entity_id = foreign.id
         session.add(row)
         session.commit()
+        source_id = source.id
+        customer_id = customer.id
         _prepared, stock = _purchase(
             session, entity, supplier, product, "10", "100", date(2026, 9, 9)
         )
@@ -155,9 +158,9 @@ def test_foreign_cfdi_source_fails_before_inventory_truth_is_created(tmp_path, m
                 session,
                 MerchandiseSaleFact(
                     entity.id, product.id, Decimal("4"), Decimal("290"),
-                    date(2026, 9, 10), "cash", customer.id,
+                    date(2026, 9, 10), "cash", customer_id,
                 ),
-                cfdi_source_id=source.id,
+                cfdi_source_id=source_id,
             )
         assert len(session.exec(select(JournalEntry)).all()) == before_entries
         assert len(session.exec(select(InventoryMovementRecord)).all()) == before_moves
@@ -186,6 +189,9 @@ def test_professional_readback_rejects_foreign_document_or_open_item_relationshi
             is_active=True,
         )
         session.add(foreign_party)
+        session.flush()
+        foreign_entity_id = foreign.id
+        foreign_party_id = foreign_party.id
         session.commit()
         prepared = prepare_inventory_purchase(
             session,
@@ -200,7 +206,7 @@ def test_professional_readback_rejects_foreign_document_or_open_item_relationshi
 
     with Session(engine) as session:
         document = session.get(DocumentReferenceRecord, result["document_reference_id"])
-        document.third_party_id = foreign_party.id
+        document.third_party_id = foreign_party_id
         session.add(document)
         session.commit()
     with pytest.raises(RuntimeError, match="DocumentReference counterparty"):
@@ -210,7 +216,7 @@ def test_professional_readback_rejects_foreign_document_or_open_item_relationshi
         document = session.get(DocumentReferenceRecord, result["document_reference_id"])
         document.third_party_id = supplier.id
         item = session.exec(select(OpenItemRecord).where(OpenItemRecord.source_entry_id == result["entry_id"])).one()
-        item.entity_id = foreign.id
+        item.entity_id = foreign_entity_id
         session.add_all([document, item])
         session.commit()
     with pytest.raises(RuntimeError, match="OpenItem belongs to a different Entity"):
