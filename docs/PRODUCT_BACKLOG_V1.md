@@ -468,7 +468,11 @@ AQR-012 incorpora schema 12 aditivo sin inventar inventario histórico, `Product
 
 ## AQR-013 — Motor de documentos, paquetes y reportes de producto
 
-**Estado:** `NEXT`
+**Estado:** `DONE`
+
+### Aceptación
+
+PR #51 incorporó AQR-013 con head revisado `cf5f9386844083a60f8dc323b4e0b0b989256d78`, CI canónico verde run 630 y merge `46bf21f61dd2d3e1cbadfa681a02e40d9faef63c`; el CI post-merge de `main` run 632 terminó verde. Schema 13 es aditivo y `reportpreset` / `reportpresetitem` persisten únicamente configuración owner-scoped. El contrato V1-12 prueba creación, edición gobernada, guardado, cierre/reapertura de sesión y regeneración del mismo preset contra cifras actuales: persistencia del preset no equivale a persistencia del resultado. `ReportDefinition` y `ReportRequest` conservan responsabilidades distintas; `ReportPackage` / `CustomReportPackage` son composición/preset, no autoridad contable. No existe shadow ledger ni caché monetaria autoritativa. JSON/XLSX son formatos de producto y no mecanismo de portabilidad relacional. La superficie profesional declara provenance vigente mediante AQR-011 (`FiscalPostingAuditRecord`, `load_fiscal_posting_audit_snapshot`) y AQR-010 (`CfdiSourceRecord`, `CfdiSourceLinkRecord`, `DocumentReferenceRecord`) y rechaza presentar `CfdiImportMetadataRecord` como autoridad canónica.
 
 ### Resultado de producto
 
@@ -494,7 +498,7 @@ AQR-008, AQR-009 y AQR-011 para sus reportes especializados.
 
 ## AQR-014 — Backup, restore, integridad y portabilidad como flujo de usuario
 
-**Estado:** `TODO`
+**Estado:** `NEXT`
 
 ### Resultado de producto
 
