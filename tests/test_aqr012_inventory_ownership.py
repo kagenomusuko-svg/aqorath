@@ -96,7 +96,7 @@ def test_owned_bank_account_selects_its_canonical_ledger_account(tmp_path, monke
 
     engine, entity, supplier, _customer, product, _ = _setup(tmp_path, monkeypatch)
     with Session(engine) as session:
-        selected_ledger = Account(code="1199", name="Banco seleccionado", nature="DEBIT")
+        selected_ledger = Account(code="1105", name="Anticipos a proveedores", nature="DEBIT")
         session.add(selected_ledger)
         session.commit()
         bank = create_bank_account(
@@ -116,7 +116,7 @@ def test_owned_bank_account_selects_its_canonical_ledger_account(tmp_path, monke
         lines = session.exec(select(JournalLine).where(JournalLine.entry_id == result["entry_id"])).all()
         settlement = next(line for line in lines if Decimal(line.credit) == Decimal("100.00"))
         assert settlement.account_id == selected_ledger.id
-        assert settlement.account_code == "1199"
+        assert settlement.account_code == "1105"
 
 
 def test_foreign_cfdi_source_fails_before_inventory_truth_is_created(tmp_path, monkeypatch):
