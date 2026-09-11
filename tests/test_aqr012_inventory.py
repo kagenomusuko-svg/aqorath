@@ -143,7 +143,7 @@ def test_v1_21_moving_average_purchase_purchase_sale_e2e(tmp_path, monkeypatch):
         assert by_code["1102"] == (Decimal("100.00"), Decimal("0"))
         assert by_code["4201"] == (Decimal("0"), Decimal("100.00"))
         assert by_code["5101"] == (Decimal("60.00"), Decimal("0"))
-        assert by_code["1104"] == (Decimal("0"), Decimal("60.00"))
+        assert by_code["1104"] == (Decimal("0",), Decimal("60.00"))
         assert r1["entry_id"] != r2["entry_id"] != rs["entry_id"]
 
 
@@ -235,3 +235,30 @@ def test_inventory_requires_entity_profile_capability(tmp_path):
         with pytest.raises(ValueError, match="inventory_control"):
             create_product(s, Product(None, entity.id, "X", "X", "unit"))
     engine.dispose()
+
+
+def test_inventory_http_routes_delegate_and_present_errors_explicitly(monkeypatch):
+    import aqorath.web_surface as web
+
+    calls = []
+    monkeypatch.setattr(web.controller, "inventory_products", lambda: [{"sku": "SKU-X"}])
+    monkeypatch.setattr(web.controller, "create_inventory_product", lambda payload: calls.append(("product", payload)) or {"id": 1})
+    monkeypatch.setattr(web.controller, "prepare_inventory", lambda payload: calls.append(("prepare", payload)) or {"token": "T"})
+    monkeypatch.setattr(web.controller, "professional_inventory", lambda movement_id: {"movement_id": movement_id})
+    monkeypatch.setattr(web.controller, "reverse_inventory", lambda movement_id, payload: calls.append(("reverse", movement_id, payload)) or {"idempotent": False})
+
+    assert web.inventory_products() == [{"sku": "SKU-X"}]
+    assert web.create_inventory_product({"sku": "SKU-X"}) == {"id": 1}
+    assert web.prepare_inventory({"operation_kind": "purchase"}) == {"token": "T"}
+    assert web.professional_inventory(7) == {"movement_id": 7}
+    assert web.reverse_inventory(7, {"reason": "cancel"}) == {"idempotent": False}
+    assert calls == [
+        ("product", {"sku": "SKU-X"}),
+        ("prepare", {"operation_kind": "purchase"}),
+        ("reverse", 7, {"reason": "cancel"}),
+    ]
+
+    monkeypatch.setattr(web.controller, "prepare_inventory", lambda _payload: (_ for _ in ()).throw(ValueError("bad inventory")))
+    error = web.prepare_inventory({"operation_kind": "sale"})
+    assert error.status_code == 400
+    assert error.detail == "bad inventory"
