@@ -10,6 +10,7 @@ import secrets
 from . import fiscal_v1_surface_application as _fiscal_v1
 from . import inventory_surface_application as _inventory_v1
 from . import reporting_surface_application as _reporting
+from . import report_preset_surface_application as _report_presets
 from . import surface_application as _application
 
 
@@ -105,6 +106,27 @@ class LocalPresentationController:
 
     def reporting_dimensions(self):
         return _reporting.list_reporting_dimensions()
+
+    def report_presets(self):
+        return _report_presets.list_report_presets_surface()
+
+    def report_preset(self, preset_id):
+        return _report_presets.get_report_preset_surface(preset_id)
+
+    def create_report_preset(self, payload):
+        return _report_presets.create_report_preset_surface(payload)
+
+    def update_report_preset(self, preset_id, payload):
+        return _report_presets.update_report_preset_surface(preset_id, payload)
+
+    def delete_report_preset(self, preset_id):
+        return _report_presets.delete_report_preset_surface(preset_id)
+
+    def execute_report_preset(self, preset_id, payload):
+        return _report_presets.execute_report_preset_surface(preset_id, payload)
+
+    def professional_report_preset(self, preset_id, payload):
+        return _report_presets.professional_report_preset_surface(preset_id, payload)
 
     def generate_financial_reports(self, payload):
         return _reporting.generate_financial_period_surface(payload)["common"]

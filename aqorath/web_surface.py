@@ -81,6 +81,62 @@ def reporting_dimensions():
         raise _error(exc) from exc
 
 
+@app.get("/api/reports/presets")
+def report_presets():
+    try:
+        return controller.report_presets()
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.get("/api/reports/presets/{preset_id}")
+def report_preset(preset_id: int):
+    try:
+        return controller.report_preset(preset_id)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/reports/presets")
+def create_report_preset(payload: dict):
+    try:
+        return controller.create_report_preset(payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.put("/api/reports/presets/{preset_id}")
+def update_report_preset(preset_id: int, payload: dict):
+    try:
+        return controller.update_report_preset(preset_id, payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.delete("/api/reports/presets/{preset_id}")
+def delete_report_preset(preset_id: int):
+    try:
+        return controller.delete_report_preset(preset_id)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/reports/presets/{preset_id}/execute")
+def execute_report_preset(preset_id: int, payload: dict):
+    try:
+        return controller.execute_report_preset(preset_id, payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@app.post("/api/reports/presets/{preset_id}/professional")
+def professional_report_preset(preset_id: int, payload: dict):
+    try:
+        return controller.professional_report_preset(preset_id, payload)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
 @app.post("/api/reports/packages/financial")
 def generate_financial_reports(payload: dict):
     try:
