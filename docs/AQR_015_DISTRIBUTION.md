@@ -62,7 +62,9 @@ La ruta por defecto vigente sigue siendo la autoridad histórica de `storage.py`
 
 El onboarding de instalación compone las autoridades existentes de catálogo, Entity/EntityProfile, calendario/períodos, FiscalProfile y account bindings. No crea tablas ni repositorios paralelos.
 
-Toda validación determinística del payload ocurre antes de iniciar escritura. Después, la materialización del catálogo canónico, creación de entidad, declaración del calendario, apertura del primer ejercicio, perfil fiscal y bindings se ejecutan como **una sola transacción propiedad del caso de uso de onboarding**. Las autoridades de entidad/perfil y bindings conservan su comportamiento histórico de auto-commit por defecto, pero admiten staging explícito (`commit=False`) cuando participan en esta composición.
+Toda validación determinística del payload ocurre antes de iniciar escritura. Después, la materialización del catálogo canónico, creación de entidad, declaración del calendario, apertura del primer ejercicio, perfil fiscal y bindings se ejecutan como **una sola transacción propiedad del caso de uso de onboarding**.
+
+Los contratos públicos preexistentes (`create_entity(session, entity)`, `register_fiscal_profile(session, profile)` y `set_account_binding(session, role, account_code)`) conservan exactamente sus firmas y su semántica de persistencia autónoma. Para la composición AQR-015, sus módulos exponen únicamente helpers internos de staging que ejecutan las mismas validaciones y `flush`, pero no hacen `commit`; el onboarding es el único dueño del `commit`/`rollback` de esa composición. Así no se ensancha la API pública para resolver una necesidad interna de atomicidad.
 
 Si cualquier paso tardío falla, la sesión revierte la transacción completa. No puede quedar una entidad activa sin perfil fiscal, calendario o bindings, ni puede un reintento quedar bloqueado por un onboarding parcialmente persistido. Una prueba de fallo inyectado después de haber staged múltiples bindings verifica rollback total y reintento limpio.
 
@@ -82,4 +84,6 @@ CI construye una sola vez sdist + wheel y ejecuta `scripts/verify_distribution.p
 - verifica integridad AQR-014 y creación/migración SQLite;
 - solicita cierre del proceso y falla si requiere kill forzado.
 
-Este gate acredita sólo el baseline de distribución/instalación. AQR-015 sigue abierto hasta completar upgrade histórico, offline explícito, recorridos V1-01..V1-22, evidencia profesional y prueba humana reproducible.
+El smoke de distribución también cubre upgrade desde una fixture histórica soportada, preservación de datos y backup pre-migración, además del rechazo fail-closed de una base con schema futuro. El smoke V1 instalado ejecuta el recorrido V1-01 con guard offline sobre el wheel real.
+
+Estos gates acreditan el baseline técnico de distribución/instalación y el primer recorrido instalado; AQR-015 sigue abierto mientras falten recorridos V1 incluidos, evidencia profesional reproducible y prueba humana real conforme a `PRODUCT_ACCEPTANCE_V1.md`.
