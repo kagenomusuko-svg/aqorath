@@ -44,14 +44,20 @@ def list_reporting_surface_catalog():
     return {
         "definitions": [
             {
-                "key": item.key,
+                "id": item.id,
+                "key": _catalog.get_report_governance(item).key,
                 "name": item.name,
                 "description": item.description,
-                "type": item.report_type,
+                "type": _catalog.get_report_governance(item).report_type,
                 "supported_formats": list(item.supported_formats),
-                "allowed_dimensions": list(item.allowed_dimensions),
-                "period_mode": item.period_mode,
-                "version": item.version,
+                "allowed_dimensions": list(
+                    _catalog.get_report_governance(item).allowed_dimensions
+                ),
+                "period_mode": _catalog.get_report_governance(item).period_mode,
+                "version": _catalog.get_report_governance(item).version,
+                "restrictions": list(
+                    _catalog.get_report_governance(item).restrictions
+                ),
             }
             for item in definitions
         ],
@@ -59,7 +65,10 @@ def list_reporting_surface_catalog():
             {
                 "id": item.id,
                 "name": item.name,
-                "reports": [report.key for report in item.included_reports],
+                "reports": [
+                    _catalog.get_report_governance(report).key
+                    for report in item.included_reports
+                ],
                 "suggested_parameters": dict(item.suggested_parameters),
             }
             for item in packages
@@ -75,18 +84,7 @@ def _active_entity_id():
         return entity.id
 
 
-def generate_financial_period_surface(payload):
-    if type(payload) is not dict:
-        raise TypeError("payload must be dict")
-    from_date = _date(payload.get("from_date"), "from_date")
-    to_date = _date(payload.get("to_date"), "to_date")
-    format = payload.get("format", "json")
-    entity_id = _active_entity_id()
-    generated = _runtime.generate_financial_period_package(
-        entity_id, from_date, to_date, format
-    )
-    rendered = _rendering.render_generated_package(generated)
-
+def _package_surface(generated, rendered, from_date, to_date):
     common = {
         "package": generated.package.name,
         "from_date": from_date.isoformat(),
@@ -103,11 +101,46 @@ def generate_financial_period_surface(payload):
     else:
         common["document_base64"] = base64.b64encode(rendered.payload).decode("ascii")
         common["media_type"] = rendered.media_type
-    return {"common": common, "generated": generated, "rendered": rendered}
+    return common
 
 
-def professional_financial_period_surface(payload):
-    result = generate_financial_period_surface(payload)
+def generate_financial_period_surface(payload):
+    if type(payload) is not dict:
+        raise TypeError("payload must be dict")
+    from_date = _date(payload.get("from_date"), "from_date")
+    to_date = _date(payload.get("to_date"), "to_date")
+    format = payload.get("format", "json")
+    entity_id = _active_entity_id()
+    generated = _runtime.generate_financial_period_package(
+        entity_id, from_date, to_date, format
+    )
+    rendered = _rendering.render_generated_package(generated)
+    return {
+        "common": _package_surface(generated, rendered, from_date, to_date),
+        "generated": generated,
+        "rendered": rendered,
+    }
+
+
+def generate_professional_detail_surface(payload):
+    if type(payload) is not dict:
+        raise TypeError("payload must be dict")
+    from_date = _date(payload.get("from_date"), "from_date")
+    to_date = _date(payload.get("to_date"), "to_date")
+    format = payload.get("format", "json")
+    entity_id = _active_entity_id()
+    generated = _runtime.generate_professional_detail_package(
+        entity_id, from_date, to_date, format
+    )
+    rendered = _rendering.render_generated_package(generated)
+    return {
+        "common": _package_surface(generated, rendered, from_date, to_date),
+        "generated": generated,
+        "rendered": rendered,
+    }
+
+
+def _professional_package(result):
     generated = result["generated"]
     return {
         "package": {
@@ -119,6 +152,9 @@ def professional_financial_period_surface(payload):
         "requests": [
             {
                 "definition": _json_value(report.definition),
+                "governance": _json_value(
+                    _catalog.get_report_governance(report.definition)
+                ),
                 "request": _json_value(report.request),
                 "source_authorities": list(report.source_authorities),
                 "content": _json_value(report.content),
@@ -130,3 +166,11 @@ def professional_financial_period_surface(payload):
             "media_type": result["rendered"].media_type,
         },
     }
+
+
+def professional_financial_period_surface(payload):
+    return _professional_package(generate_financial_period_surface(payload))
+
+
+def professional_detail_surface(payload):
+    return _professional_package(generate_professional_detail_surface(payload))
