@@ -3,8 +3,8 @@
 **Fecha de corte:** 2026-09-10
 **Rama de continuidad:** `main`  
 **Baseline histórico de runtime:** `7623e4eb0636064cdab0582ce3c98e7b9c844e93` (PR #30)  
-**Runtime material vigente:** AQR-002 a AQR-011
-**Esquema vigente:** 11
+**Runtime material vigente:** AQR-002 a AQR-012
+**Esquema vigente:** 12
 
 > Este documento sustituye a `REPO_AUDIT_V1.md` como descripción del estado actual. V1 queda únicamente como referencia histórica. Los apartados del baseline PR #30 conservan valor de evidencia; las actualizaciones AQR posteriores prevalecen cuando amplían el estado material.
 
@@ -14,14 +14,14 @@
 
 Aqorath dispone de un núcleo contable local ampliamente endurecido y probado: SQLite como autoridad, dinero exacto, partida doble, catálogo gobernado, resolución de hechos económicos, reporting, fiscalidad versionada, trazabilidad, fundamentos OSC y activos fijos.
 
-AQR-002 añadió la autoridad explícita de período y ejercicio. AQR-003 consolidó inmutabilidad append-only y corrección por reversión con auditoría. AQR-004 compuso las autoridades existentes en un caso de uso Application ordinario completo: **hecho → decisión → consentimiento → posting → auditoría**, sin crear un segundo motor ni una persistencia paralela. AQR-005 añadió una superficie local común + profesional sobre esas mismas autoridades. AQR-006 a AQR-009 completaron submayores, conciliación bancaria, trazabilidad OSC y donativos monetarios/en especie manteniendo `JournalLine` como única autoridad contable. AQR-010 incorporó CFDI XML como evidencia externa verificable y lo vinculó a esas autoridades sin convertirlo en ledger ni regla fiscal. AQR-011 cerró la cobertura fiscal mexicana V1 mediante matriz normativa versionada, aplicabilidad factual fail-closed, cálculo exacto y superficies común/profesional sobre la misma autoridad contable.
+AQR-002 añadió la autoridad explícita de período y ejercicio. AQR-003 consolidó inmutabilidad append-only y corrección por reversión con auditoría. AQR-004 compuso las autoridades existentes en un caso de uso Application ordinario completo: **hecho → decisión → consentimiento → posting → auditoría**, sin crear un segundo motor ni una persistencia paralela. AQR-005 añadió una superficie local común + profesional sobre esas mismas autoridades. AQR-006 a AQR-009 completaron submayores, conciliación bancaria, trazabilidad OSC y donativos monetarios/en especie manteniendo `JournalLine` como única autoridad contable. AQR-010 incorporó CFDI XML como evidencia externa verificable y lo vinculó a esas autoridades sin convertirlo en ledger ni regla fiscal. AQR-011 cerró la cobertura fiscal mexicana V1 mediante matriz normativa versionada, aplicabilidad factual fail-closed, cálculo exacto y superficies común/profesional sobre la misma autoridad contable. AQR-012 incorporó inventario perpetuo y costo por promedio ponderado móvil manteniendo `JournalEntry`/`JournalLine` como única autoridad monetaria y reconciliando existencia, valuación y COGS con el ledger.
 
 ### Resultado del corte
 
 - **P0 de integridad contable conocidos:** ninguno abierto después de PR #36/#37/#39.
 - **Estado de producción:** **NO declarado listo para producción**; una suite verde no sustituye la aceptación profesional/humana restante.
 - **Cobertura fiscal V1:** cerrada por AQR-011 con vigencias/fuentes versionadas, aplicabilidad factual y rechazo explícito fuera de soporte.
-- **Continuidad:** `PRODUCT_BACKLOG_V1.md` contiene exactamente un `NEXT`: AQR-012.
+- **Continuidad:** `PRODUCT_BACKLOG_V1.md` contiene exactamente un `NEXT`: AQR-013.
 
 ---
 
@@ -106,6 +106,21 @@ AQR-005 deriva del repositorio una superficie web local estrictamente `127.0.0.1
 - CFDI permanece evidencia documental y no selector jurídico;
 - posting fiscal, documento/CFDI y auditoría se componen atómicamente sobre las autoridades existentes;
 - superficies común/profesional reconstruyen la misma verdad fiscal persistida.
+
+### AQR-012 — inventario perpetuo y costos
+
+- PR #48, merge `79d4ec06a6b5fe9e20b511284cfe105d21dddd40`;
+- head definitivo revisado `bf74211975ce4ef19b0cf0243d6f315f8dbe5fd4`;
+- CI del head run 546 verde; CI post-merge de `main` run 547 verde;
+- suite completa Python 3.12: **2125 passed, 8 warnings**;
+- schema 12 aditivo con `inventoryproduct` / `inventorymovement` vacíos al migrar historia, sin backfill inventado;
+- promedio ponderado móvil exacto con Decimal y V1-21 reproducible de superficie común a movimiento/ledger/readback/auditoría;
+- stock, valor y COGS se reconcilian contra `JournalLine`; no existe shadow ledger de inventario;
+- compras/ventas atómicas, oversell fail-closed e idempotencia por operación;
+- crédito compone AQR-006 `OpenItem`, CFDI compone AQR-010 en el mismo commit y fiscalidad soportada compone AQR-011 antes de un único posting;
+- reversión AQR-003 invierte el costo consolidado original sin revalorar el pasado y conserva historia `as_of`;
+- ownership de producto/tercero/banco/CFDI/documento/OpenItem y cambio de Entity activa fallan antes de verdad parcial;
+- superficies común/profesional y HTTP/UI consultan la misma persistencia canónica.
 
 ---
 
