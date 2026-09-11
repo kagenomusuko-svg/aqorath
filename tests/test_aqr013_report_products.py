@@ -54,7 +54,6 @@ def _period_db(tmp_path):
                 (5, "5101", "Costo de ventas", "debit"),
             ),
         )
-        # Opening truth: assets 200 = equity 200.
         conn.execute(
             "INSERT INTO journalentry(id,date,concept,state) VALUES(1,?,?,?)",
             ("2025-12-31T12:00:00+00:00", "opening", "posted"),
@@ -67,7 +66,6 @@ def _period_db(tmp_path):
                 (3, 1, "3101", 3, "0", "200"),
             ),
         )
-        # January sale 100 and COGS 60.
         conn.execute(
             "INSERT INTO journalentry(id,date,concept,state) VALUES(2,?,?,?)",
             ("2026-01-15T12:00:00+00:00", "sale", "posted"),
@@ -106,6 +104,17 @@ def _entity():
     )
 
 
+def _wire_runtime(tmp_path, monkeypatch):
+    from aqorath import report_period_runtime as runtime
+    from aqorath import report_product_application as app
+
+    path = _period_db(tmp_path)
+    monkeypatch.setattr(runtime._storage, "get_db_path", lambda: path)
+    monkeypatch.setattr(runtime._accounting_rules, "load_catalog", _catalog)
+    monkeypatch.setattr(app._entities, "load_active_entity", lambda session: _entity())
+    return app
+
+
 def test_governed_catalog_preserves_definition_request_package_boundaries():
     from aqorath import report_product_catalog as catalog
     from aqorath.report_definition import ReportDefinition
@@ -114,6 +123,7 @@ def test_governed_catalog_preserves_definition_request_package_boundaries():
     definitions = catalog.list_report_definitions()
     assert tuple(definition.id for definition in definitions) == (1301, 1302, 1303)
     assert all(isinstance(definition, ReportDefinition) for definition in definitions)
+    assert all(definition.supported_formats == ("json", "xlsx", "pdf") for definition in definitions)
     assert catalog.get_financial_period_package() == ReportPackage(
         id=13001,
         name="Paquete financiero por período",
@@ -194,13 +204,7 @@ def test_period_source_does_not_leak_post_range_movements(tmp_path):
 
 
 def test_first_package_uses_same_canonical_bundle_as_individual_reports(tmp_path, monkeypatch):
-    from aqorath import report_period_runtime as runtime
-    from aqorath import report_product_application as app
-
-    path = _period_db(tmp_path)
-    monkeypatch.setattr(runtime._storage, "get_db_path", lambda: path)
-    monkeypatch.setattr(runtime._accounting_rules, "load_catalog", _catalog)
-    monkeypatch.setattr(app._entities, "load_active_entity", lambda session: _entity())
+    app = _wire_runtime(tmp_path, monkeypatch)
 
     prepared = app.prepare_financial_period_package(
         object(),
@@ -230,6 +234,29 @@ def test_first_package_uses_same_canonical_bundle_as_individual_reports(tmp_path
     assert rendered["reports"][2]["content"]["assets"]["total"] == "240"
 
 
+@pytest.mark.parametrize(
+    ("format_key", "prefix"),
+    (("xlsx", b"PK"), ("pdf", b"%PDF")),
+)
+def test_same_semantic_package_renders_in_explicit_binary_formats(tmp_path, monkeypatch, format_key, prefix):
+    app = _wire_runtime(tmp_path, monkeypatch)
+    prepared = app.prepare_financial_period_package(
+        object(),
+        from_date=date(2026, 1, 1),
+        to_date=date(2026, 1, 31),
+        format=format_key,
+    )
+    result = app.build_financial_period_package(object(), prepared)
+    rendered = app.render_report_package(result)
+    assert isinstance(rendered, bytes)
+    assert rendered.startswith(prefix)
+
+    for report in result.reports:
+        individual = app.render_report_product(report)
+        assert isinstance(individual, bytes)
+        assert individual.startswith(prefix)
+
+
 def test_request_validation_fails_closed_for_format_filters_dimensions_and_ownership(monkeypatch):
     from aqorath import report_product_application as app
     from aqorath.report_request import ReportRequest
@@ -242,7 +269,7 @@ def test_request_validation_fails_closed_for_format_filters_dimensions_and_owner
             1301,
             from_date=date(2026, 1, 1),
             to_date=date(2026, 1, 31),
-            format="pdf",
+            format="docx",
         )
     with pytest.raises(ValueError, match="filters"):
         app.prepare_report_request(
