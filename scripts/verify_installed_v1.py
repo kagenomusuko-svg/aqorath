@@ -13,6 +13,7 @@ professional-review or human-acceptance gates required by PRODUCT_ACCEPTANCE_V1.
 from __future__ import annotations
 
 import argparse
+from decimal import Decimal
 import json
 import os
 from pathlib import Path
@@ -329,7 +330,7 @@ def _assert_credit_journey(
             "allocations": [
                 {
                     "open_item_id": open_item_id,
-                    "amount": str(float(balance_after_first) + 1),
+                    "amount": str(Decimal(balance_after_first) + Decimal("1.00")),
                 }
             ],
             "posting_date": second_date,
@@ -506,9 +507,9 @@ def _install_and_run(wheel: Path) -> None:
             entries = conn.execute(
                 "SELECT COUNT(*) FROM journalentry WHERE state='posted'"
             ).fetchone()[0]
-            open_items = conn.execute("SELECT COUNT(*) FROM openitemrecord").fetchone()[0]
+            open_items = conn.execute("SELECT COUNT(*) FROM openitem").fetchone()[0]
             applications = conn.execute(
-                "SELECT COUNT(*) FROM openitemapplicationrecord"
+                "SELECT COUNT(*) FROM openitemapplication"
             ).fetchone()[0]
         if rows[:2] != [("1102", "200.00", "0"), ("4201", "0", "200.00")]:
             raise AssertionError(f"installed SQLite lost V1-01 truth: {rows[:2]}")
