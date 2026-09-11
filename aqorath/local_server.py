@@ -10,11 +10,14 @@ def run_local_surface(port=DEFAULT_PORT):
         raise TypeError("port must be int")
     if not 1 <= port <= 65535:
         raise ValueError("port must be between 1 and 65535")
+
+    # Importing recovery_web registers AQR-014 routes on the canonical web_surface app.
+    # aqorath.recovery_web:app is therefore an alias, not a second local surface.
+    from . import recovery_web as _recovery_web  # noqa: F401
     import uvicorn
 
-    # recovery_web composes the existing local surface with AQR-014 routes and UI.
     uvicorn.run(
-        "aqorath.recovery_web:app",
+        "aqorath.web_surface:app",
         host=LOCAL_HOST,
         port=port,
         log_level="info",
