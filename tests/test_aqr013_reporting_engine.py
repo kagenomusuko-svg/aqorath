@@ -89,8 +89,11 @@ def test_governed_catalog_separates_definition_request_and_package():
         "financial.balance_sheet.as_of",
         "professional.journal.period",
         "professional.general_ledger.period",
+        "analytical.activity.period",
+        "inventory.valuation.as_of",
+        "fiscal.evidence.period",
     ]
-    assert len({item.id for item in definitions}) == 5
+    assert len({item.id for item in definitions}) == 8
     assert [item.definition_id for item in governance] == [item.id for item in definitions]
     assert all(item.version == "1" for item in governance)
     assert catalog.FINANCIAL_PERIOD_PACKAGE.included_reports == definitions[:3]
