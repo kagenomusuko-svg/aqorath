@@ -506,6 +506,32 @@ def execute_inventory_operation(confirmed):
                     raise RuntimeError("inventory posting did not assign JournalEntry identity")
             session.flush()
 
+            # Non-fiscal inventory postings must expose the canonical ownership audit
+            # before AQR-010 stages a CFDI link. Fiscalized postings already stage
+            # their own single entry_posted event through AQR-011. Everything remains
+            # caller-owned and uncommitted until the inventory transaction succeeds.
+            if fiscal_result is None:
+                posting_audit = _audit.stage_audit_event(
+                    session,
+                    AuditEvent(
+                        None,
+                        entity.id,
+                        "entry_posted",
+                        datetime.now(timezone.utc),
+                        {
+                            "entry_id": entry.id,
+                            "inventory_posting": {
+                                "operation_id": prepared.operation_id,
+                                "kind": prepared.kind,
+                                "product_id": product.id,
+                                "consent": "explicit_confirmation",
+                            },
+                        },
+                    ),
+                )
+                if posting_audit.id is None:
+                    raise RuntimeError("canonical inventory posting audit did not receive identity")
+
             if prepared.kind == "purchase":
                 inventory_line = _line(session, entry.id, codes["inventory"], "debit", prepared.inventory_cost)
                 cogs_line = None
