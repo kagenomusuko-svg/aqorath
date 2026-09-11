@@ -82,14 +82,23 @@ def test_governed_catalog_separates_definition_request_and_package():
     from aqorath import report_product_catalog as catalog
 
     definitions = catalog.list_report_definitions()
-    assert [item.key for item in definitions] == [
+    governance = catalog.list_report_governance()
+    assert [item.key for item in governance] == [
         "financial.trial_balance.period",
         "financial.income_statement.period",
         "financial.balance_sheet.as_of",
+        "professional.journal.period",
+        "professional.general_ledger.period",
     ]
-    assert len({item.id for item in definitions}) == 3
-    assert all(item.version == "1" for item in definitions)
-    assert catalog.FINANCIAL_PERIOD_PACKAGE.included_reports == definitions
+    assert len({item.id for item in definitions}) == 5
+    assert [item.definition_id for item in governance] == [item.id for item in definitions]
+    assert all(item.version == "1" for item in governance)
+    assert catalog.FINANCIAL_PERIOD_PACKAGE.included_reports == definitions[:3]
+    assert catalog.PROFESSIONAL_DETAIL_PACKAGE.included_reports == (
+        definitions[3],
+        definitions[4],
+        definitions[0],
+    )
     assert catalog.FINANCIAL_PERIOD_PACKAGE.is_official is True
 
 
