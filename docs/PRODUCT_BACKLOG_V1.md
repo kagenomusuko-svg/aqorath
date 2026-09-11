@@ -440,7 +440,7 @@ AQR-011 declara y versiona la cobertura fiscal mexicana V1 y falla cerrado fuera
 
 ## AQR-012 — Inventario y costos cuando el perfil de entidad lo requiera
 
-**Estado:** `NEXT`
+**Estado:** `DONE`
 
 ### Resultado de producto
 
@@ -458,11 +458,17 @@ Existencia, valuación y costo de venta se reconcilian con el ledger y son repro
 
 AQR-001. Si la matriz V1 excluye inventario, esta tarea pasa a `DEFERRED` en vez de implementarse por inercia.
 
+### Cierre de aceptación
+
+Implementado y fusionado mediante PR #48, merge `79d4ec06a6b5fe9e20b511284cfe105d21dddd40`, head definitivo revisado `bf74211975ce4ef19b0cf0243d6f315f8dbe5fd4`. CI estándar del head run 546 verde; CI post-merge de `main` run 547 verde; suite completa Python 3.12 registrada: **2125 passed, 8 warnings**.
+
+AQR-012 incorpora schema 12 aditivo sin inventar inventario histórico, `Product` e `InventoryMovement` como autoridad de identidad, cantidades físicas, movimientos y costo reproducible por promedio ponderado móvil. `JournalEntry` / `JournalLine` permanecen como única autoridad monetaria; valuación y COGS se reconcilian contra esas líneas. El escenario V1-21 queda probado extremo a extremo (10×10 + 10×20 → 20 unidades/300/15; venta 4×25 → ingreso 100, COGS 60, margen 40, existencia 16, inventario 240). Compras/ventas son atómicas, idempotentes y fail-closed ante sobreventa; crédito reutiliza AQR-006 `OpenItem`; CFDI AQR-010 permanece evidencia documental canónica; fiscalidad AQR-011 se compone explícitamente antes de un único posting y no se infiere desde inventario/CFDI. Reversión conserva el costo consolidado original y la historia `as_of`; ownership y cambio de contexto fallan antes de crear verdad parcial. Las superficies común/profesional y HTTP/UI proyectan la misma persistencia sin shadow ledger.
+
 ---
 
 ## AQR-013 — Motor de documentos, paquetes y reportes de producto
 
-**Estado:** `TODO`
+**Estado:** `NEXT`
 
 ### Resultado de producto
 
@@ -569,4 +575,4 @@ Al completar una tarea:
 
 ## SIGUIENTE ACTUAL
 
-`AQR-012 — Inventario y costos cuando el perfil de entidad lo requiera`.
+`AQR-013 — Motor de documentos, paquetes y reportes de producto`.
