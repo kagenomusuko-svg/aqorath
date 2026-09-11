@@ -320,7 +320,10 @@ def _assert_credit_journey(
     partial = _request_json(
         "GET", f"/api/subledger/open-items/{open_item_id}?as_of={first_date}"
     )
-    if partial.get("open_balance") != balance_after_first or partial.get("status") != "open":
+    if (
+        Decimal(partial.get("open_balance", "NaN")) != Decimal(balance_after_first)
+        or partial.get("status") != "open"
+    ):
         raise AssertionError(f"{case_id} partial settlement is wrong: {partial}")
 
     rejected = _request_error(
@@ -351,7 +354,10 @@ def _assert_credit_journey(
     settled = _request_json(
         "GET", f"/api/subledger/open-items/{open_item_id}?as_of={second_date}"
     )
-    if settled.get("open_balance") != "0" or settled.get("status") != "settled":
+    if (
+        Decimal(settled.get("open_balance", "NaN")) != Decimal("0")
+        or settled.get("status") != "settled"
+    ):
         raise AssertionError(f"{case_id} did not settle exactly: {settled}")
 
     professional = _request_json(
@@ -359,7 +365,10 @@ def _assert_credit_journey(
         f"/api/subledger/open-items/{open_item_id}/professional?as_of={second_date}",
     )
     pro_item = professional.get("open_item", {})
-    if pro_item.get("open_balance") != "0" or pro_item.get("third_party_id") != party["id"]:
+    if (
+        Decimal(pro_item.get("open_balance", "NaN")) != Decimal("0")
+        or pro_item.get("third_party_id") != party["id"]
+    ):
         raise AssertionError(f"{case_id} professional readback differs: {professional}")
     source_operation = professional.get("source_operation", {})
     documents = source_operation.get("documents", [])
