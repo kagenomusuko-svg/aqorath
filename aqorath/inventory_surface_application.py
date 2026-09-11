@@ -12,12 +12,15 @@ import json
 
 from sqlmodel import select
 
+from . import fiscal_v1_operation as _fiscal_v1
 from . import inventory_operations as _operations
 from . import inventory_repository as _inventory
 from . import inventory_reversal as _reversal
+from . import open_item_repository as _open_items
 from . import storage as _storage
 from .inventory import MerchandisePurchaseFact, MerchandiseSaleFact, Product
 from .inventory_models import InventoryMovementRecord, ProductRecord
+from .open_item_models import OpenItemRecord
 from .models import (
     AuditEventRecord,
     DocumentReferenceRecord,
@@ -272,6 +275,85 @@ def reverse_inventory_surface_operation(movement_id, reason, reversal_date=None)
     return _reversal.reverse_inventory_movement(movement_id, reason, day)
 
 
+def _open_item_projection(session, entity_id, movement):
+    rows = session.exec(
+        select(OpenItemRecord).where(OpenItemRecord.source_entry_id == movement.entry_id)
+    ).all()
+    if not rows:
+        return None
+    if len(rows) != 1:
+        raise RuntimeError("inventory JournalEntry must identify at most one OpenItem")
+    record = rows[0]
+    if record.entity_id != entity_id:
+        raise RuntimeError("inventory OpenItem belongs to a different Entity")
+    if movement.third_party_id is None or record.third_party_id != movement.third_party_id:
+        raise RuntimeError("inventory OpenItem counterparty diverges from movement")
+    if movement.document_reference_id is None or record.source_document_reference_id != movement.document_reference_id:
+        raise RuntimeError("inventory OpenItem document diverges from movement")
+    view = _open_items.load_open_item(session, record.id, as_of=movement.occurred_on)
+    return {
+        "id": view.id,
+        "kind": view.kind,
+        "third_party_id": view.third_party_id,
+        "source_entry_id": view.source_entry_id,
+        "source_line_id": view.source_line_id,
+        "source_document_reference_id": view.source_document_reference_id,
+        "due_date": view.due_date.isoformat(),
+        "original_amount": str(view.original_amount),
+        "applied_amount": str(view.applied_amount),
+        "open_balance": str(view.open_balance),
+        "status": view.status,
+        "aging_bucket": view.aging_bucket,
+    }
+
+
+def _fiscal_projection(session, entity_id, entry_id):
+    try:
+        return _fiscal_v1.load_fiscal_v1_operation(session, entity_id, entry_id)
+    except LookupError:
+        return None
+
+
+def _monetary_projection(movement, lines, fiscality):
+    value_delta = Decimal(movement.value_delta)
+    if movement.movement_kind in {"purchase", "reversal_purchase"}:
+        return {
+            "purchase_amount": str(abs(value_delta)),
+            "revenue": None,
+            "cost_of_sale": None,
+            "margin": None,
+        }
+    if movement.movement_kind not in {"sale", "reversal_sale"}:
+        return {
+            "purchase_amount": None,
+            "revenue": None,
+            "cost_of_sale": None,
+            "margin": None,
+        }
+    cost = abs(value_delta)
+    if fiscality is not None:
+        facts = fiscality.get("facts") or {}
+        raw_revenue = facts.get("amount")
+        if raw_revenue is None:
+            raise RuntimeError("AQR-011 fiscal readback lacks economic amount")
+        revenue = Decimal(raw_revenue)
+    else:
+        excluded = {movement.inventory_line_id, movement.cogs_line_id}
+        commercial = [line for line in lines if line.id not in excluded]
+        debit = sum((Decimal(line.debit) for line in commercial), Decimal("0"))
+        credit = sum((Decimal(line.credit) for line in commercial), Decimal("0"))
+        if debit != credit or debit < Decimal("0"):
+            raise RuntimeError("commercial JournalLines do not expose one balanced sale amount")
+        revenue = debit
+    margin = revenue - cost
+    return {
+        "purchase_amount": None,
+        "revenue": str(revenue),
+        "cost_of_sale": str(cost),
+        "margin": str(margin),
+    }
+
+
 def load_inventory_surface_professional(movement_id):
     movement_id = _positive_id(movement_id, "movement_id")
     with _storage.get_session() as session:
@@ -282,15 +364,26 @@ def load_inventory_surface_professional(movement_id):
         product = _inventory.load_product(session, entity.id, movement.product_id)
         _inventory.validate_movement_reconciliation(session, movement)
         entry = session.get(JournalEntry, movement.entry_id)
+        if entry is None:
+            raise RuntimeError("inventory movement JournalEntry is missing")
         lines = session.exec(
             select(JournalLine)
             .where(JournalLine.entry_id == movement.entry_id)
             .order_by(JournalLine.id)
         ).all()
         party = None if movement.third_party_id is None else session.get(ThirdPartyRecord, movement.third_party_id)
+        if movement.third_party_id is not None and (party is None or party.entity_id != entity.id):
+            raise RuntimeError("inventory ThirdParty belongs to a different Entity")
         document = None if movement.document_reference_id is None else session.get(
             DocumentReferenceRecord, movement.document_reference_id
         )
+        if movement.document_reference_id is not None:
+            if document is None:
+                raise RuntimeError("inventory DocumentReference is missing")
+            if document.entry_id != movement.entry_id:
+                raise RuntimeError("inventory DocumentReference belongs to a different JournalEntry")
+            if document.third_party_id != movement.third_party_id:
+                raise RuntimeError("inventory DocumentReference counterparty diverges from movement")
         cfdi_link = None
         cfdi = None
         if movement.document_reference_id is not None:
@@ -301,6 +394,11 @@ def load_inventory_surface_professional(movement_id):
             ).one_or_none()
             if cfdi_link is not None:
                 cfdi = session.get(CfdiSourceRecord, cfdi_link.cfdi_source_id)
+                if cfdi is None or cfdi.entity_id != entity.id:
+                    raise RuntimeError("inventory CFDI evidence belongs to a different Entity")
+        open_item = _open_item_projection(session, entity.id, movement)
+        fiscality = _fiscal_projection(session, entity.id, entry.id)
+        monetary = _monetary_projection(movement, lines, fiscality)
         audits = []
         for row in session.exec(
             select(AuditEventRecord)
@@ -311,7 +409,11 @@ def load_inventory_surface_professional(movement_id):
                 details = json.loads(row.details_json)
             except (TypeError, ValueError):
                 continue
-            if details.get("movement_id") == movement.id or details.get("original_movement_id") == movement.id:
+            if (
+                details.get("movement_id") == movement.id
+                or details.get("original_movement_id") == movement.id
+                or details.get("entry_id") == movement.entry_id
+            ):
                 audits.append({"id": row.id, "event_type": row.event_type, "details": details})
         reversal = session.exec(
             select(InventoryMovementRecord).where(
@@ -345,6 +447,7 @@ def load_inventory_surface_professional(movement_id):
                 "value": str(as_of_state.value),
                 "moving_average": str(as_of_state.average),
             },
+            "monetary": monetary,
             "ledger": {
                 "entry_id": entry.id,
                 "state": entry.state,
@@ -361,6 +464,7 @@ def load_inventory_surface_professional(movement_id):
                 ],
             },
             "third_party": None if party is None else {"id": party.id, "name": party.name, "rfc": party.rfc},
+            "open_item": open_item,
             "document": None if document is None else {
                 "id": document.id,
                 "type": document.document_type,
@@ -368,6 +472,7 @@ def load_inventory_surface_professional(movement_id):
                 "date": document.date,
             },
             "cfdi": None if cfdi is None else {"source_id": cfdi.id, "uuid": cfdi.uuid, "total": cfdi.total},
+            "fiscality": fiscality,
             "audit": audits,
             "reversal": None if reversal is None else {
                 "movement_id": reversal.id,
@@ -375,7 +480,6 @@ def load_inventory_surface_professional(movement_id):
                 "accounting_reversal_id": None if accounting_reversal is None else accounting_reversal.id,
             },
             "reconciled": True,
-            "fiscality": "AQR-011 is the fiscal authority; this view does not infer treatment from inventory or CFDI.",
         }
 
 
