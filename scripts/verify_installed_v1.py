@@ -13,6 +13,7 @@ professional-review or human-acceptance gates required by PRODUCT_ACCEPTANCE_V1.
 from __future__ import annotations
 
 import argparse
+import base64
 from decimal import Decimal
 import json
 import os
@@ -566,6 +567,195 @@ def _assert_v1_03_v1_18_correction(db_path: Path) -> dict:
     return {"V1-03": {"entry_id": original_id, "amount": "150.00", "expense_account": "5102", "bank_account": "1101"}, "V1-18": {"original_entry_id": original_id, "reversal_entry_id": reversal_id, "replacement_entry_id": replacement_id, "net_expense": str(net["5102"]), "reason": reversed_result["reason"]}}
 
 
+def _assert_v1_11_v1_12_reporting(db_path: Path) -> dict:
+    case = "V1-11 professional reporting"
+    if _request_json("GET", "/api/onboarding").get("configured") is not False:
+        raise AssertionError(f"{case}: reporting SQLite was not clean")
+    _request_json("POST", "/api/onboarding", _onboarding_payload())
+
+    def post_common(operation_key, amount, posting_date):
+        prepared = _request_json("POST", "/api/operations/prepare", {"operation_key": operation_key, "amount": amount, "posting_date": posting_date})
+        token = _assert_common_preview(prepared, amount=amount)
+        result = _request_json("POST", f"/api/operations/{token}/confirm")
+        if result.get("state") != "posted" or not result.get("entry_id"):
+            raise AssertionError(f"{case}: {operation_key} did not post: {result}")
+        return result
+
+    sale = post_common("sale_cash", "200.00", "2026-05-01")
+    customer = _create_party("Cliente reportes", "customer")
+    origin_prepared = _prepare_credit_origin(operation_key="sale_credit", amount="300.00", posting_date="2026-05-02", party_id=customer["id"], due_date="2026-05-31", document_number="V1-11-INV-001")
+    origin = _request_json("POST", f"/api/operations/{origin_prepared['token']}/confirm")
+    if origin.get("state") != "posted" or not origin.get("entry_id") or not origin.get("open_item_id"):
+        raise AssertionError(f"{case}: credit fixture did not post: {origin}")
+    collection = _apply_open_item(origin["open_item_id"], "100.00", "2026-05-03", "V1-11-COL-001")
+    expense = post_common("utility_bank", "50.00", "2026-05-04")
+    fixture_entry_ids = {sale["entry_id"], origin["entry_id"], collection["entry_id"], expense["entry_id"]}
+
+    policy = _request_json("GET", f"/api/operations/{origin['entry_id']}/professional")
+    policy_lines = policy.get("lines", [])
+    total_debit = sum((_decimal(line.get("debit"), f"{case} policy debit") for line in policy_lines), Decimal("0"))
+    total_credit = sum((_decimal(line.get("credit"), f"{case} policy credit") for line in policy_lines), Decimal("0"))
+    if policy.get("entry_id") != origin["entry_id"] or policy.get("state") != "posted" or policy.get("posting_date") != "2026-05-02" or len(policy_lines) != 2 or total_debit != total_credit or total_debit != Decimal("300.00"):
+        raise AssertionError(f"{case}: póliza professional readback differs: {policy}")
+    if any(not line.get("account_code") or not line.get("account_name") for line in policy_lines) or policy.get("audit", {}).get("event_type") != "entry_posted":
+        raise AssertionError(f"{case}: póliza accounting identity/audit differs: {policy}")
+    documents = policy.get("documents", [])
+    if len(documents) != 1 or documents[0].get("third_party_id") != customer["id"] or documents[0].get("document_number") != "V1-11-INV-001":
+        raise AssertionError(f"{case}: póliza document/ThirdParty provenance differs: {policy}")
+
+    auxiliary = _request_json("GET", f"/api/subledger/open-items/{origin['open_item_id']}/professional?as_of=2026-05-10")
+    item = auxiliary.get("open_item", {})
+    reconciliation = auxiliary.get("reconciliation", {})
+    if item.get("third_party_id") != customer["id"] or item.get("source_entry_id") != origin["entry_id"] or item.get("document_number") != "V1-11-INV-001" or _decimal(item.get("original_amount"), f"{case} auxiliary original") != Decimal("300.00") or _decimal(item.get("applied_amount"), f"{case} auxiliary applied") != Decimal("100.00") or _decimal(item.get("open_balance"), f"{case} auxiliary balance") != Decimal("200.00") or len(item.get("applications", [])) != 1:
+        raise AssertionError(f"{case}: auxiliary fact reconstruction differs: {auxiliary}")
+    if auxiliary.get("source_operation", {}).get("entry_id") != origin["entry_id"] or auxiliary.get("application_operations", [{}])[0].get("operation", {}).get("entry_id") != collection["entry_id"]:
+        raise AssertionError(f"{case}: auxiliary operation provenance differs: {auxiliary}")
+    if not reconciliation.get("is_reconciled") or _decimal(reconciliation.get("ledger_balance"), f"{case} auxiliary ledger") != Decimal("200.00") or _decimal(reconciliation.get("subledger_balance"), f"{case} auxiliary subledger") != Decimal("200.00") or _decimal(reconciliation.get("difference"), f"{case} auxiliary difference") != Decimal("0"):
+        raise AssertionError(f"{case}: auxiliary/control reconciliation differs: {reconciliation}")
+    direct_reconciliation = _request_json("GET", "/api/subledger/reconciliation/receivable?as_of=2026-05-10")
+    if direct_reconciliation != reconciliation:
+        raise AssertionError(f"{case}: auxiliary reconciliation differs across product routes")
+
+    cutoff_payload = {"from_date": "2026-05-01", "to_date": "2026-05-10", "format": "json"}
+    detail_common = _request_json("POST", "/api/reports/packages/professional-detail", cutoff_payload)
+    detail_professional = _request_json("POST", "/api/reports/packages/professional-detail/professional", cutoff_payload)
+    if detail_professional.get("package", {}).get("id") != 1392:
+        raise AssertionError(f"{case}: package 1392 identity differs: {detail_professional}")
+    requests = detail_professional.get("requests", [])
+    if [row.get("definition", {}).get("id") for row in requests] != [1304, 1305, 1301]:
+        raise AssertionError(f"{case}: governed detail package composition differs: {requests}")
+    for row in requests:
+        for required in ("definition", "governance", "request", "source_authorities", "content"):
+            if required not in row:
+                raise AssertionError(f"{case}: professional report lacks {required}: {row}")
+        if not row.get("source_authorities"):
+            raise AssertionError(f"{case}: professional report lacks source authorities: {row}")
+    if len(detail_common.get("document", [])) != 3 or [item.get("content") for item in detail_common["document"]] != [row.get("content") for row in requests]:
+        raise AssertionError(f"{case}: common/professional package figures diverge")
+    by_id = {row["definition"]["id"]: row for row in requests}
+    journal = by_id[1304]["content"]
+    journal_ids = {entry["entry_id"] for entry in journal.get("entries", [])}
+    if journal_ids != fixture_entry_ids or any(entry.get("posting_date") > "2026-05-10" for entry in journal.get("entries", [])):
+        raise AssertionError(f"{case}: journal cutoff differs: {journal}")
+    for entry in journal.get("entries", []):
+        if _decimal(entry.get("total_debit"), f"{case} journal debit") != _decimal(entry.get("total_credit"), f"{case} journal credit"):
+            raise AssertionError(f"{case}: journal contains unbalanced policy: {entry}")
+    ledger = by_id[1305]["content"]
+    receivable = next((row for row in ledger.get("accounts", []) if row.get("account_code") == "1103"), None)
+    if receivable is None or _decimal(receivable.get("opening_balance"), f"{case} ledger opening") != Decimal("0") or _decimal(receivable.get("total_debit"), f"{case} ledger debit") != Decimal("300.00") or _decimal(receivable.get("total_credit"), f"{case} ledger credit") != Decimal("100.00") or _decimal(receivable.get("closing_balance"), f"{case} ledger closing") != Decimal("200.00") or {m["entry_id"] for m in receivable.get("movements", [])} != {origin["entry_id"], collection["entry_id"]}:
+        raise AssertionError(f"{case}: general-ledger receivable truth differs: {receivable}")
+    if _decimal(receivable["opening_balance"], f"{case} ledger arithmetic opening") + _decimal(receivable["total_debit"], f"{case} ledger arithmetic debit") - _decimal(receivable["total_credit"], f"{case} ledger arithmetic credit") != _decimal(receivable["closing_balance"], f"{case} ledger arithmetic closing"):
+        raise AssertionError(f"{case}: observable general-ledger arithmetic does not reconcile")
+    trial = by_id[1301]["content"]
+    if _decimal(trial.get("total_debit"), f"{case} trial debit") != Decimal("650.00") or _decimal(trial.get("total_credit"), f"{case} trial credit") != Decimal("650.00"):
+        raise AssertionError(f"{case}: trial balance totals differ: {trial}")
+    trial_receivable = next((row for row in trial.get("lines", []) if row.get("account_code") == "1103"), None)
+    if trial_receivable is None or any(_decimal(trial_receivable[key], f"{case} trial {key}") != _decimal(receivable[key], f"{case} ledger {key}") for key in ("opening_balance", "debit", "credit", "closing_balance")):
+        raise AssertionError(f"{case}: trial/general-ledger account truth diverges: {trial_receivable}, {receivable}")
+
+    case = "V1-12 financial package and preset"
+    financial_common = _request_json("POST", "/api/reports/packages/financial", cutoff_payload)
+    financial_professional = _request_json("POST", "/api/reports/packages/financial/professional", cutoff_payload)
+    financial_requests = financial_professional.get("requests", [])
+    if financial_professional.get("package", {}).get("id") != 1391 or [row.get("definition", {}).get("id") for row in financial_requests] != [1301, 1302, 1303]:
+        raise AssertionError(f"{case}: governed financial package composition differs: {financial_professional}")
+    if [item.get("content") for item in financial_common.get("document", [])] != [row.get("content") for row in financial_requests]:
+        raise AssertionError(f"{case}: common/professional financial figures diverge")
+    financial_by_id = {row["definition"]["id"]: row for row in financial_requests}
+    income = financial_by_id[1302]["content"]
+    balance = financial_by_id[1303]["content"]
+    if _decimal(income.get("income", {}).get("total"), f"{case} income") != Decimal("500.00") or _decimal(income.get("expenses", {}).get("total"), f"{case} expenses") != Decimal("50.00") or _decimal(income.get("result"), f"{case} result") != Decimal("450.00"):
+        raise AssertionError(f"{case}: income statement differs: {income}")
+    assets = _decimal(balance.get("assets", {}).get("total"), f"{case} assets")
+    liabilities_and_equity = _decimal(balance.get("liabilities_and_equity"), f"{case} liabilities/equity")
+    if assets != Decimal("450.00") or liabilities_and_equity != Decimal("450.00") or assets != liabilities_and_equity or _decimal(balance.get("current_result"), f"{case} current result") != Decimal("450.00") or _decimal(balance.get("balance_difference"), f"{case} balance difference") != Decimal("0"):
+        raise AssertionError(f"{case}: balance sheet/equation differs: {balance}")
+
+    catalog = _request_json("GET", "/api/reports/catalog")
+    definition_ids = {row.get("id") for row in catalog.get("definitions", [])}
+    if not {1301, 1302, 1303, 1304, 1305}.issubset(definition_ids):
+        raise AssertionError(f"{case}: governed report catalog is incomplete: {catalog}")
+    preset = _request_json("POST", "/api/reports/presets", {"name": "Resumen instalado V1-12", "format": "json", "reports": [{"definition_id": 1301, "parameters": {}}, {"definition_id": 1302, "parameters": {}}]})
+    preset_id = preset.get("id")
+    if not preset_id or [item.get("definition_id") for item in preset.get("reports", [])] != [1301, 1302]:
+        raise AssertionError(f"{case}: preset identity/configuration differs: {preset}")
+    if _request_json("GET", f"/api/reports/presets/{preset_id}") != preset or _request_json("GET", "/api/reports/presets") != [preset]:
+        raise AssertionError(f"{case}: preset did not persist configuration/readback")
+    preset_payload = {"from_date": "2026-05-01", "to_date": "2026-05-31"}
+    preset_before = _request_json("POST", f"/api/reports/presets/{preset_id}/execute", preset_payload)
+    preset_professional = _request_json("POST", f"/api/reports/presets/{preset_id}/professional", preset_payload)
+    if [row.get("definition", {}).get("id") for row in preset_professional.get("requests", [])] != [1301, 1302] or [item.get("content") for item in preset_before.get("document", [])] != [row.get("content") for row in preset_professional.get("requests", [])]:
+        raise AssertionError(f"{case}: preset common/professional execution diverges")
+    before_income = preset_before.get("document", [None, {}])[1].get("content", {})
+    if _decimal(before_income.get("result"), f"{case} preset before result") != Decimal("450.00"):
+        raise AssertionError(f"{case}: preset initial execution differs: {preset_before}")
+
+    xlsx = _request_json("POST", "/api/reports/packages/professional-detail", {"from_date": "2026-05-01", "to_date": "2026-05-10", "format": "xlsx"})
+    encoded = xlsx.get("document_base64")
+    if not isinstance(encoded, str) or not encoded or xlsx.get("media_type") != "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+        raise AssertionError(f"{case}: installed XLSX package metadata differs")
+    try:
+        xlsx_bytes = base64.b64decode(encoded, validate=True)
+    except Exception as exc:
+        raise AssertionError(f"{case}: installed XLSX payload is not valid base64") from exc
+    if not xlsx_bytes:
+        raise AssertionError(f"{case}: installed XLSX payload is empty")
+
+    with sqlite3.connect(db_path) as conn:
+        preset_row = conn.execute("SELECT id,name,format FROM reportpreset WHERE id=?", (preset_id,)).fetchone()
+        preset_items = conn.execute("SELECT position,report_definition_id,parameters_json FROM reportpresetitem WHERE preset_id=? ORDER BY position", (preset_id,)).fetchall()
+        preset_columns = {row[1] for row in conn.execute("PRAGMA table_info('reportpreset')").fetchall()}
+        item_columns = {row[1] for row in conn.execute("PRAGMA table_info('reportpresetitem')").fetchall()}
+    if preset_row != (preset_id, "Resumen instalado V1-12", "json") or preset_items != [(0, 1301, "[]"), (1, 1302, "[]")]:
+        raise AssertionError(f"{case}: preset persisted something other than configuration: {preset_row}, {preset_items}")
+    if {"content", "balance", "amount", "payload", "document_base64"} & (preset_columns | item_columns):
+        raise AssertionError(f"{case}: preset schema exposes frozen-result columns")
+
+    later = post_common("sale_cash", "40.00", "2026-05-20")
+    cutoff_after = _request_json("POST", "/api/reports/packages/professional-detail/professional", cutoff_payload)
+    if [row.get("content") for row in cutoff_after.get("requests", [])] != [row.get("content") for row in requests]:
+        raise AssertionError(f"V1-11 professional reporting: post-cutoff movement changed prior cutoff")
+    extended_payload = {"from_date": "2026-05-01", "to_date": "2026-05-31", "format": "json"}
+    extended_detail = _request_json("POST", "/api/reports/packages/professional-detail/professional", extended_payload)
+    extended_by_id = {row["definition"]["id"]: row for row in extended_detail.get("requests", [])}
+    if later["entry_id"] not in {entry["entry_id"] for entry in extended_by_id[1304]["content"].get("entries", [])}:
+        raise AssertionError(f"V1-11 professional reporting: extended journal omitted later entry")
+    if _decimal(extended_by_id[1301]["content"].get("total_debit"), "V1-11 extended trial debit") != Decimal("690.00") or _decimal(extended_by_id[1301]["content"].get("total_credit"), "V1-11 extended trial credit") != Decimal("690.00"):
+        raise AssertionError(f"V1-11 professional reporting: extended trial balance did not include later movement")
+    extended_financial = _request_json("POST", "/api/reports/packages/financial/professional", extended_payload)
+    extended_financial_by_id = {row["definition"]["id"]: row for row in extended_financial.get("requests", [])}
+    if _decimal(extended_financial_by_id[1302]["content"].get("result"), f"{case} extended result") != Decimal("490.00"):
+        raise AssertionError(f"{case}: extended financial result did not include later sale")
+    preset_after = _request_json("POST", f"/api/reports/presets/{preset_id}/execute", preset_payload)
+    after_income = preset_after.get("document", [None, {}])[1].get("content", {})
+    if _decimal(after_income.get("result"), f"{case} preset after result") != Decimal("490.00") or preset_after.get("limitations", [None, None])[1] != "Cada ejecución consulta nuevamente las autoridades contables vigentes.":
+        raise AssertionError(f"{case}: preset stored frozen figures or did not re-query authorities: {preset_after}")
+    if _request_json("GET", f"/api/reports/presets/{preset_id}") != preset:
+        raise AssertionError(f"{case}: later ledger truth mutated preset configuration")
+
+    return {
+        "V1-11": {"policy_entry_id": origin["entry_id"], "open_item_id": origin["open_item_id"], "cutoff_trial_debit": trial["total_debit"], "cutoff_trial_credit": trial["total_credit"], "later_entry_id": later["entry_id"], "extended_trial_debit": extended_by_id[1301]["content"]["total_debit"]},
+        "V1-12": {"result_before": income["result"], "assets_before": balance["assets"]["total"], "preset_id": preset_id, "preset_result_before": before_income["result"], "preset_result_after": after_income["result"], "xlsx_bytes": len(xlsx_bytes), "preset": preset},
+    }
+
+
+def _assert_v1_12_reporting_reopen(preset_id: int, expected_preset: dict) -> dict:
+    case = "V1-12 persisted preset reopen"
+    recovered = _request_json("GET", f"/api/reports/presets/{preset_id}")
+    listed = _request_json("GET", "/api/reports/presets")
+    if recovered != expected_preset or listed != [expected_preset]:
+        raise AssertionError(f"{case}: preset identity/configuration did not survive restart: {recovered}, {listed}")
+    payload = {"from_date": "2026-05-01", "to_date": "2026-05-31"}
+    common = _request_json("POST", f"/api/reports/presets/{preset_id}/execute", payload)
+    professional = _request_json("POST", f"/api/reports/presets/{preset_id}/professional", payload)
+    if [row.get("definition", {}).get("id") for row in professional.get("requests", [])] != [1301, 1302] or [item.get("content") for item in common.get("document", [])] != [row.get("content") for row in professional.get("requests", [])]:
+        raise AssertionError(f"{case}: common/professional execution diverges after restart")
+    result = common.get("document", [None, {}])[1].get("content", {}).get("result")
+    if _decimal(result, f"{case} result") != Decimal("490.00"):
+        raise AssertionError(f"{case}: reopened preset did not query persisted ledger truth: {common}")
+    return {"preset_id": preset_id, "result": result}
+
+
 def _terminate_process(process: subprocess.Popen) -> bool:
     forced_kill = False
     if process.poll() is None:
@@ -600,7 +790,7 @@ def _run_server_case(console, workdir, env, log_path, assertion, label):
 def _install_and_run(wheel: Path) -> None:
     with tempfile.TemporaryDirectory(prefix="aqorath-installed-v1-") as temp:
         root = Path(temp); venv_dir = root / "venv"; workdir = root / "outside-checkout"; workdir.mkdir()
-        db_path = root / "user-data" / "aqorath.db"; banking_db_path = root / "banking-data" / "aqorath.db"; osc_db_path = root / "osc-data" / "aqorath.db"; correction_db_path = root / "correction-data" / "aqorath.db"
+        db_path = root / "user-data" / "aqorath.db"; banking_db_path = root / "banking-data" / "aqorath.db"; osc_db_path = root / "osc-data" / "aqorath.db"; correction_db_path = root / "correction-data" / "aqorath.db"; reporting_db_path = root / "reporting-data" / "aqorath.db"
         venv.EnvBuilder(with_pip=True, clear=True).create(venv_dir)
         bindir = _venv_bin(venv_dir); python = bindir / ("python.exe" if os.name == "nt" else "python")
         _run([python, "-m", "pip", "install", "--disable-pip-version-check", str(wheel)])
@@ -643,6 +833,16 @@ def _install_and_run(wheel: Path) -> None:
         with sqlite3.connect(correction_db_path) as conn:
             if conn.execute("PRAGMA integrity_check").fetchall() != [("ok",)]: raise AssertionError("installed correction SQLite integrity_check failed")
 
+        reporting_env = env.copy(); reporting_env["AQORATH_DB"] = str(reporting_db_path)
+        reporting_results = _run_server_case(console, workdir, reporting_env, root / "aqorath-reporting-v1.log", lambda: _assert_v1_11_v1_12_reporting(reporting_db_path), "V1-11/V1-12")
+        print("installed reporting journeys=" + json.dumps({k: ({kk: vv for kk, vv in v.items() if kk != 'preset'} if isinstance(v, dict) else v) for k, v in reporting_results.items()}, sort_keys=True))
+        preset = reporting_results["V1-12"]["preset"]
+        reopened = _run_server_case(console, workdir, reporting_env, root / "aqorath-reporting-reopen-v1.log", lambda: _assert_v1_12_reporting_reopen(preset["id"], preset), "V1-12 preset reopen")
+        print("installed reporting reopen=" + json.dumps(reopened, sort_keys=True))
+        if not reporting_db_path.is_file(): raise AssertionError(f"installed reporting flow did not create SQLite DB: {reporting_db_path}")
+        with sqlite3.connect(reporting_db_path) as conn:
+            if conn.execute("PRAGMA integrity_check").fetchall() != [("ok",)]: raise AssertionError("installed reporting SQLite integrity_check failed")
+
         if attempts.exists() and attempts.read_text(encoding="utf-8").strip():
             raise AssertionError("installed V1 flow attempted external network access:\n" + attempts.read_text(encoding="utf-8"))
 
@@ -651,7 +851,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(); parser.add_argument("--wheel", required=True, type=Path); args = parser.parse_args(); wheel = args.wheel.resolve()
     if not wheel.is_file(): raise SystemExit(f"wheel not found: {wheel}")
     _install_and_run(wheel)
-    print("AQR-015 installed V1-01/V1-02/V1-03/V1-04/V1-05/V1-06/V1-07/V1-15/V1-18/V1-22 smoke: OK")
+    print("AQR-015 installed V1-01/V1-02/V1-03/V1-04/V1-05/V1-06/V1-07/V1-11/V1-12/V1-15/V1-18/V1-22 smoke: OK")
     return 0
 
 
