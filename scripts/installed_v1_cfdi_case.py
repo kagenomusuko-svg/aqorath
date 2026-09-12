@@ -151,7 +151,8 @@ def _assert_single_chain(db_path: Path, expected):
             "JOIN journalentry e ON e.id=d.entry_id"
         ).fetchone()
         metadata = conn.execute(
-            "SELECT document_reference_id,uuid,file_hash FROM cfdiimportmetadata"
+            "SELECT document_reference_id,cfdi_version,uuid,issuer_rfc,receiver_rfc "
+            "FROM cfdiimportmetadata"
         ).fetchone()
         lines = conn.execute(
             "SELECT account_code,debit,credit FROM journalline WHERE entry_id=? ORDER BY id",
@@ -171,8 +172,14 @@ def _assert_single_chain(db_path: Path, expected):
         or file_hash != expected["file_hash"]
     ):
         raise AssertionError(f"V1-13: durable source chain changed: {chain}")
-    if metadata != (expected["document_id"], EXPECTED_UUID, expected["file_hash"]):
-        raise AssertionError(f"V1-13: CFDI metadata does not reuse the canonical document: {metadata}")
+    if metadata != (
+        expected["document_id"],
+        "4.0",
+        EXPECTED_UUID,
+        "AAA010101AAA",
+        "MER260101AB1",
+    ):
+        raise AssertionError(f"V1-13: CFDI metadata does not reuse the canonical document/provenance: {metadata}")
     actual_lines = [(code, core._decimal(debit, "V1-13 debit"), core._decimal(credit, "V1-13 credit")) for code, debit, credit in lines]
     if actual_lines != [("5102", EXPECTED_TOTAL, Decimal("0")), ("1101", Decimal("0"), EXPECTED_TOTAL)]:
         raise AssertionError(f"V1-13: posted canonical lines differ: {actual_lines}")
