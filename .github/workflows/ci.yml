@@ -302,3 +302,165 @@ jobs:
             native-release/LEEME-WINDOWS.txt
           if-no-files-found: error
           retention-days: 90
+
+  android-apk:
+    name: Android local-first APK
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK components
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "emulator" \
+            "system-images;android-35;google_apis;x86_64"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Download exact accepted wheel from this run
+        uses: actions/download-artifact@v4
+        with:
+          name: aqorath-v1-candidate
+          path: packaging/android/candidate
+
+      - name: Verify Android consumes the accepted wheel
+        run: |
+          test -f packaging/android/candidate/aqorath-0+aqr015-py3-none-any.whl
+          ls -lh packaging/android/candidate
+
+      - name: Build installable Android APK
+        run: |
+          gradle -p packaging/android :app:assembleDebug --stacktrace
+          test -f packaging/android/app/build/outputs/apk/debug/app-debug.apk
+          ls -lh packaging/android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Install and airplane-smoke APK in clean emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            APK="$GITHUB_WORKSPACE/packaging/android/app/build/outputs/apk/debug/app-debug.apk"
+            adb install -r "$APK"
+            adb shell svc wifi disable || true
+            adb shell svc data disable || true
+            adb shell settings put global airplane_mode_on 1
+            adb shell am broadcast -a android.intent.action.AIRPLANE_MODE --ez state true >/dev/null || true
+            adb logcat -c
+            adb shell am force-stop org.meriadock.aqorath || true
+            adb shell am start -W -n org.meriadock.aqorath/.MainActivity
+
+            ready=0
+            for attempt in $(seq 1 60); do
+              adb logcat -d > "$GITHUB_WORKSPACE/android-logcat.txt"
+              if grep -q 'AQORATH_ANDROID_READY=' "$GITHUB_WORKSPACE/android-logcat.txt"; then
+                ready=1
+                break
+              fi
+              if grep -q 'AQORATH_ANDROID_ERROR' "$GITHUB_WORKSPACE/android-logcat.txt"; then
+                cat "$GITHUB_WORKSPACE/android-logcat.txt"
+                exit 1
+              fi
+              sleep 2
+            done
+            cat "$GITHUB_WORKSPACE/android-logcat.txt"
+            test "$ready" -eq 1
+            grep -q 'AQORATH_ANDROID_NETWORK_GUARD=loopback-only' "$GITHUB_WORKSPACE/android-logcat.txt"
+            adb shell run-as org.meriadock.aqorath sh -c 'test -f files/aqorath/aqorath.db'
+
+            adb forward tcp:18765 tcp:8765
+            python - <<'PY'
+            import json
+            from urllib.request import urlopen
+            with urlopen('http://127.0.0.1:18765/api/capabilities', timeout=10) as response:
+                payload = json.load(response)
+            if not isinstance(payload, (dict, list)):
+                raise SystemExit('unexpected capabilities payload')
+            print('AQR-015 Android airplane-mode local surface: OK')
+            PY
+
+      - name: Upload Android diagnostic log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-airplane-smoke-output
+          path: android-logcat.txt
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Prepare direct-download Android candidate
+        if: success()
+        run: |
+          mkdir -p android-release
+          cp packaging/android/app/build/outputs/apk/debug/app-debug.apk \
+            android-release/Aqorath-Android-V1-Candidate.apk
+          sha256sum android-release/Aqorath-Android-V1-Candidate.apk \
+            > android-release/SHA256SUMS.txt
+          cat > android-release/LEEME-ANDROID.txt <<'EOF'
+          AQORATH V1 — ANDROID LOCAL-FIRST, CANDIDATO TÉCNICO
+
+          Instalación de prueba:
+          1. Descarga Aqorath-Android-V1-Candidate.apk en un teléfono Android.
+          2. Android puede pedir autorización para instalar apps desde esa fuente.
+          3. Instala y abre Aqorath.
+
+          Aqorath vive en el teléfono:
+          - SQLite se guarda en el sandbox privado de la app.
+          - no existe backend Meriadock para datos contables;
+          - el runtime Python bloquea destinos de red no-loopback;
+          - la WebView sólo permite la superficie local del mismo dispositivo;
+          - CI acreditó arranque y uso local con modo avión habilitado.
+
+          Estado:
+          - canonical wheel TECHNICAL_INSTALLED: 22/22 PASS
+          - Android airplane-mode packaging smoke: PASS
+          - PROFESSIONAL_REVIEW: PENDING
+          - HUMAN_ACCEPTANCE: PENDING
+          - no es todavía la release V1 final.
+
+          Firma:
+          Este APK candidato usa la firma debug de Android generada por CI. La
+          release pública requerirá una clave de firma estable y controlada.
+          EOF
+
+      - name: Publish Android local-first APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aqorath-android-apk
+          path: |
+            android-release/Aqorath-Android-V1-Candidate.apk
+            android-release/SHA256SUMS.txt
+            android-release/LEEME-ANDROID.txt
+          if-no-files-found: error
+          retention-days: 90
