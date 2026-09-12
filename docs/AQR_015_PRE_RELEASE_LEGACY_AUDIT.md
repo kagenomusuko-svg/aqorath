@@ -11,7 +11,7 @@ Corte auditado:
 - head documental previo: `d8ba16416b650da083f3ec259f35857ddbfc4ce6`;
 - candidato técnico: `f6f63969dc5574fe86333a275e6c8ce77cde6e4e`;
 - CI técnico 22/22: run #710 (`34683648450`), verde;
-- CI del expediente: run #711 (`34683903473`), verde;
+- CI del expediente: run #711 (`34683889936`), verde;
 - package version: `0+aqr015`;
 - schema: `13`.
 
