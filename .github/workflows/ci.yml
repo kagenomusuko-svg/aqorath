@@ -76,6 +76,10 @@ jobs:
           set +e
           python scripts/verify_distribution.py --wheel "$WHEEL" --sdist "$SDIST" > distribution-smoke-output.txt 2>&1
           status=$?
+          if [ "$status" -eq 0 ]; then
+            python scripts/verify_pre_release_hardening.py --wheel "$WHEEL" >> distribution-smoke-output.txt 2>&1
+            status=$?
+          fi
           cat distribution-smoke-output.txt
           exit $status
 
