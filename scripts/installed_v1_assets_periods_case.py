@@ -493,7 +493,7 @@ def assert_v1_10_periods(db_path: Path, backup_root: Path):
     )
     jan_token = core._assert_common_preview(jan, amount="10.00")
     rejected = core._request_error(
-        "POST", f"/api/operations/{jan_token}/confirm", expected_status=400
+        "POST", f"/api/operations/{jan_token}/confirm", expected_status=409
     )
     if "closed" not in rejected.get("detail", "").lower():
         raise AssertionError(
@@ -629,7 +629,7 @@ def assert_v1_10_reopen(db_path: Path, expected):
     )
     token = core._assert_common_preview(prepared, amount="1.00")
     rejected = core._request_error(
-        "POST", f"/api/operations/{token}/confirm", expected_status=400
+        "POST", f"/api/operations/{token}/confirm", expected_status=409
     )
     if "closed" not in rejected.get("detail", "").lower():
         raise AssertionError(
