@@ -650,7 +650,8 @@ def _assert_v1_11_v1_12_reporting(db_path: Path) -> dict:
     if _decimal(trial.get("total_debit"), f"{case} trial debit") != Decimal("650.00") or _decimal(trial.get("total_credit"), f"{case} trial credit") != Decimal("650.00"):
         raise AssertionError(f"{case}: trial balance totals differ: {trial}")
     trial_receivable = next((row for row in trial.get("lines", []) if row.get("account_code") == "1103"), None)
-    if trial_receivable is None or any(_decimal(trial_receivable[key], f"{case} trial {key}") != _decimal(receivable[key], f"{case} ledger {key}") for key in ("opening_balance", "debit", "credit", "closing_balance")):
+    projection_pairs = (("opening_balance", "opening_balance"), ("debit", "total_debit"), ("credit", "total_credit"), ("closing_balance", "closing_balance"))
+    if trial_receivable is None or any(_decimal(trial_receivable[trial_key], f"{case} trial {trial_key}") != _decimal(receivable[ledger_key], f"{case} ledger {ledger_key}") for trial_key, ledger_key in projection_pairs):
         raise AssertionError(f"{case}: trial/general-ledger account truth diverges: {trial_receivable}, {receivable}")
 
     case = "V1-12 financial package and preset"
