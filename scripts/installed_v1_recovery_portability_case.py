@@ -32,7 +32,8 @@ def _raw_request(method: str, path: str, *, body: bytes | None = None, headers=N
         method=method,
     )
     with urlopen(request, timeout=15) as response:
-        return response.status, dict(response.headers.items()), response.read()
+        response_headers = {key.lower(): value for key, value in response.headers.items()}
+        return response.status, response_headers, response.read()
 
 
 def _raw_error(
@@ -125,9 +126,9 @@ def assert_v1_16_restore_http(db_path: Path) -> dict:
     status, backup_headers, backup_bytes = _raw_request("POST", "/api/system/backup")
     if status != 200 or not backup_bytes.startswith(b"PK"):
         raise AssertionError("V1-16: HTTP backup was not a non-empty ZIP response")
-    if "application/zip" not in backup_headers.get("Content-Type", ""):
+    if "application/zip" not in backup_headers.get("content-type", ""):
         raise AssertionError(f"V1-16: backup media type differs: {backup_headers}")
-    if not backup_headers.get("X-Aqorath-Artifact-Sha256"):
+    if not backup_headers.get("x-aqorath-artifact-sha256"):
         raise AssertionError("V1-16: backup HTTP response lacks artifact digest")
     try:
         with ZipFile(io.BytesIO(backup_bytes), "r") as archive:
@@ -313,9 +314,9 @@ def assert_v1_17_portable_http(expected: dict) -> dict:
     status, headers, content = _raw_request("POST", "/api/system/portable-export")
     if status != 200 or not content.startswith(b"PK"):
         raise AssertionError("V1-17: portable export was not a ZIP response")
-    if "application/zip" not in headers.get("Content-Type", ""):
+    if "application/zip" not in headers.get("content-type", ""):
         raise AssertionError(f"V1-17: portable media type differs: {headers}")
-    if not headers.get("X-Aqorath-Artifact-Sha256"):
+    if not headers.get("x-aqorath-artifact-sha256"):
         raise AssertionError("V1-17: portable response lacks artifact digest")
 
     try:
