@@ -116,10 +116,10 @@ def _wait_until_ready(timeout: float = 30.0) -> None:
 def _self_test_canonical_modules() -> None:
     """Import authorities whose dependency closure must survive Android packaging."""
     from . import cfdi_source as _cfdi_source  # noqa: F401
-    from . import fixed_asset_service as _fixed_asset_service  # noqa: F401
-    from . import inventory_service as _inventory_service  # noqa: F401
+    from . import fixed_asset_acquisition as _fixed_asset_acquisition  # noqa: F401
+    from . import inventory_operations as _inventory_operations  # noqa: F401
     from . import recovery_infrastructure as _recovery_infrastructure  # noqa: F401
-    from . import reporting as _reporting  # noqa: F401
+    from . import report_product_catalog as _report_product_catalog  # noqa: F401
 
 
 def start(files_dir: str) -> str:
