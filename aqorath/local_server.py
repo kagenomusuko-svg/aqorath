@@ -24,7 +24,11 @@ def load_local_app():
 
 
 def run_local_surface(port=DEFAULT_PORT):
-    """Run Aqorath only on IPv4 loopback; remote binding is not configurable."""
+    """Run Aqorath only on IPv4 loopback; remote binding is not configurable.
+
+    ``load_local_app()`` materializes the canonical ``aqorath.web_surface:app``;
+    AQR-014's ``aqorath.recovery_web:app`` remains an alias of that same app.
+    """
     if type(port) is not int or isinstance(port, bool):
         raise TypeError("port must be int")
     if not 1 <= port <= 65535:
