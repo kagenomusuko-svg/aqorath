@@ -20,6 +20,7 @@ import _installed_v1_core_cases as core
 import installed_v1_assets_periods_case as assets_periods
 import installed_v1_cfdi_case as cfdi
 import installed_v1_fiscal_case as fiscal
+import installed_v1_recovery_portability_case as recovery_portability
 
 
 def _integrity(path: Path, label: str):
@@ -46,6 +47,7 @@ def _install_and_run(wheel: Path) -> None:
         reporting_db_path = root / "reporting-data" / "aqorath.db"
         cfdi_db_path = root / "cfdi-data" / "aqorath.db"
         fiscal_db_path = root / "fiscal-data" / "aqorath.db"
+        recovery_db_path = root / "recovery-data" / "aqorath.db"
         period_backup_root = root / "period-backups"
 
         venv.EnvBuilder(with_pip=True, clear=True).create(venv_dir)
@@ -137,6 +139,33 @@ def _install_and_run(wheel: Path) -> None:
         print("installed V1-14 fiscal reopen=" + json.dumps(reopened_fiscal, sort_keys=True))
         _integrity(fiscal_db_path, "installed fiscal flow")
 
+        recovery_env = env.copy(); recovery_env["AQORATH_DB"] = str(recovery_db_path)
+        restore_result = core._run_server_case(
+            console,
+            workdir,
+            recovery_env,
+            root / "aqorath-recovery-v1.log",
+            lambda: recovery_portability.assert_v1_16_restore_http(recovery_db_path),
+            "V1-16 recovery",
+        )
+        print("installed V1-16 restore=" + json.dumps({key: value for key, value in restore_result.items() if key != "baseline"}, sort_keys=True))
+
+        def recovery_reopen_portable_case():
+            reopened_restore = recovery_portability.assert_v1_16_reopen(restore_result)
+            portable = recovery_portability.assert_v1_17_portable_http(restore_result)
+            return {"V1-16": reopened_restore, "V1-17": portable}
+
+        recovery_reopened = core._run_server_case(
+            console,
+            workdir,
+            recovery_env,
+            root / "aqorath-recovery-reopen-v1.log",
+            recovery_reopen_portable_case,
+            "V1-16/V1-17 recovery reopen and portable export",
+        )
+        print("installed recovery/portable reopen=" + json.dumps(recovery_reopened, sort_keys=True))
+        _integrity(recovery_db_path, "installed recovery/portable flow")
+
         if attempts.exists() and attempts.read_text(encoding="utf-8").strip():
             raise AssertionError("installed V1 flow attempted external network access:\n" + attempts.read_text(encoding="utf-8"))
 
@@ -151,7 +180,8 @@ def main() -> int:
     _install_and_run(wheel)
     print(
         "AQR-015 installed V1-01/V1-02/V1-03/V1-04/V1-05/V1-06/V1-07/"
-        "V1-08/V1-09/V1-10/V1-11/V1-12/V1-13/V1-14/V1-15/V1-18/V1-22 smoke: OK"
+        "V1-08/V1-09/V1-10/V1-11/V1-12/V1-13/V1-14/V1-15/V1-16/V1-17/"
+        "V1-18/V1-22 smoke: OK"
     )
     return 0
 
