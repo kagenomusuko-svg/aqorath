@@ -87,7 +87,7 @@ jobs:
           path: distribution-smoke-output.txt
           if-no-files-found: error
 
-      - name: Exercise installed V1-01 flow offline
+      - name: Exercise installed V1 acceptance flows offline
         run: |
           WHEEL="$(find dist -maxdepth 1 -type f -name '*.whl' -print -quit)"
           test -n "$WHEEL"
@@ -97,7 +97,7 @@ jobs:
           cat installed-v1-output.txt
           exit $status
 
-      - name: Upload installed V1-01 diagnostic output
+      - name: Upload installed V1 acceptance diagnostic output
         if: always()
         uses: actions/upload-artifact@v4
         with:

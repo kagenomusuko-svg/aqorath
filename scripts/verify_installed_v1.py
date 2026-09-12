@@ -430,12 +430,329 @@ def _assert_v1_02_and_v1_04_http_flows() -> dict:
     return {"V1-02": receivable, "V1-04": payable}
 
 
+def _decimal(value, label: str) -> Decimal:
+    try:
+        result = Decimal(str(value))
+    except Exception as exc:
+        raise AssertionError(f"{label} is not exact decimal text: {value!r}") from exc
+    if not result.is_finite():
+        raise AssertionError(f"{label} is not finite: {value!r}")
+    return result
+
+
+def _bank_line_for_entry(db_path: Path, entry_id: int, ledger_account_id: int) -> dict:
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT jl.id,a.code,jl.account_id,jl.debit,jl.credit "
+            "FROM journalline jl JOIN account a ON a.id=jl.account_id "
+            "WHERE jl.entry_id=? AND jl.account_id=? ORDER BY jl.id",
+            (entry_id, ledger_account_id),
+        ).fetchall()
+    if len(rows) != 1:
+        raise AssertionError(
+            f"bank entry {entry_id} expected one line for account {ledger_account_id}, got {rows}"
+        )
+    row = rows[0]
+    return {
+        "id": row[0],
+        "account_code": row[1],
+        "account_id": row[2],
+        "debit": row[3],
+        "credit": row[4],
+    }
+
+
+def _assert_v1_05_and_v1_06_banking(db_path: Path) -> dict:
+    case = "V1-05 banking composition"
+    initial = _request_json("GET", "/api/onboarding")
+    if initial.get("configured") is not False:
+        raise AssertionError(f"{case}: banking SQLite was not clean: {initial}")
+    configured = _request_json("POST", "/api/onboarding", _onboarding_payload())
+    if configured.get("configured") is not True:
+        raise AssertionError(f"{case}: onboarding failed: {configured}")
+
+    source = _request_json(
+        "POST",
+        "/api/banking/accounts",
+        {
+            "institution_name": "Banco origen V1-05",
+            "account_identifier": "V1-05-SOURCE",
+            "currency": "MXN",
+        },
+    )
+    destination = _request_json(
+        "POST",
+        "/api/banking/accounts",
+        {
+            "institution_name": "Banco destino V1-05",
+            "account_identifier": "V1-05-DESTINATION",
+            "currency": "MXN",
+        },
+    )
+    if source.get("ledger_account_id") == destination.get("ledger_account_id"):
+        raise AssertionError(f"{case}: two BankAccounts share one ledger account: {source}, {destination}")
+
+    listed = _request_json("GET", "/api/banking/accounts")
+    by_id = {row["id"]: row for row in listed}
+    for bank in (source, destination):
+        reopened = by_id.get(bank["id"])
+        if reopened is None or reopened.get("ledger_account_id") != bank.get("ledger_account_id"):
+            raise AssertionError(f"{case}: BankAccount identity did not survive readback: {bank}, {listed}")
+
+    ledger_ids = (source["ledger_account_id"], destination["ledger_account_id"])
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT child.id,child.code,child.origin,parent.code "
+            "FROM account child LEFT JOIN account parent ON parent.id=child.parent_id "
+            "WHERE child.id IN (?,?) ORDER BY child.id",
+            ledger_ids,
+        ).fetchall()
+    if len(rows) != 2:
+        raise AssertionError(f"{case}: governed bank Account rows missing: {rows}")
+    account_truth = {row[0]: {"code": row[1], "origin": row[2], "parent_code": row[3]} for row in rows}
+    if set(account_truth) != set(ledger_ids):
+        raise AssertionError(f"{case}: ledger account identities changed: {account_truth}")
+    codes = []
+    for ledger_id in ledger_ids:
+        truth = account_truth[ledger_id]
+        codes.append(truth["code"])
+        if truth["origin"] != "entity" or truth["parent_code"] != "1101":
+            raise AssertionError(f"{case}: bank Account is not governed under canonical 1101: {truth}")
+    if len(set(codes)) != 2:
+        raise AssertionError(f"{case}: governed extensions are not distinct: {codes}")
+
+    def transfer(amount: str, posting_date: str, description: str) -> dict:
+        result = _request_json(
+            "POST",
+            "/api/banking/transfers",
+            {
+                "source_bank_account_id": source["id"],
+                "destination_bank_account_id": destination["id"],
+                "amount": amount,
+                "posting_date": posting_date,
+                "description": description,
+            },
+        )
+        if not result.get("entry_id") or not result.get("audit_event_id"):
+            raise AssertionError(f"{case}: transfer lacks canonical identities: {result}")
+        return result
+
+    transfer_300 = transfer("300.00", "2026-03-01", "V1-05 transferencia propia 300")
+    with sqlite3.connect(db_path) as conn:
+        lines = conn.execute(
+            "SELECT a.id,a.code,jl.debit,jl.credit "
+            "FROM journalline jl JOIN account a ON a.id=jl.account_id "
+            "WHERE jl.entry_id=? ORDER BY jl.id",
+            (transfer_300["entry_id"],),
+        ).fetchall()
+        audit_rows = conn.execute(
+            "SELECT id,details_json FROM auditevent WHERE event_type='bank_transfer_posted' ORDER BY id"
+        ).fetchall()
+    expected_lines = [
+        (destination["ledger_account_id"], account_truth[destination["ledger_account_id"]]["code"], Decimal("300.00"), Decimal("0")),
+        (source["ledger_account_id"], account_truth[source["ledger_account_id"]]["code"], Decimal("0"), Decimal("300.00")),
+    ]
+    actual_lines = [(row[0], row[1], _decimal(row[2], f"{case} debit"), _decimal(row[3], f"{case} credit")) for row in lines]
+    if actual_lines != expected_lines:
+        raise AssertionError(f"{case}: canonical transfer lines differ: {actual_lines}")
+    matching_audits = []
+    for audit_id, details_json in audit_rows:
+        details = json.loads(details_json)
+        if details.get("entry_id") == transfer_300["entry_id"]:
+            matching_audits.append((audit_id, details))
+    if len(matching_audits) != 1:
+        raise AssertionError(f"{case}: transfer audit is not unique: {matching_audits}")
+    audit_id, audit = matching_audits[0]
+    if audit_id != transfer_300["audit_event_id"]:
+        raise AssertionError(f"{case}: returned audit identity differs from persistence: {audit_id}, {transfer_300}")
+    if (
+        audit.get("source_bank_account_id") != source["id"]
+        or audit.get("destination_bank_account_id") != destination["id"]
+        or _decimal(audit.get("amount"), f"{case} audit amount") != Decimal("300.00")
+    ):
+        raise AssertionError(f"{case}: persisted transfer audit differs: {audit}")
+
+    case = "V1-06 reconciliation"
+    transfer_900 = transfer("900.00", "2026-03-02", "V1-06 movimiento conciliable 900")
+    transfer_100 = transfer("100.00", "2026-03-03", "V1-06 diferencia explicable 100")
+    destination_300 = _bank_line_for_entry(
+        db_path, transfer_300["entry_id"], destination["ledger_account_id"]
+    )
+    destination_900 = _bank_line_for_entry(
+        db_path, transfer_900["entry_id"], destination["ledger_account_id"]
+    )
+    destination_100 = _bank_line_for_entry(
+        db_path, transfer_100["entry_id"], destination["ledger_account_id"]
+    )
+    for label, line, amount in (
+        ("300", destination_300, Decimal("300.00")),
+        ("900", destination_900, Decimal("900.00")),
+        ("100", destination_100, Decimal("100.00")),
+    ):
+        if line["account_id"] != destination["ledger_account_id"]:
+            raise AssertionError(f"{case}: {label} line is outside selected BankAccount: {line}")
+        if _decimal(line["debit"], f"{case} {label} debit") != amount or _decimal(
+            line["credit"], f"{case} {label} credit"
+        ) != Decimal("0"):
+            raise AssertionError(f"{case}: unexpected selected-bank line {label}: {line}")
+
+    imported = _request_json(
+        "POST",
+        "/api/banking/import",
+        {
+            "bank_account_id": destination["id"],
+            "source_name": "V1-06-statement.csv",
+            "content": (
+                "date,reference,amount,balance\n"
+                "2026-03-01,V1-06-300,300.00,300.00\n"
+                "2026-03-02,V1-06-900,900.00,1200.00\n"
+            ),
+        },
+    )
+    reconciliation = _request_json(
+        "POST",
+        "/api/banking/reconciliations",
+        {
+            "bank_account_id": destination["id"],
+            "statement_id": imported["statement_id"],
+            "as_of": "2026-03-03",
+        },
+    )
+    reconciliation_id = reconciliation["reconciliation_id"]
+
+    with sqlite3.connect(db_path) as conn:
+        external_rows = conn.execute(
+            "SELECT id,reference,amount,direction,external_balance "
+            "FROM banktransaction WHERE statement_id=? ORDER BY id",
+            (imported["statement_id"],),
+        ).fetchall()
+        statement = conn.execute(
+            "SELECT bank_account_id,closing_balance FROM bankstatement WHERE id=?",
+            (imported["statement_id"],),
+        ).fetchone()
+    if statement is None or statement[0] != destination["id"] or _decimal(
+        statement[1], f"{case} statement balance"
+    ) != Decimal("1200.00"):
+        raise AssertionError(f"{case}: statement identity/closing balance differs: {statement}")
+    if len(external_rows) != 2:
+        raise AssertionError(f"{case}: expected exactly two external transactions: {external_rows}")
+    transactions = {row[1]: row for row in external_rows}
+    if set(transactions) != {"V1-06-300", "V1-06-900"}:
+        raise AssertionError(f"{case}: external references differ: {transactions}")
+    for reference, expected in (("V1-06-300", Decimal("300.00")), ("V1-06-900", Decimal("900.00"))):
+        row = transactions[reference]
+        if _decimal(row[2], f"{case} {reference} amount") != expected or row[3] != "credit":
+            raise AssertionError(f"{case}: external evidence differs for {reference}: {row}")
+    if any(_decimal(row[2], f"{case} external amount") == Decimal("100.00") for row in external_rows):
+        raise AssertionError(f"{case}: fabricated external 100.00 transaction exists: {external_rows}")
+
+    for reference, line in (
+        ("V1-06-300", destination_300),
+        ("V1-06-900", destination_900),
+    ):
+        matched = _request_json(
+            "POST",
+            "/api/banking/matches",
+            {
+                "reconciliation_id": reconciliation_id,
+                "bank_transaction_id": transactions[reference][0],
+                "journal_line_id": line["id"],
+            },
+        )
+        if not matched.get("match_id"):
+            raise AssertionError(f"{case}: match lacks identity for {reference}: {matched}")
+
+    view = _request_json("GET", f"/api/banking/reconciliations/{reconciliation_id}")
+    if view.get("bank_account_id") != destination["id"]:
+        raise AssertionError(f"{case}: reconciliation changed BankAccount: {view}")
+    for field, expected in (
+        ("ledger_balance", Decimal("1300.00")),
+        ("bank_balance", Decimal("1200.00")),
+        ("difference", Decimal("100.00")),
+    ):
+        if _decimal(view.get(field), f"{case} {field}") != expected:
+            raise AssertionError(f"{case}: {field} differs: {view}")
+    if view.get("missing_bank_transaction_ids") not in ([], ()):
+        raise AssertionError(f"{case}: conciliable external evidence remains unmatched: {view}")
+    if view.get("missing_journal_line_ids") != [destination_100["id"]]:
+        raise AssertionError(f"{case}: 100.00 ledger line is not the explicit difference: {view}")
+
+    line_by_bank = {row["bank_transaction_id"]: row for row in view.get("lines", [])}
+    for reference, expected_line in (
+        ("V1-06-300", destination_300),
+        ("V1-06-900", destination_900),
+    ):
+        external_id = transactions[reference][0]
+        row = line_by_bank.get(external_id)
+        if row is None or row.get("state") != "matched" or row.get("journal_line_id") != expected_line["id"]:
+            raise AssertionError(f"{case}: persisted match differs for {reference}: {view}")
+
+    reopened = _request_json("GET", f"/api/banking/reconciliations/{reconciliation_id}")
+    if reopened != view:
+        raise AssertionError(f"{case}: reconciliation readback changed across sessions: {view} != {reopened}")
+
+    with sqlite3.connect(db_path) as conn:
+        entry_count = conn.execute("SELECT COUNT(*) FROM journalentry WHERE state='posted'").fetchone()[0]
+        line_count = conn.execute("SELECT COUNT(*) FROM journalline").fetchone()[0]
+        external_count = conn.execute(
+            "SELECT COUNT(*) FROM banktransaction WHERE statement_id=?",
+            (imported["statement_id"],),
+        ).fetchone()[0]
+        match_rows = conn.execute(
+            "SELECT rm.bank_transaction_id,rm.journal_line_id,jl.account_id "
+            "FROM reconciliationmatch rm JOIN journalline jl ON jl.id=rm.journal_line_id "
+            "WHERE rm.reconciliation_id=? ORDER BY rm.id",
+            (reconciliation_id,),
+        ).fetchall()
+    if entry_count != 3 or line_count != 6:
+        raise AssertionError(
+            f"{case}: reconciliation invented or lost accounting entries: entries={entry_count}, lines={line_count}"
+        )
+    if external_count != 2 or len(match_rows) != 2:
+        raise AssertionError(
+            f"{case}: external evidence/matches are not separate relational truth: external={external_count}, matches={match_rows}"
+        )
+    if any(row[2] != destination["ledger_account_id"] for row in match_rows):
+        raise AssertionError(f"{case}: match points outside BankAccount ledger authority: {match_rows}")
+
+    return {
+        "V1-05": {
+            "source_bank_account_id": source["id"],
+            "destination_bank_account_id": destination["id"],
+            "source_account_code": account_truth[source["ledger_account_id"]]["code"],
+            "destination_account_code": account_truth[destination["ledger_account_id"]]["code"],
+            "entry_id": transfer_300["entry_id"],
+        },
+        "V1-06": {
+            "reconciliation_id": reconciliation_id,
+            "ledger_balance": view["ledger_balance"],
+            "bank_balance": view["bank_balance"],
+            "difference": view["difference"],
+            "unmatched_journal_line_id": destination_100["id"],
+        },
+    }
+
+
+def _terminate_process(process: subprocess.Popen) -> bool:
+    forced_kill = False
+    if process.poll() is None:
+        process.terminate()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            forced_kill = True
+            process.kill()
+            process.wait(timeout=5)
+    return forced_kill
+
+
 def _install_and_run(wheel: Path) -> None:
     with tempfile.TemporaryDirectory(prefix="aqorath-installed-v1-") as temp:
         root = Path(temp)
         venv_dir = root / "venv"
         workdir = root / "outside-checkout"
         db_path = root / "user-data" / "aqorath.db"
+        banking_db_path = root / "banking-data" / "aqorath.db"
         workdir.mkdir()
 
         venv.EnvBuilder(with_pip=True, clear=True).create(venv_dir)
@@ -474,7 +791,6 @@ def _install_and_run(wheel: Path) -> None:
                 stderr=subprocess.STDOUT,
                 text=True,
             )
-            forced_kill = False
             try:
                 integrity = _wait_for_surface(process, log_path)
                 if not integrity.get("healthy"):
@@ -491,22 +807,10 @@ def _install_and_run(wheel: Path) -> None:
                 print(f"installed V1-01 entry_id={entry_id}")
                 print("installed credit journeys=" + json.dumps(credit_results, sort_keys=True))
             finally:
-                if process.poll() is None:
-                    process.terminate()
-                    try:
-                        process.wait(timeout=10)
-                    except subprocess.TimeoutExpired:
-                        forced_kill = True
-                        process.kill()
-                        process.wait(timeout=5)
+                forced_kill = _terminate_process(process)
             if forced_kill:
                 raise AssertionError("installed Aqorath did not shut down cleanly")
 
-        if attempts.exists() and attempts.read_text(encoding="utf-8").strip():
-            raise AssertionError(
-                "installed V1 flow attempted external network access:\n"
-                + attempts.read_text(encoding="utf-8")
-            )
         if not db_path.is_file():
             raise AssertionError(f"installed V1 flow did not create SQLite DB: {db_path}")
         with sqlite3.connect(db_path) as conn:
@@ -530,6 +834,50 @@ def _install_and_run(wheel: Path) -> None:
                 f"open_items={open_items}, applications={applications}"
             )
 
+        banking_env = env.copy()
+        banking_env["AQORATH_DB"] = str(banking_db_path)
+        banking_log_path = root / "aqorath-banking-v1.log"
+        with banking_log_path.open("w", encoding="utf-8") as log:
+            process = subprocess.Popen(
+                [str(console)],
+                cwd=workdir,
+                env=banking_env,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+            try:
+                integrity = _wait_for_surface(process, banking_log_path)
+                if not integrity.get("healthy"):
+                    raise AssertionError(f"V1-05 banking composition: clean integrity failed: {integrity}")
+                banking_results = _assert_v1_05_and_v1_06_banking(banking_db_path)
+                post_integrity = _request_json("GET", "/api/system/integrity")
+                if not post_integrity.get("healthy"):
+                    raise AssertionError(
+                        f"V1-06 reconciliation: post-flow integrity failed: {post_integrity}"
+                    )
+                print("installed banking journeys=" + json.dumps(banking_results, sort_keys=True))
+            finally:
+                forced_kill = _terminate_process(process)
+            if forced_kill:
+                raise AssertionError("installed banking Aqorath did not shut down cleanly")
+
+        if not banking_db_path.is_file():
+            raise AssertionError(
+                f"installed banking flow did not create SQLite DB: {banking_db_path}"
+            )
+        with sqlite3.connect(banking_db_path) as conn:
+            if conn.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
+                raise AssertionError("installed banking SQLite integrity_check failed")
+            if conn.execute("SELECT COUNT(*) FROM bankaccount").fetchone()[0] != 2:
+                raise AssertionError("installed banking readback did not preserve two BankAccounts")
+
+        if attempts.exists() and attempts.read_text(encoding="utf-8").strip():
+            raise AssertionError(
+                "installed V1 flow attempted external network access:\n"
+                + attempts.read_text(encoding="utf-8")
+            )
+
 
 def main() -> int:
     parser = argparse.ArgumentParser()
@@ -539,7 +887,7 @@ def main() -> int:
     if not wheel.is_file():
         raise SystemExit(f"wheel not found: {wheel}")
     _install_and_run(wheel)
-    print("AQR-015 installed V1-01/V1-02/V1-04 smoke: OK")
+    print("AQR-015 installed V1-01/V1-02/V1-04/V1-05/V1-06 smoke: OK")
     return 0
 
 
