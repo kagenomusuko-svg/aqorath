@@ -20,6 +20,7 @@ import _installed_v1_core_cases as core
 import installed_v1_assets_periods_case as assets_periods
 import installed_v1_cfdi_case as cfdi
 import installed_v1_fiscal_case as fiscal
+import installed_v1_inventory_case as inventory
 import installed_v1_recovery_portability_case as recovery_portability
 
 
@@ -48,6 +49,7 @@ def _install_and_run(wheel: Path) -> None:
         cfdi_db_path = root / "cfdi-data" / "aqorath.db"
         fiscal_db_path = root / "fiscal-data" / "aqorath.db"
         recovery_db_path = root / "recovery-data" / "aqorath.db"
+        inventory_db_path = root / "inventory-data" / "aqorath.db"
         period_backup_root = root / "period-backups"
 
         venv.EnvBuilder(with_pip=True, clear=True).create(venv_dir)
@@ -166,6 +168,34 @@ def _install_and_run(wheel: Path) -> None:
         print("installed recovery/portable reopen=" + json.dumps(recovery_reopened, sort_keys=True))
         _integrity(recovery_db_path, "installed recovery/portable flow")
 
+        inventory_env = env.copy(); inventory_env["AQORATH_DB"] = str(inventory_db_path)
+        inventory_result = core._run_server_case(
+            console,
+            workdir,
+            inventory_env,
+            root / "aqorath-inventory-v1.log",
+            lambda: inventory.assert_v1_21_inventory_http(inventory_db_path),
+            "V1-21 inventory",
+        )
+        print("installed V1-21 inventory=" + json.dumps({key: value for key, value in inventory_result.items() if key not in {"professionals", "valuation"}}, sort_keys=True))
+        inventory_reopened = core._run_server_case(
+            console,
+            workdir,
+            inventory_env,
+            root / "aqorath-inventory-reopen-v1.log",
+            lambda: inventory.assert_v1_21_reopen(inventory_result),
+            "V1-21 inventory reopen",
+        )
+        print("installed V1-21 inventory reopen=" + json.dumps(inventory_reopened, sort_keys=True))
+        _integrity(inventory_db_path, "installed V1-21 inventory flow")
+        with sqlite3.connect(inventory_db_path) as conn:
+            movement_count = conn.execute("SELECT COUNT(*) FROM inventorymovement").fetchone()[0]
+            posted_entries = conn.execute("SELECT COUNT(*) FROM journalentry WHERE state='posted'").fetchone()[0]
+        if movement_count != 3 or posted_entries != 3:
+            raise AssertionError(
+                f"installed V1-21 persistence differs: movements={movement_count}, posted_entries={posted_entries}"
+            )
+
         if attempts.exists() and attempts.read_text(encoding="utf-8").strip():
             raise AssertionError("installed V1 flow attempted external network access:\n" + attempts.read_text(encoding="utf-8"))
 
@@ -181,7 +211,7 @@ def main() -> int:
     print(
         "AQR-015 installed V1-01/V1-02/V1-03/V1-04/V1-05/V1-06/V1-07/"
         "V1-08/V1-09/V1-10/V1-11/V1-12/V1-13/V1-14/V1-15/V1-16/V1-17/"
-        "V1-18/V1-22 smoke: OK"
+        "V1-18/V1-21/V1-22 smoke: OK"
     )
     return 0
 
