@@ -6,6 +6,7 @@ proved fixed-asset postings were being persisted as drafts without general audit
 evidence.
 """
 
+from dataclasses import replace
 from datetime import date, datetime
 from decimal import Decimal
 from importlib.util import module_from_spec, spec_from_file_location
@@ -31,6 +32,7 @@ _OVERRIDDEN = {
     "test_sqlite_enforces_one_acquisition_record_per_asset_even_if_executor_guard_is_bypassed",
     "test_sqlite_enforces_one_acquisition_identity_per_journal_entry",
     "test_executor_uses_existing_core_staging_once_with_exact_6p_payload",
+    "test_loader_reconstructs_identity_date_and_structured_provenance_without_parsing_description",
 }
 for _name, _value in vars(_contracts).items():
     if _name.startswith("test_") and _name not in _OVERRIDDEN:
@@ -183,6 +185,40 @@ def test_executor_uses_existing_core_staging_once_with_posted_6p_payload(tmp_pat
             ],
         }
     ]
+
+
+def test_loader_reconstructs_identity_date_and_structured_provenance_without_parsing_description(tmp_path, monkeypatch):
+    from aqorath.fixed_asset_acquisition_persistence import (
+        execute_fixed_asset_acquisition_posting_once,
+        load_fixed_asset_acquisition_posting,
+    )
+
+    engine, _, entity_id, fixed_asset_id = _contracts._initialize_canonical_db(tmp_path, monkeypatch)
+    asset = _contracts._domain_asset(fixed_asset_id=fixed_asset_id, entity_id=entity_id)
+    with Session(engine) as session:
+        instruction = _contracts._instruction(
+            session,
+            asset,
+            settlement_method="credit",
+        )
+    instruction = replace(
+        instruction,
+        posting_instruction=replace(
+            instruction.posting_instruction,
+            description="POISONED HUMAN DESCRIPTION — DO NOT PARSE",
+        ),
+    )
+
+    result = execute_fixed_asset_acquisition_posting_once(instruction)
+    assert result["ok"] is True
+
+    with Session(engine) as session:
+        loaded = load_fixed_asset_acquisition_posting(session, fixed_asset_id)
+        assert loaded.fixed_asset_id == fixed_asset_id
+        assert loaded.entry_id == result["entry_id"]
+        assert loaded.posting_date == date(2026, 1, 15)
+        assert loaded.asset_class == "computer_equipment"
+        assert loaded.settlement_method == "credit"
 
 
 def test_acquisition_persists_posted_entry_one_audit_and_specialized_identity(tmp_path, monkeypatch):
