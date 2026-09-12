@@ -54,6 +54,14 @@ def _self_test() -> int:
     return 0
 
 
+def _gui_import_test() -> int:
+    """Verify the optional GUI dependency can be imported from the packaged app."""
+    import webview  # noqa: F401
+
+    _emit("Aqorath native GUI dependency: OK")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Launch Aqorath as a desktop application without a terminal window."""
     args = list(sys.argv[1:] if argv is None else argv)
@@ -62,6 +70,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if "--self-test" in args:
         return _self_test()
+    if "--gui-import-test" in args:
+        return _gui_import_test()
 
     bootstrap_local_product()
 
