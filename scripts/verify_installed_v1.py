@@ -102,6 +102,22 @@ def _onboarding_payload() -> dict:
     }
 
 
+def _osc_onboarding_payload() -> dict:
+    payload = _onboarding_payload()
+    payload.update({
+        "name": "OSC AQR-015 instalada",
+        "legal_form": "A.C.",
+        "economic_purpose": "no_lucrativo",
+        "special_capabilities": ["osc"],
+        "bindings": {
+            **CORE_BINDINGS,
+            "donation_income": "4104",
+            "fixed_asset_computer_equipment": "1202",
+        },
+    })
+    return payload
+
+
 def _assert_common_preview(prepared: dict, *, amount: str | None = None) -> str:
     token = prepared.get("token")
     common = prepared.get("preview", {})
@@ -271,8 +287,6 @@ def _assert_credit_journey(
 ) -> dict:
     party = _create_party(party_name, party_type)
 
-    # Cancellation is a real product action: a prepared decision must leave no ledger
-    # or subledger truth if the user declines consent.
     cancelled = _prepare_credit_origin(
         operation_key=operation_key,
         amount="1.00",
@@ -733,6 +747,327 @@ def _assert_v1_05_and_v1_06_banking(db_path: Path) -> dict:
     }
 
 
+def _assert_v1_07_v1_15_v1_22_osc(db_path: Path) -> dict:
+    case = "V1-07 monetary donation"
+    initial = _request_json("GET", "/api/onboarding")
+    if initial.get("configured") is not False:
+        raise AssertionError(f"{case}: OSC SQLite was not clean: {initial}")
+    configured = _request_json("POST", "/api/onboarding", _osc_onboarding_payload())
+    if configured.get("configured") is not True:
+        raise AssertionError(f"{case}: OSC onboarding failed: {configured}")
+
+    program = _request_json(
+        "POST",
+        "/api/osc/programs",
+        {
+            "name": "Educación",
+            "description": "Programa educativo",
+            "budget": "50000.00",
+        },
+    )
+    programs = _request_json("GET", "/api/osc/programs")
+    if len(programs) != 1 or programs[0].get("id") != program.get("id"):
+        raise AssertionError(f"{case}: Program identity did not survive readback: {programs}")
+    if _decimal(program.get("budget"), f"{case} program budget") != Decimal("50000.00"):
+        raise AssertionError(f"{case}: Program budget differs: {program}")
+    with sqlite3.connect(db_path) as conn:
+        if conn.execute("SELECT COUNT(*) FROM journalentry").fetchone()[0] != 0:
+            raise AssertionError(f"{case}: Program creation wrote ledger truth")
+
+    donor = _request_json(
+        "POST",
+        "/api/subledger/third-parties",
+        {"name": "Donante principal", "party_type": "other"},
+    )
+    bank = _request_json(
+        "POST",
+        "/api/banking/accounts",
+        {
+            "institution_name": "Banco OSC",
+            "account_identifier": "OSC-001",
+            "currency": "MXN",
+        },
+    )
+    fund = _request_json(
+        "POST",
+        "/api/osc/funds",
+        {
+            "code": "EDU",
+            "name": "Educación",
+            "restriction": "restricted",
+            "purpose": "Programa educativo",
+            "program_id": program["id"],
+        },
+    )
+    source = _request_json(
+        "POST",
+        "/api/osc/funding-sources",
+        {
+            "name": "Convenio principal",
+            "donor_third_party_id": donor["id"],
+            "external_reference": "CONV-001",
+        },
+    )
+    if fund.get("program_id") != program["id"]:
+        raise AssertionError(f"{case}: Fund did not retain Program identity: {fund}")
+
+    with sqlite3.connect(db_path) as conn:
+        account_truth = conn.execute(
+            "SELECT child.code,child.origin,parent.code FROM account child "
+            "LEFT JOIN account parent ON parent.id=child.parent_id WHERE child.id=?",
+            (bank["ledger_account_id"],),
+        ).fetchone()
+    if account_truth is None or account_truth[1] != "entity" or account_truth[2] != "1101":
+        raise AssertionError(f"{case}: selected bank is not a governed 1101 extension: {account_truth}")
+    bank_code = account_truth[0]
+    if bank_code == "1101":
+        raise AssertionError(f"{case}: selected BankAccount still points to generic 1101")
+
+    monetary = _request_json(
+        "POST",
+        "/api/osc/donations/prepare",
+        {
+            "donor_name": donor["name"],
+            "amount": "1000.00",
+            "date": "2026-02-01",
+            "bank_account_identifier": bank["account_identifier"],
+            "document_type": "acta",
+            "document_number": "DON-001",
+            "document_date": "2026-02-01",
+            "fund_name": fund["name"],
+            "funding_source_name": source["name"],
+            "program_name": program["name"],
+            "restriction": "restricted",
+            "purpose": "Programa educativo",
+        },
+    )
+    token = _assert_common_preview(monetary, amount="1000.00")
+    common_json = json.dumps(monetary["preview"], sort_keys=True)
+    if "Debe" in common_json or "Haber" in common_json or bank_code in common_json:
+        raise AssertionError(f"{case}: common preview leaked accounting internals: {monetary['preview']}")
+
+    professional_preview = _request_json(
+        "GET", f"/api/operations/{token}/professional-preview"
+    )
+    bank_lines = [
+        line for line in professional_preview.get("lines", [])
+        if line.get("account_id") == bank["ledger_account_id"]
+    ]
+    if len(bank_lines) != 1:
+        raise AssertionError(f"{case}: professional preview lost selected bank: {professional_preview}")
+    bank_preview = bank_lines[0]
+    if (
+        bank_preview.get("account_code") != bank_code
+        or bank_preview.get("side") != "debit"
+        or _decimal(bank_preview.get("amount"), f"{case} professional bank amount") != Decimal("1000.00")
+    ):
+        raise AssertionError(f"{case}: professional preview did not freeze specific bank truth: {bank_preview}")
+
+    monetary_result = _request_json("POST", f"/api/operations/{token}/confirm")
+    donation_id = monetary_result.get("donation_id")
+    receipt_id = monetary_result.get("fund_receipt_id")
+    if not donation_id or not receipt_id or not monetary_result.get("entry_id"):
+        raise AssertionError(f"{case}: confirmed donation lacks canonical identities: {monetary_result}")
+    monetary_professional = _request_json(
+        "GET", f"/api/osc/donations/{donation_id}/professional"
+    )
+    if monetary_professional.get("program", {}).get("id") != program["id"]:
+        raise AssertionError(f"{case}: professional readback lost Program: {monetary_professional}")
+    if monetary_professional.get("fund", {}).get("id") != fund["id"]:
+        raise AssertionError(f"{case}: professional readback lost Fund: {monetary_professional}")
+    if monetary_professional.get("funding_source", {}).get("id") != source["id"]:
+        raise AssertionError(f"{case}: professional readback lost FundingSource: {monetary_professional}")
+    if monetary_professional.get("donor", {}).get("id") != donor["id"]:
+        raise AssertionError(f"{case}: professional readback lost donor: {monetary_professional}")
+    if monetary_professional.get("document", {}).get("document_number") != "DON-001":
+        raise AssertionError(f"{case}: professional readback lost document: {monetary_professional}")
+    ledger = monetary_professional.get("ledger", {})
+    if ledger.get("entry_id") != monetary_result["entry_id"] or ledger.get("state") != "posted":
+        raise AssertionError(f"{case}: donation ledger identity differs: {monetary_professional}")
+    posted_bank_lines = [
+        line for line in ledger.get("lines", [])
+        if line.get("account_id") == bank["ledger_account_id"]
+    ]
+    if len(posted_bank_lines) != 1 or _decimal(
+        posted_bank_lines[0].get("debit"), f"{case} posted bank debit"
+    ) != Decimal("1000.00"):
+        raise AssertionError(f"{case}: posted ledger did not use selected bank: {ledger}")
+    if monetary_professional.get("audit", {}).get("event_type") != "entry_posted":
+        raise AssertionError(f"{case}: canonical audit missing: {monetary_professional}")
+
+    case = "V1-15 OSC traceability"
+    expense = _request_json(
+        "POST",
+        "/api/operations/prepare",
+        {
+            "operation_key": "utility_bank",
+            "amount": "300.00",
+            "posting_date": "2026-02-03",
+        },
+    )
+    expense_token = _assert_common_preview(expense, amount="300.00")
+    expense_result = _request_json("POST", f"/api/operations/{expense_token}/confirm")
+    candidates = _request_json("GET", "/api/osc/fund-candidates?kind=application")
+    candidate = next(
+        (item for item in candidates if item.get("entry_id") == expense_result.get("entry_id")),
+        None,
+    )
+    if candidate is None:
+        raise AssertionError(f"{case}: expense did not become an application candidate: {candidates}")
+    application = _request_json(
+        "POST",
+        "/api/osc/fund-applications",
+        {
+            "fund_id": fund["id"],
+            "program_id": program["id"],
+            "journal_line_id": candidate["journal_line_id"],
+            "amount": "300.00",
+            "receipt_id": receipt_id,
+            "purpose": "Servicios del programa",
+        },
+    )
+    if application.get("program_id") != program["id"] or application.get("fund_id") != fund["id"]:
+        raise AssertionError(f"{case}: FundApplication collapsed OSC identities: {application}")
+
+    balance_path = f"/api/osc/funds/{fund['id']}/balance?as_of=2026-02-03"
+    trace_path = f"/api/osc/funds/{fund['id']}/traceability?as_of=2026-02-03"
+    balance = _request_json("GET", balance_path)
+    for field, expected in (
+        ("received", Decimal("1000.00")),
+        ("applied", Decimal("300.00")),
+        ("available", Decimal("700.00")),
+    ):
+        if _decimal(balance.get(field), f"{case} {field}") != expected:
+            raise AssertionError(f"{case}: balance {field} differs: {balance}")
+    if balance.get("program_id") != program["id"]:
+        raise AssertionError(f"{case}: balance lost Program identity: {balance}")
+
+    trace = _request_json("GET", trace_path)
+    if trace.get("fund", {}).get("program_id") != program["id"]:
+        raise AssertionError(f"{case}: trace lost Fund→Program relation: {trace}")
+    receipts = trace.get("receipts", [])
+    applications = trace.get("applications", [])
+    if len(receipts) != 1 or receipts[0].get("source", {}).get("id") != source["id"]:
+        raise AssertionError(f"{case}: trace lost FundingSource receipt: {trace}")
+    if len(applications) != 1 or applications[0].get("program_id") != program["id"]:
+        raise AssertionError(f"{case}: trace lost Program application: {trace}")
+    if _decimal(trace.get("received"), f"{case} trace received") != Decimal("1000.00"):
+        raise AssertionError(f"{case}: trace received differs: {trace}")
+    if _decimal(trace.get("applied"), f"{case} trace applied") != Decimal("300.00"):
+        raise AssertionError(f"{case}: trace applied differs: {trace}")
+    if _decimal(trace.get("available"), f"{case} trace available") != Decimal("700.00"):
+        raise AssertionError(f"{case}: trace available differs: {trace}")
+    if _request_json("GET", balance_path) != balance or _request_json("GET", trace_path) != trace:
+        raise AssertionError(f"{case}: balance/traceability changed across persisted readback")
+
+    case = "V1-22 in-kind donation"
+    inkind = _request_json(
+        "POST",
+        "/api/osc/in-kind-donations/prepare",
+        {
+            "donor_name": donor["name"],
+            "description": "Computadora donada",
+            "quantity": "1",
+            "date": "2026-02-02",
+            "valuation_amount": "12000.00",
+            "valuation_method": "avaluo",
+            "valuation_evidence": "Avalúo firmado IK-001",
+            "document_type": "constancia",
+            "document_number": "IK-001",
+            "document_date": "2026-02-02",
+            "fund_name": fund["name"],
+            "program_name": program["name"],
+            "asset_code": "AF-IK-001",
+            "asset_name": "Computadora donada",
+            "useful_life_months": 36,
+        },
+    )
+    inkind_token = _assert_common_preview(inkind, amount="12000.00")
+    inkind_common = inkind.get("preview", {})
+    inkind_common_json = json.dumps(inkind_common, sort_keys=True)
+    if "account_code" in inkind_common_json or "Debe" in inkind_common_json or "Haber" in inkind_common_json:
+        raise AssertionError(f"{case}: common preview leaked accounting internals: {inkind_common}")
+    if inkind_common.get("cash_or_bank") != "Sin efectivo ni banco":
+        raise AssertionError(f"{case}: common preview invented cash/bank movement: {inkind_common}")
+    if _decimal(inkind_common.get("amount"), f"{case} valuation") != Decimal("12000.00"):
+        raise AssertionError(f"{case}: common valuation differs: {inkind_common}")
+
+    inkind_result = _request_json("POST", f"/api/operations/{inkind_token}/confirm")
+    inkind_id = inkind_result.get("inkind_donation_id")
+    if not inkind_id or not inkind_result.get("entry_id"):
+        raise AssertionError(f"{case}: confirmation lacks canonical identities: {inkind_result}")
+    inkind_professional = _request_json(
+        "GET", f"/api/osc/in-kind-donations/{inkind_id}/professional"
+    )
+    if inkind_professional.get("donor", {}).get("id") != donor["id"]:
+        raise AssertionError(f"{case}: professional readback lost donor: {inkind_professional}")
+    if inkind_professional.get("document", {}).get("document_number") != "IK-001":
+        raise AssertionError(f"{case}: professional readback lost document: {inkind_professional}")
+    if inkind_professional.get("program", {}).get("id") != program["id"]:
+        raise AssertionError(f"{case}: professional readback lost Program: {inkind_professional}")
+    if inkind_professional.get("fund", {}).get("id") != fund["id"]:
+        raise AssertionError(f"{case}: professional readback lost Fund: {inkind_professional}")
+    valuation = inkind_professional.get("valuation", {})
+    if (
+        _decimal(valuation.get("amount"), f"{case} professional valuation") != Decimal("12000.00")
+        or valuation.get("method") != "avaluo"
+        or valuation.get("evidence") != "Avalúo firmado IK-001"
+    ):
+        raise AssertionError(f"{case}: professional valuation/evidence differs: {inkind_professional}")
+    if inkind_professional.get("fixed_asset", {}).get("code") != "AF-IK-001":
+        raise AssertionError(f"{case}: implemented fixed-asset composition missing: {inkind_professional}")
+    if inkind_professional.get("cash_or_bank") != []:
+        raise AssertionError(f"{case}: in-kind donation produced cash/bank lines: {inkind_professional}")
+    if inkind_professional.get("ledger", {}).get("cash_or_bank_lines", []) != []:
+        raise AssertionError(f"{case}: ledger reconstruction found cash/bank movement: {inkind_professional}")
+    if inkind_professional.get("ledger", {}).get("entry_id") != inkind_result["entry_id"]:
+        raise AssertionError(f"{case}: canonical ledger identity differs: {inkind_professional}")
+    if inkind_professional.get("fiscality", {}).get("supported") is not False:
+        raise AssertionError(f"{case}: smoke invented unsupported fiscal coverage: {inkind_professional}")
+
+    reopened_programs = _request_json("GET", "/api/osc/programs")
+    if len(reopened_programs) != 1 or reopened_programs[0].get("id") != program["id"]:
+        raise AssertionError(f"{case}: Program identity changed after OSC journeys: {reopened_programs}")
+
+    with sqlite3.connect(db_path) as conn:
+        entry_count = conn.execute("SELECT COUNT(*) FROM journalentry WHERE state='posted'").fetchone()[0]
+        donation_count = conn.execute("SELECT COUNT(*) FROM donation").fetchone()[0]
+        inkind_count = conn.execute("SELECT COUNT(*) FROM inkinddonation").fetchone()[0]
+        fund_count = conn.execute("SELECT COUNT(*) FROM fund").fetchone()[0]
+        program_count = conn.execute("SELECT COUNT(*) FROM program").fetchone()[0]
+        source_count = conn.execute("SELECT COUNT(*) FROM fundingsource").fetchone()[0]
+    if entry_count != 3:
+        raise AssertionError(f"V1-15 OSC traceability: metadata created a parallel ledger: entries={entry_count}")
+    if (donation_count, inkind_count, fund_count, program_count, source_count) != (1, 1, 1, 1, 1):
+        raise AssertionError(
+            "V1-07/V1-15/V1-22 persisted identities differ: "
+            f"donations={donation_count}, inkind={inkind_count}, funds={fund_count}, "
+            f"programs={program_count}, sources={source_count}"
+        )
+
+    return {
+        "V1-07": {
+            "donation_id": donation_id,
+            "entry_id": monetary_result["entry_id"],
+            "bank_account_id": bank["id"],
+            "bank_account_code": bank_code,
+        },
+        "V1-15": {
+            "fund_id": fund["id"],
+            "program_id": program["id"],
+            "funding_source_id": source["id"],
+            "received": balance["received"],
+            "applied": balance["applied"],
+            "available": balance["available"],
+        },
+        "V1-22": {
+            "inkind_donation_id": inkind_id,
+            "entry_id": inkind_result["entry_id"],
+            "program_id": program["id"],
+        },
+    }
+
+
 def _terminate_process(process: subprocess.Popen) -> bool:
     forced_kill = False
     if process.poll() is None:
@@ -753,6 +1088,7 @@ def _install_and_run(wheel: Path) -> None:
         workdir = root / "outside-checkout"
         db_path = root / "user-data" / "aqorath.db"
         banking_db_path = root / "banking-data" / "aqorath.db"
+        osc_db_path = root / "osc-data" / "aqorath.db"
         workdir.mkdir()
 
         venv.EnvBuilder(with_pip=True, clear=True).create(venv_dir)
@@ -872,6 +1208,40 @@ def _install_and_run(wheel: Path) -> None:
             if conn.execute("SELECT COUNT(*) FROM bankaccount").fetchone()[0] != 2:
                 raise AssertionError("installed banking readback did not preserve two BankAccounts")
 
+        osc_env = env.copy()
+        osc_env["AQORATH_DB"] = str(osc_db_path)
+        osc_log_path = root / "aqorath-osc-v1.log"
+        with osc_log_path.open("w", encoding="utf-8") as log:
+            process = subprocess.Popen(
+                [str(console)],
+                cwd=workdir,
+                env=osc_env,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+            try:
+                integrity = _wait_for_surface(process, osc_log_path)
+                if not integrity.get("healthy"):
+                    raise AssertionError(f"V1-07 monetary donation: clean OSC integrity failed: {integrity}")
+                osc_results = _assert_v1_07_v1_15_v1_22_osc(osc_db_path)
+                post_integrity = _request_json("GET", "/api/system/integrity")
+                if not post_integrity.get("healthy"):
+                    raise AssertionError(
+                        f"V1-22 in-kind donation: post-OSC integrity failed: {post_integrity}"
+                    )
+                print("installed OSC journeys=" + json.dumps(osc_results, sort_keys=True))
+            finally:
+                forced_kill = _terminate_process(process)
+            if forced_kill:
+                raise AssertionError("installed OSC Aqorath did not shut down cleanly")
+
+        if not osc_db_path.is_file():
+            raise AssertionError(f"installed OSC flow did not create SQLite DB: {osc_db_path}")
+        with sqlite3.connect(osc_db_path) as conn:
+            if conn.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
+                raise AssertionError("installed OSC SQLite integrity_check failed")
+
         if attempts.exists() and attempts.read_text(encoding="utf-8").strip():
             raise AssertionError(
                 "installed V1 flow attempted external network access:\n"
@@ -887,7 +1257,7 @@ def main() -> int:
     if not wheel.is_file():
         raise SystemExit(f"wheel not found: {wheel}")
     _install_and_run(wheel)
-    print("AQR-015 installed V1-01/V1-02/V1-04/V1-05/V1-06 smoke: OK")
+    print("AQR-015 installed V1-01/V1-02/V1-04/V1-05/V1-06/V1-07/V1-15/V1-22 smoke: OK")
     return 0
 
 
