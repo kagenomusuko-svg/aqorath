@@ -373,11 +373,26 @@ jobs:
           APK="$GITHUB_WORKSPACE/packaging/android/app/build/outputs/apk/debug/app-debug.apk"
           EMULATOR_LOG="$GITHUB_WORKSPACE/android-emulator.txt"
           LOGCAT="$GITHUB_WORKSPACE/android-logcat.txt"
+          export ANDROID_AVD_HOME="$HOME/.android/avd"
+          mkdir -p "$ANDROID_AVD_HOME"
 
-          echo no | avdmanager create avd \
+          SDKMANAGER_PATH="$(command -v sdkmanager)"
+          AVDMANAGER="$(dirname "$SDKMANAGER_PATH")/avdmanager"
+          test -x "$AVDMANAGER"
+          echo "Using AVD manager: $AVDMANAGER"
+
+          printf 'no\n' | "$AVDMANAGER" create avd \
             --force \
             --name aqorath-ci \
-            --package "system-images;android-35;google_apis;x86_64"
+            --package "system-images;android-35;google_apis;x86_64" \
+            --path "$ANDROID_AVD_HOME/aqorath-ci.avd"
+
+          echo "AVD manager inventory:"
+          "$AVDMANAGER" list avd
+          echo "Emulator inventory:"
+          "$ANDROID_HOME/emulator/emulator" -list-avds
+          ls -la "$ANDROID_AVD_HOME"
+          test -f "$ANDROID_AVD_HOME/aqorath-ci.ini"
 
           "$ANDROID_HOME/emulator/emulator" -avd aqorath-ci \
             -no-window \
