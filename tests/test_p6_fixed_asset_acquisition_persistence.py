@@ -1,10 +1,4 @@
-"""Phase 6Q acquisition contracts plus AQR-015 posted/audit regressions.
-
-The historical Phase 6Q suite stays frozen in the adjacent contract module. This
-collector replaces only contracts whose exact staging payload changed when run #697
-proved fixed-asset postings were being persisted as drafts without general audit
-evidence.
-"""
+"""Phase 6Q acquisition contracts plus AQR-015 posted/audit regressions."""
 
 from dataclasses import replace
 from datetime import date, datetime
@@ -40,12 +34,10 @@ for _name, _value in vars(_contracts).items():
 
 
 def _persist_balanced_placeholder_entry(session, *, when, concept):
-    """Persist a minimal valid ledger entry for uniqueness-only registry tests."""
     from aqorath.models import Account, JournalEntry, JournalLine
 
     debit_account = session.exec(select(Account).where(Account.code == "1203")).one()
     credit_account = session.exec(select(Account).where(Account.code == "1101")).one()
-
     entry = JournalEntry(date=when, concept=concept)
     session.add(entry)
     session.flush()
@@ -77,13 +69,8 @@ def test_sqlite_enforces_one_acquisition_record_per_asset_even_if_executor_guard
 
     engine, _, _, fixed_asset_id = _contracts._initialize_canonical_db(tmp_path, monkeypatch)
     with Session(engine) as session:
-        first_entry = _persist_balanced_placeholder_entry(
-            session, when=datetime(2026, 1, 15), concept="first"
-        )
-        second_entry = _persist_balanced_placeholder_entry(
-            session, when=datetime(2026, 1, 16), concept="second"
-        )
-
+        first_entry = _persist_balanced_placeholder_entry(session, when=datetime(2026, 1, 15), concept="first")
+        second_entry = _persist_balanced_placeholder_entry(session, when=datetime(2026, 1, 16), concept="second")
         session.add(
             FixedAssetAcquisitionPostingRecord(
                 fixed_asset_id=fixed_asset_id,
@@ -93,7 +80,6 @@ def test_sqlite_enforces_one_acquisition_record_per_asset_even_if_executor_guard
             )
         )
         session.commit()
-
         session.add(
             FixedAssetAcquisitionPostingRecord(
                 fixed_asset_id=fixed_asset_id,
@@ -113,10 +99,7 @@ def test_sqlite_enforces_one_acquisition_identity_per_journal_entry(tmp_path, mo
     engine, _, entity_id, fixed_asset_id = _contracts._initialize_canonical_db(tmp_path, monkeypatch)
     with Session(engine) as session:
         second_asset = _contracts._persist_second_asset(session, entity_id)
-        entry = _persist_balanced_placeholder_entry(
-            session, when=datetime(2026, 1, 15), concept="shared"
-        )
-
+        entry = _persist_balanced_placeholder_entry(session, when=datetime(2026, 1, 15), concept="shared")
         session.add(
             FixedAssetAcquisitionPostingRecord(
                 fixed_asset_id=fixed_asset_id,
@@ -126,7 +109,6 @@ def test_sqlite_enforces_one_acquisition_identity_per_journal_entry(tmp_path, mo
             )
         )
         session.commit()
-
         session.add(
             FixedAssetAcquisitionPostingRecord(
                 fixed_asset_id=second_asset.id,
@@ -142,16 +124,12 @@ def test_sqlite_enforces_one_acquisition_identity_per_journal_entry(tmp_path, mo
 
 def test_executor_uses_existing_core_staging_once_with_posted_6p_payload(tmp_path, monkeypatch):
     import aqorath.core
-    from aqorath.fixed_asset_acquisition_persistence import (
-        execute_fixed_asset_acquisition_posting_once,
-    )
+    from aqorath.fixed_asset_acquisition_persistence import execute_fixed_asset_acquisition_posting_once
 
     engine, _, entity_id, fixed_asset_id = _contracts._initialize_canonical_db(tmp_path, monkeypatch)
     asset = _contracts._domain_asset(fixed_asset_id=fixed_asset_id, entity_id=entity_id)
     with Session(engine) as session:
-        instruction = _contracts._instruction(
-            session, asset, settlement_method="credit"
-        )
+        instruction = _contracts._instruction(session, asset, settlement_method="credit")
 
     real_stage = aqorath.core._stage_entry_in_session
     calls = []
@@ -188,6 +166,7 @@ def test_executor_uses_existing_core_staging_once_with_posted_6p_payload(tmp_pat
 
 
 def test_loader_reconstructs_identity_date_and_structured_provenance_without_parsing_description(tmp_path, monkeypatch):
+    import aqorath.posting as posting
     from aqorath.fixed_asset_acquisition_persistence import (
         execute_fixed_asset_acquisition_posting_once,
         load_fixed_asset_acquisition_posting,
@@ -195,20 +174,18 @@ def test_loader_reconstructs_identity_date_and_structured_provenance_without_par
 
     engine, _, entity_id, fixed_asset_id = _contracts._initialize_canonical_db(tmp_path, monkeypatch)
     asset = _contracts._domain_asset(fixed_asset_id=fixed_asset_id, entity_id=entity_id)
-    with Session(engine) as session:
-        instruction = _contracts._instruction(
-            session,
-            asset,
-            settlement_method="credit",
-        )
-    instruction = replace(
-        instruction,
-        posting_instruction=replace(
-            instruction.posting_instruction,
-            description="POISONED HUMAN DESCRIPTION — DO NOT PARSE",
-        ),
-    )
 
+    real_factory = posting.create_posting_instruction
+
+    def poisoned_factory(confirmed_proposal):
+        generic = real_factory(confirmed_proposal)
+        return replace(generic, description="POISONED HUMAN DESCRIPTION — DO NOT PARSE")
+
+    monkeypatch.setattr(posting, "create_posting_instruction", poisoned_factory)
+    with Session(engine) as session:
+        instruction = _contracts._instruction(session, asset, settlement_method="credit")
+
+    assert instruction.posting_instruction.description == "POISONED HUMAN DESCRIPTION — DO NOT PARSE"
     result = execute_fixed_asset_acquisition_posting_once(instruction)
     assert result["ok"] is True
 
@@ -301,9 +278,11 @@ def test_acquisition_retry_creates_no_second_entry_audit_or_specialized_record(t
 
     with Session(engine) as session:
         assert len(session.exec(select(JournalEntry)).all()) == 1
-        assert len(session.exec(
-            select(AuditEventRecord).where(AuditEventRecord.event_type == "entry_posted")
-        ).all()) == 1
+        assert len(
+            session.exec(
+                select(AuditEventRecord).where(AuditEventRecord.event_type == "entry_posted")
+            ).all()
+        ) == 1
         assert len(session.exec(select(FixedAssetAcquisitionPostingRecord)).all()) == 1
 
 
