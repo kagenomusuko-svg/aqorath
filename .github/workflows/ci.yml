@@ -108,3 +108,38 @@ jobs:
           name: installed-v1-output
           path: installed-v1-output.txt
           if-no-files-found: error
+
+      - name: Prepare downloadable V1 candidate
+        if: success()
+        run: |
+          WHEEL="$(find dist -maxdepth 1 -type f -name '*.whl' -print -quit)"
+          test -n "$WHEEL"
+          sha256sum "$WHEEL" > dist/SHA256SUMS.txt
+          cat > dist/LEEME.txt <<'EOF'
+          AQORATH V1 — CANDIDATO TÉCNICO
+
+          Este paquete fue construido por el mismo CI que ejecuta la suite fuente,
+          el smoke de distribución, el hardening pre-release y la aceptación
+          instalada offline de Aqorath V1.
+
+          Estado al publicarse este artifact:
+          - TECHNICAL_INSTALLED: 22/22 PASS
+          - PROFESSIONAL_REVIEW: PENDING
+          - HUMAN_ACCEPTANCE: PENDING
+          - No es todavía una release V1 final.
+
+          El archivo .whl es el paquete instalable de Aqorath.
+          SHA256SUMS.txt permite verificar su integridad.
+          EOF
+
+      - name: Publish downloadable Aqorath V1 candidate
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aqorath-v1-candidate
+          path: |
+            dist/*.whl
+            dist/SHA256SUMS.txt
+            dist/LEEME.txt
+          if-no-files-found: error
+          retention-days: 90
