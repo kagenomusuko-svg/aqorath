@@ -98,7 +98,7 @@ def _assert_v1_19_fiscal_profile_identity(db_path: Path, fiscal_result: dict) ->
     profile_id, entity_id, jurisdiction, regime, effective_from, effective_to = rows[0]
     if (
         profile_id != entity.get("fiscal_profile_id")
-        or entity_id != entity.get("id")
+        or entity_id != entity.get("entity_id")
         or jurisdiction != "MX"
         or regime != "603"
         or effective_from != "2026-01-01"
