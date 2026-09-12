@@ -109,8 +109,14 @@ def _valuation(product_id: int, as_of_date: str) -> dict:
         {"as_of_date": as_of_date, "format": "json"},
     )
     authorities = set(report.get("source_authorities", []))
-    if not {"inventory_products", "inventory_movements", "journal_lines"} <= authorities:
+    if not {"AQR-012.inventory_state", "InventoryMovementRecord", "JournalLine"} <= authorities:
         raise AssertionError(f"V1-21: valuation does not declare canonical authorities: {report}")
+    required_data = set(report.get("definition", {}).get("required_data", []))
+    if not {"inventory_products", "inventory_movements", "journal_lines"} <= required_data:
+        raise AssertionError(f"V1-21: valuation definition lost required data contract: {report}")
+    restrictions = set(report.get("governance", {}).get("restrictions", []))
+    if "no-cost-recalculation" not in restrictions:
+        raise AssertionError(f"V1-21: valuation no longer declares no-cost-recalculation: {report}")
     content = report.get("content", {})
     lines = [line for line in content.get("lines", []) if line.get("product_id") == product_id]
     if len(lines) != 1:
