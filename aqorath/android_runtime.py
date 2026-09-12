@@ -22,8 +22,7 @@ _SERVER = None
 _SERVER_THREAD = None
 _GUARD_INSTALLED = False
 
-_ORIGINAL_CONNECT = socket.socket.connect
-_ORIGINAL_CONNECT_EX = socket.socket.connect_ex
+_ORIGINAL_SOCKET_CLASS = socket.socket
 _ORIGINAL_CREATE_CONNECTION = socket.create_connection
 _ORIGINAL_GETADDRINFO = socket.getaddrinfo
 
@@ -48,19 +47,21 @@ def _require_loopback_address(address) -> None:
     raise OSError("Aqorath Android blocks all non-loopback network destinations")
 
 
+class _LoopbackOnlySocket(_ORIGINAL_SOCKET_CLASS):
+    def connect(self, address):
+        _require_loopback_address(address)
+        return super().connect(address)
+
+    def connect_ex(self, address):
+        _require_loopback_address(address)
+        return super().connect_ex(address)
+
+
 def install_loopback_only_network_guard() -> None:
     """Fail closed on every Python outbound destination except loopback."""
     global _GUARD_INSTALLED
     if _GUARD_INSTALLED:
         return
-
-    def guarded_connect(sock, address):
-        _require_loopback_address(address)
-        return _ORIGINAL_CONNECT(sock, address)
-
-    def guarded_connect_ex(sock, address):
-        _require_loopback_address(address)
-        return _ORIGINAL_CONNECT_EX(sock, address)
 
     def guarded_create_connection(address, *args, **kwargs):
         _require_loopback_address(address)
@@ -74,8 +75,7 @@ def install_loopback_only_network_guard() -> None:
             )
         return _ORIGINAL_GETADDRINFO(host, *args, **kwargs)
 
-    socket.socket.connect = guarded_connect
-    socket.socket.connect_ex = guarded_connect_ex
+    socket.socket = _LoopbackOnlySocket
     socket.create_connection = guarded_create_connection
     socket.getaddrinfo = guarded_getaddrinfo
     _GUARD_INSTALLED = True
