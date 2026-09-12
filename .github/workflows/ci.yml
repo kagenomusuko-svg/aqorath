@@ -373,6 +373,8 @@ jobs:
           APK="$GITHUB_WORKSPACE/packaging/android/app/build/outputs/apk/debug/app-debug.apk"
           EMULATOR_LOG="$GITHUB_WORKSPACE/android-emulator.txt"
           LOGCAT="$GITHUB_WORKSPACE/android-logcat.txt"
+          CHECKPOINTS="$GITHUB_WORKSPACE/android-smoke-checkpoints.txt"
+          : > "$CHECKPOINTS"
           export ANDROID_AVD_HOME="$HOME/.android/avd"
           mkdir -p "$ANDROID_AVD_HOME"
 
@@ -430,15 +432,18 @@ jobs:
             adb logcat -d || true
             exit 1
           fi
+          echo "AQR-015 Android emulator boot: OK" | tee -a "$CHECKPOINTS"
 
           sleep 20
           adb shell echo AQORATH_ADB_READY
           adb install -r "$APK"
+          echo "AQR-015 Android APK install: OK" | tee -a "$CHECKPOINTS"
           adb shell svc wifi disable || true
           adb shell svc data disable || true
           adb shell settings put global airplane_mode_on 1
           adb shell am broadcast -a android.intent.action.AIRPLANE_MODE --ez state true >/dev/null || true
           test "$(adb shell settings get global airplane_mode_on | tr -d '\r')" = "1"
+          echo "AQR-015 Android airplane mode: OK" | tee -a "$CHECKPOINTS"
 
           adb logcat -c
           adb shell am force-stop org.meriadock.aqorath || true
@@ -460,14 +465,33 @@ jobs:
           cat "$LOGCAT"
           test "$ready" -eq 1
           grep -q 'AQORATH_ANDROID_NETWORK_GUARD=loopback-only' "$LOGCAT"
-          adb shell run-as org.meriadock.aqorath sh -c 'test -f files/aqorath/aqorath.db'
+          echo "AQR-015 Android local runtime ready: OK" | tee -a "$CHECKPOINTS"
 
+          adb shell run-as org.meriadock.aqorath ls -l files/aqorath/aqorath.db
+          echo "AQR-015 Android private DB: OK" | tee -a "$CHECKPOINTS"
+
+          adb forward --remove tcp:18765 >/dev/null 2>&1 || true
           adb forward tcp:18765 tcp:8765
-          python - <<'PY'
+          echo "AQR-015 Android adb forward: OK" | tee -a "$CHECKPOINTS"
+          python - <<'PY' | tee -a "$CHECKPOINTS"
           import json
+          import time
+          from urllib.error import URLError
           from urllib.request import urlopen
-          with urlopen('http://127.0.0.1:18765/api/capabilities', timeout=10) as response:
-              payload = json.load(response)
+
+          url = 'http://127.0.0.1:18765/api/capabilities'
+          last_error = None
+          for _ in range(30):
+              try:
+                  with urlopen(url, timeout=2) as response:
+                      payload = json.load(response)
+                  break
+              except (OSError, URLError) as exc:
+                  last_error = exc
+                  time.sleep(1)
+          else:
+              raise SystemExit(f'loopback capabilities unavailable: {last_error}')
+
           if not isinstance(payload, (dict, list)):
               raise SystemExit('unexpected capabilities payload')
           print('AQR-015 Android airplane-mode local surface: OK')
@@ -481,6 +505,7 @@ jobs:
           path: |
             android-logcat.txt
             android-emulator.txt
+            android-smoke-checkpoints.txt
           if-no-files-found: warn
           retention-days: 90
 
