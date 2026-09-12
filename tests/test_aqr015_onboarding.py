@@ -18,6 +18,13 @@ CORE_BINDINGS = {
     "utilities_expense": "5102",
 }
 
+FISCAL_BINDINGS = {
+    "vat_pending_credit": "1182",
+    "tax_payable": "2080",
+    "isr_withholding_payable": "2160",
+    "vat_withholding_payable": "2170",
+}
+
 
 def _fresh_db(tmp_path, monkeypatch, name="onboarding.db"):
     import aqorath.storage as storage
@@ -155,6 +162,29 @@ def test_clean_onboarding_materializes_governed_catalog_entity_period_profile_an
     assert status["limits"]["internet_required"] is False
     with pytest.raises(ValueError, match="active entity already configured"):
         configure_surface_onboarding(_payload(name="Segunda entidad"))
+
+
+def test_onboarding_exposes_optional_governed_fiscal_bindings(tmp_path, monkeypatch):
+    _db, engine = _fresh_db(tmp_path, monkeypatch, "fiscal-bindings.db")
+    from aqorath.account_bindings import get_account_bindings
+    from aqorath.onboarding_surface_application import (
+        configure_surface_onboarding,
+        get_surface_onboarding,
+    )
+
+    before = get_surface_onboarding()
+    roles = {item["key"]: item for item in before["binding_roles"]}
+    for role, code in FISCAL_BINDINGS.items():
+        assert roles[role]["required"] is False
+        assert roles[role]["suggested_codes"] == (code,)
+        assert code in {item["code"] for item in before["accounts"]}
+
+    bindings = {**CORE_BINDINGS, **FISCAL_BINDINGS, "professional_services_expense": "5303"}
+    result = configure_surface_onboarding(_payload(bindings=bindings))
+    assert result["bindings"] == bindings
+
+    with Session(engine) as session:
+        assert get_account_bindings(session, tuple(FISCAL_BINDINGS)) == FISCAL_BINDINGS
 
 
 def test_v1_01_is_operable_immediately_after_guided_onboarding_from_same_truth(tmp_path, monkeypatch):

@@ -4,6 +4,9 @@ from configparser import ConfigParser
 from pathlib import Path
 import sqlite3
 
+import pytest
+from sqlmodel import Session, select
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -12,6 +15,48 @@ def _setup_config():
     parser = ConfigParser()
     parser.read(REPO_ROOT / "setup.cfg", encoding="utf-8")
     return parser
+
+
+def _expected_curated_fiscal_reference_data():
+    from aqorath.fiscal_rule_data_mx import CURATED_MX_FISCAL_RULE_SETS
+    from aqorath.fiscal_rule_set import materialize_fiscal_rule_set
+
+    expected = []
+    for manifest in CURATED_MX_FISCAL_RULE_SETS:
+        for registration in materialize_fiscal_rule_set(manifest):
+            expected.append(
+                (
+                    registration.rule_key,
+                    registration.context.jurisdiction,
+                    registration.context.regime,
+                    registration.context.entity_type,
+                    registration.effective_from,
+                    str(registration.value),
+                    registration.unit,
+                    registration.source_ref,
+                )
+            )
+    return sorted(expected)
+
+
+def _persisted_fiscal_reference_data(engine):
+    from aqorath.models import FiscalRuleVersion
+
+    with Session(engine) as session:
+        rows = session.exec(select(FiscalRuleVersion)).all()
+    return sorted(
+        (
+            row.rule_key,
+            row.jurisdiction,
+            row.regime,
+            row.entity_type,
+            row.effective_from,
+            row.value,
+            row.unit,
+            row.source_ref,
+        )
+        for row in rows
+    )
 
 
 def test_packaging_declares_runtime_dependencies_entry_point_and_package_data():
@@ -77,6 +122,65 @@ def test_product_bootstrap_creates_parent_and_uses_current_migration_authority(t
     finally:
         engine = storage.get_engine()
         engine.dispose()
+
+
+def test_product_bootstrap_ensures_curated_fiscal_reference_data_idempotently(tmp_path, monkeypatch):
+    from aqorath.product_bootstrap import bootstrap_local_product
+    import aqorath.storage as storage
+
+    db_path = tmp_path / "fiscal-reference.db"
+    monkeypatch.setenv("AQORATH_DB", str(db_path))
+
+    bootstrap_local_product()
+    expected = _expected_curated_fiscal_reference_data()
+    first = _persisted_fiscal_reference_data(storage.get_engine())
+    assert first == expected
+
+    bootstrap_local_product()
+    second = _persisted_fiscal_reference_data(storage.get_engine())
+    assert second == expected
+    assert second == first
+
+    storage.get_engine().dispose()
+
+
+def test_product_bootstrap_rejects_conflicting_curated_fiscal_reference_data(tmp_path, monkeypatch):
+    from aqorath.models import FiscalRuleVersion
+    from aqorath.product_bootstrap import bootstrap_local_product
+    import aqorath.storage as storage
+
+    db_path = tmp_path / "fiscal-conflict.db"
+    monkeypatch.setenv("AQORATH_DB", str(db_path))
+    bootstrap_local_product()
+
+    with Session(storage.get_engine()) as session:
+        row = session.exec(
+            select(FiscalRuleVersion).where(
+                FiscalRuleVersion.rule_key == "iva.general_rate",
+                FiscalRuleVersion.jurisdiction == "MX",
+                FiscalRuleVersion.regime == "general",
+                FiscalRuleVersion.entity_type == "comercial",
+            )
+        ).one()
+        row.value = "0.99"
+        session.add(row)
+        session.commit()
+
+    with pytest.raises(ValueError, match="conflicts with persisted history"):
+        bootstrap_local_product()
+
+    with Session(storage.get_engine()) as session:
+        row = session.exec(
+            select(FiscalRuleVersion).where(
+                FiscalRuleVersion.rule_key == "iva.general_rate",
+                FiscalRuleVersion.jurisdiction == "MX",
+                FiscalRuleVersion.regime == "general",
+                FiscalRuleVersion.entity_type == "comercial",
+            )
+        ).one()
+        assert row.value == "0.99"
+
+    storage.get_engine().dispose()
 
 
 def test_console_entrypoint_is_only_bootstrap_then_existing_launcher(monkeypatch):

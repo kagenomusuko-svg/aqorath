@@ -42,6 +42,10 @@ _BINDING_ROLES = (
     {"key": "donation_income", "label": "Ingreso por donativo", "required": False, "suggested_codes": ("4101", "4102", "4103", "4104")},
     {"key": "professional_services_expense", "label": "Servicios profesionales", "required": False, "suggested_codes": ("5303",)},
     {"key": "freight_expense", "label": "Fletes/transporte", "required": False, "suggested_codes": ("5105",)},
+    {"key": "vat_pending_credit", "label": "IVA pendiente de acreditar", "required": False, "suggested_codes": ("1182",)},
+    {"key": "tax_payable", "label": "IVA trasladado", "required": False, "suggested_codes": ("2080",)},
+    {"key": "isr_withholding_payable", "label": "ISR retenido a terceros", "required": False, "suggested_codes": ("2160",)},
+    {"key": "vat_withholding_payable", "label": "IVA retenido a terceros", "required": False, "suggested_codes": ("2170",)},
 )
 _ROLE_KEYS = frozenset(item["key"] for item in _BINDING_ROLES)
 _REQUIRED_ROLE_KEYS = frozenset(item["key"] for item in _BINDING_ROLES if item["required"])
