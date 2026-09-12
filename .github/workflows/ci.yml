@@ -143,3 +143,162 @@ jobs:
             dist/LEEME.txt
           if-no-files-found: error
           retention-days: 90
+
+  windows-installer:
+    name: Windows native installer
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Download accepted wheel from this run
+        uses: actions/download-artifact@v4
+        with:
+          name: aqorath-v1-candidate
+          path: candidate
+
+      - name: Install accepted product and pinned native toolchain
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          $wheel = (Get-ChildItem "$env:GITHUB_WORKSPACE\candidate\*.whl" | Select-Object -First 1).FullName
+          if (-not $wheel) { throw "Accepted Aqorath wheel was not downloaded" }
+          python -m pip install "$wheel"
+          python -m pip install -r requirements-native.txt
+
+      - name: Smoke native shell before freezing
+        shell: pwsh
+        run: |
+          python -c "from aqorath.desktop_entrypoint import main; raise SystemExit(main(['--self-test']))"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -c "from aqorath.desktop_entrypoint import main; raise SystemExit(main(['--gui-import-test']))"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Freeze Aqorath desktop application
+        shell: pwsh
+        run: |
+          $repo = $env:GITHUB_WORKSPACE
+          $nativeBuild = Join-Path $repo "packaging\windows\build"
+          $pyiRoot = Join-Path $env:RUNNER_TEMP "aqorath-pyinstaller"
+          Remove-Item $nativeBuild -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item $pyiRoot -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path $nativeBuild -Force | Out-Null
+          New-Item -ItemType Directory -Path $pyiRoot -Force | Out-Null
+          Push-Location $pyiRoot
+          python -m PyInstaller `
+            "$repo\packaging\windows\native_launcher.py" `
+            --noconfirm `
+            --clean `
+            --windowed `
+            --name Aqorath `
+            --distpath "$nativeBuild" `
+            --workpath "$pyiRoot\work" `
+            --specpath "$pyiRoot\spec" `
+            --collect-all aqorath `
+            --collect-all webview `
+            --collect-submodules uvicorn `
+            --hidden-import aqorath.web_surface
+          $status = $LASTEXITCODE
+          Pop-Location
+          if ($status -ne 0) { exit $status }
+          if (-not (Test-Path "$nativeBuild\Aqorath\Aqorath.exe")) {
+            throw "PyInstaller did not produce Aqorath.exe"
+          }
+
+      - name: Smoke frozen executable
+        shell: pwsh
+        run: |
+          $exe = "$env:GITHUB_WORKSPACE\packaging\windows\build\Aqorath\Aqorath.exe"
+          & $exe --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $exe --gui-import-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Compile Windows installer
+        shell: pwsh
+        run: |
+          $repo = $env:GITHUB_WORKSPACE
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            $iscc = "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+          }
+          if (-not (Test-Path $iscc)) { throw "ISCC.exe not found" }
+          Remove-Item "$repo\packaging\windows\output" -Recurse -Force -ErrorAction SilentlyContinue
+          & $iscc "$repo\packaging\windows\Aqorath.iss"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path "$repo\packaging\windows\output\Aqorath-Setup-V1-Candidate.exe")) {
+            throw "Inno Setup did not produce the installer"
+          }
+
+      - name: Install and smoke the actual Setup.exe
+        shell: pwsh
+        run: |
+          $installer = "$env:GITHUB_WORKSPACE\packaging\windows\output\Aqorath-Setup-V1-Candidate.exe"
+          $installDir = Join-Path $env:RUNNER_TEMP "AqorathInstalled"
+          Remove-Item $installDir -Recurse -Force -ErrorAction SilentlyContinue
+          $args = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', "/DIR=$installDir")
+          $process = Start-Process -FilePath $installer -ArgumentList $args -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Installer exited with $($process.ExitCode)" }
+          $installedExe = Join-Path $installDir "Aqorath.exe"
+          if (-not (Test-Path $installedExe)) { throw "Installed Aqorath.exe not found" }
+          & $installedExe --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $installedExe --gui-import-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Prepare direct-download Windows candidate
+        shell: pwsh
+        run: |
+          $source = "$env:GITHUB_WORKSPACE\packaging\windows\output\Aqorath-Setup-V1-Candidate.exe"
+          $releaseDir = "$env:GITHUB_WORKSPACE\native-release"
+          New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
+          Copy-Item $source "$releaseDir\Aqorath-Setup-V1-Candidate.exe"
+          $hash = (Get-FileHash "$releaseDir\Aqorath-Setup-V1-Candidate.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  Aqorath-Setup-V1-Candidate.exe" | Set-Content "$releaseDir\SHA256SUMS.txt" -Encoding ascii
+          @'
+          AQORATH V1 — INSTALADOR WINDOWS, CANDIDATO TÉCNICO
+
+          Uso normal:
+          1. Haz doble clic en Aqorath-Setup-V1-Candidate.exe.
+          2. Sigue el asistente de instalación.
+          3. Al terminar, Aqorath puede abrirse desde el Escritorio o el menú Inicio.
+
+          No requiere instalar Python, pip ni abrir PowerShell.
+
+          Estado de este candidato:
+          - TECHNICAL_INSTALLED: 22/22 PASS
+          - PROFESSIONAL_REVIEW: PENDING
+          - HUMAN_ACCEPTANCE: PENDING
+          - No es todavía la release V1 final.
+
+          Firma:
+          Este candidato todavía no tiene firma Authenticode. Windows SmartScreen
+          puede mostrar "editor desconocido" hasta que la release final se firme.
+          '@ | Set-Content "$releaseDir\LEEME-WINDOWS.txt" -Encoding utf8
+
+      - name: Publish Windows double-click installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: aqorath-windows-installer
+          path: |
+            native-release/Aqorath-Setup-V1-Candidate.exe
+            native-release/SHA256SUMS.txt
+            native-release/LEEME-WINDOWS.txt
+          if-no-files-found: error
+          retention-days: 90
