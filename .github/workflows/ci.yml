@@ -362,59 +362,100 @@ jobs:
           ls -lh packaging/android/app/build/outputs/apk/debug/app-debug.apk
 
       - name: Install and airplane-smoke APK in clean emulator
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 35
-          arch: x86_64
-          profile: pixel_6
-          disable-animations: true
-          script: |
-            set -euo pipefail
-            APK="$GITHUB_WORKSPACE/packaging/android/app/build/outputs/apk/debug/app-debug.apk"
-            adb install -r "$APK"
-            adb shell svc wifi disable || true
-            adb shell svc data disable || true
-            adb shell settings put global airplane_mode_on 1
-            adb shell am broadcast -a android.intent.action.AIRPLANE_MODE --ez state true >/dev/null || true
-            adb logcat -c
-            adb shell am force-stop org.meriadock.aqorath || true
-            adb shell am start -W -n org.meriadock.aqorath/.MainActivity
+        run: |
+          set -euo pipefail
+          APK="$GITHUB_WORKSPACE/packaging/android/app/build/outputs/apk/debug/app-debug.apk"
+          EMULATOR_LOG="$GITHUB_WORKSPACE/android-emulator.txt"
+          LOGCAT="$GITHUB_WORKSPACE/android-logcat.txt"
 
-            ready=0
-            for attempt in $(seq 1 60); do
-              adb logcat -d > "$GITHUB_WORKSPACE/android-logcat.txt"
-              if grep -q 'AQORATH_ANDROID_READY=' "$GITHUB_WORKSPACE/android-logcat.txt"; then
-                ready=1
-                break
-              fi
-              if grep -q 'AQORATH_ANDROID_ERROR' "$GITHUB_WORKSPACE/android-logcat.txt"; then
-                cat "$GITHUB_WORKSPACE/android-logcat.txt"
-                exit 1
-              fi
-              sleep 2
-            done
-            cat "$GITHUB_WORKSPACE/android-logcat.txt"
-            test "$ready" -eq 1
-            grep -q 'AQORATH_ANDROID_NETWORK_GUARD=loopback-only' "$GITHUB_WORKSPACE/android-logcat.txt"
-            adb shell run-as org.meriadock.aqorath sh -c 'test -f files/aqorath/aqorath.db'
+          echo no | avdmanager create avd \
+            --force \
+            --name aqorath-ci \
+            --package "system-images;android-35;google_apis;x86_64"
 
-            adb forward tcp:18765 tcp:8765
-            python - <<'PY'
-            import json
-            from urllib.request import urlopen
-            with urlopen('http://127.0.0.1:18765/api/capabilities', timeout=10) as response:
-                payload = json.load(response)
-            if not isinstance(payload, (dict, list)):
-                raise SystemExit('unexpected capabilities payload')
-            print('AQR-015 Android airplane-mode local surface: OK')
-            PY
+          emulator -avd aqorath-ci \
+            -no-window \
+            -no-snapshot \
+            -noaudio \
+            -no-boot-anim \
+            -gpu swiftshader_indirect \
+            -accel off \
+            > "$EMULATOR_LOG" 2>&1 &
+          EMULATOR_PID=$!
+          cleanup() {
+            adb emu kill >/dev/null 2>&1 || true
+            kill "$EMULATOR_PID" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
 
-      - name: Upload Android diagnostic log
+          adb wait-for-device
+          booted=0
+          for attempt in $(seq 1 360); do
+            state="$(adb get-state 2>/dev/null || true)"
+            completed="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+            if [ "$state" = "device" ] && [ "$completed" = "1" ]; then
+              booted=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$booted" -ne 1 ]; then
+            echo "Android emulator did not finish booting" >&2
+            cat "$EMULATOR_LOG" || true
+            adb logcat -d || true
+            exit 1
+          fi
+
+          sleep 20
+          adb shell echo AQORATH_ADB_READY
+          adb install -r "$APK"
+          adb shell svc wifi disable || true
+          adb shell svc data disable || true
+          adb shell settings put global airplane_mode_on 1
+          adb shell am broadcast -a android.intent.action.AIRPLANE_MODE --ez state true >/dev/null || true
+          test "$(adb shell settings get global airplane_mode_on | tr -d '\r')" = "1"
+
+          adb logcat -c
+          adb shell am force-stop org.meriadock.aqorath || true
+          adb shell am start -W -n org.meriadock.aqorath/.MainActivity
+
+          ready=0
+          for attempt in $(seq 1 90); do
+            adb logcat -d > "$LOGCAT"
+            if grep -q 'AQORATH_ANDROID_READY=' "$LOGCAT"; then
+              ready=1
+              break
+            fi
+            if grep -q 'AQORATH_ANDROID_ERROR' "$LOGCAT"; then
+              cat "$LOGCAT"
+              exit 1
+            fi
+            sleep 2
+          done
+          cat "$LOGCAT"
+          test "$ready" -eq 1
+          grep -q 'AQORATH_ANDROID_NETWORK_GUARD=loopback-only' "$LOGCAT"
+          adb shell run-as org.meriadock.aqorath sh -c 'test -f files/aqorath/aqorath.db'
+
+          adb forward tcp:18765 tcp:8765
+          python - <<'PY'
+          import json
+          from urllib.request import urlopen
+          with urlopen('http://127.0.0.1:18765/api/capabilities', timeout=10) as response:
+              payload = json.load(response)
+          if not isinstance(payload, (dict, list)):
+              raise SystemExit('unexpected capabilities payload')
+          print('AQR-015 Android airplane-mode local surface: OK')
+          PY
+
+      - name: Upload Android diagnostic logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: android-airplane-smoke-output
-          path: android-logcat.txt
+          path: |
+            android-logcat.txt
+            android-emulator.txt
           if-no-files-found: warn
           retention-days: 90
 
