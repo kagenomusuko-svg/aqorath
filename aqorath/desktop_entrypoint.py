@@ -21,6 +21,12 @@ WINDOW_URL = f"http://{LOCAL_HOST}:{DEFAULT_PORT}/"
 _STARTUP_TIMEOUT_SECONDS = 30.0
 
 
+def _emit(message: str) -> None:
+    """Write diagnostics only when the process owns a console stream."""
+    if sys.stdout is not None:
+        print(message)
+
+
 def _wait_for_local_surface(*, timeout: float = _STARTUP_TIMEOUT_SECONDS) -> None:
     """Wait until the canonical loopback surface is accepting HTTP requests."""
     deadline = time.monotonic() + timeout
@@ -44,7 +50,7 @@ def _self_test() -> int:
     app = load_local_app()
     if getattr(app, "title", None) != "Aqorath Local Surface":
         raise RuntimeError("canonical FastAPI surface was not materialized")
-    print(f"Aqorath desktop shell {__version__}: OK")
+    _emit(f"Aqorath desktop shell {__version__}: OK")
     return 0
 
 
@@ -52,7 +58,7 @@ def main(argv: list[str] | None = None) -> int:
     """Launch Aqorath as a desktop application without a terminal window."""
     args = list(sys.argv[1:] if argv is None else argv)
     if "--version" in args:
-        print(__version__)
+        _emit(__version__)
         return 0
     if "--self-test" in args:
         return _self_test()
