@@ -21,6 +21,7 @@ import tempfile
 import venv
 
 import _installed_v1_core_cases as core
+import installed_v1_cfdi_case as cfdi
 import installed_v1_fiscal_case as fiscal
 
 
@@ -35,6 +36,7 @@ def _install_and_run(wheel: Path) -> None:
         osc_db_path = root / "osc-data" / "aqorath.db"
         correction_db_path = root / "correction-data" / "aqorath.db"
         reporting_db_path = root / "reporting-data" / "aqorath.db"
+        cfdi_db_path = root / "cfdi-data" / "aqorath.db"
         fiscal_db_path = root / "fiscal-data" / "aqorath.db"
 
         venv.EnvBuilder(with_pip=True, clear=True).create(venv_dir)
@@ -165,6 +167,35 @@ def _install_and_run(wheel: Path) -> None:
             if conn.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
                 raise AssertionError("installed reporting SQLite integrity_check failed")
 
+        cfdi_env = env.copy()
+        cfdi_env["AQORATH_DB"] = str(cfdi_db_path)
+        cfdi_result = core._run_server_case(
+            console,
+            workdir,
+            cfdi_env,
+            root / "aqorath-cfdi-v1.log",
+            lambda: cfdi.assert_v1_13_cfdi(cfdi_db_path),
+            "V1-13 CFDI",
+        )
+        print(
+            "installed V1-13 CFDI="
+            + json.dumps({key: value for key, value in cfdi_result.items() if key != "professional"}, sort_keys=True)
+        )
+        reopened_cfdi = core._run_server_case(
+            console,
+            workdir,
+            cfdi_env,
+            root / "aqorath-cfdi-reopen-v1.log",
+            lambda: cfdi.assert_v1_13_reopen(cfdi_db_path, cfdi_result),
+            "V1-13 CFDI reopen",
+        )
+        print("installed V1-13 CFDI reopen=" + json.dumps(reopened_cfdi, sort_keys=True))
+        if not cfdi_db_path.is_file():
+            raise AssertionError(f"installed CFDI flow did not create SQLite DB: {cfdi_db_path}")
+        with sqlite3.connect(cfdi_db_path) as conn:
+            if conn.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
+                raise AssertionError("installed CFDI SQLite integrity_check failed")
+
         fiscal_env = env.copy()
         fiscal_env["AQORATH_DB"] = str(fiscal_db_path)
         fiscal_result = core._run_server_case(
@@ -212,7 +243,7 @@ def main() -> int:
     print(
         "AQR-015 installed "
         "V1-01/V1-02/V1-03/V1-04/V1-05/V1-06/V1-07/"
-        "V1-11/V1-12/V1-14/V1-15/V1-18/V1-22 smoke: OK"
+        "V1-11/V1-12/V1-13/V1-14/V1-15/V1-18/V1-22 smoke: OK"
     )
     return 0
 
