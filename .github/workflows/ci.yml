@@ -373,7 +373,7 @@ jobs:
             --name aqorath-ci \
             --package "system-images;android-35;google_apis;x86_64"
 
-          emulator -avd aqorath-ci \
+          "$ANDROID_HOME/emulator/emulator" -avd aqorath-ci \
             -no-window \
             -no-snapshot \
             -noaudio \
