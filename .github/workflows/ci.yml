@@ -339,6 +339,12 @@ jobs:
             "emulator" \
             "system-images;android-35;google_apis;x86_64"
 
+      - name: Enable Android hardware acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod 666 /dev/kvm
+          ls -l /dev/kvm
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -379,7 +385,7 @@ jobs:
             -noaudio \
             -no-boot-anim \
             -gpu swiftshader_indirect \
-            -accel off \
+            -accel on \
             > "$EMULATOR_LOG" 2>&1 &
           EMULATOR_PID=$!
           cleanup() {
@@ -388,9 +394,13 @@ jobs:
           }
           trap cleanup EXIT
 
-          adb wait-for-device
           booted=0
-          for attempt in $(seq 1 360); do
+          for attempt in $(seq 1 180); do
+            if ! kill -0 "$EMULATOR_PID" >/dev/null 2>&1; then
+              echo "Android emulator process exited before boot completed" >&2
+              cat "$EMULATOR_LOG" || true
+              exit 1
+            fi
             state="$(adb get-state 2>/dev/null || true)"
             completed="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
             if [ "$state" = "device" ] && [ "$completed" = "1" ]; then
