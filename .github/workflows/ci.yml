@@ -275,9 +275,9 @@ jobs:
           AQORATH V1 — INSTALADOR WINDOWS, CANDIDATO TÉCNICO
 
           Uso normal:
-          1. Haz doble clic en Aqorath-Setup-V1-Candidate.exe.
-          2. Sigue el asistente de instalación.
-          3. Al terminar, Aqorath puede abrirse desde el Escritorio o el menú Inicio.
+          1. Extrae Aqorath-Windows-V1-Candidate.zip.
+          2. Haz doble clic en Aqorath-Setup-V1-Candidate.exe.
+          3. Sigue el asistente de instalación.
 
           No requiere instalar Python, pip ni abrir PowerShell.
 
@@ -289,14 +289,24 @@ jobs:
 
           Firma:
           Este candidato todavía no tiene firma Authenticode. Windows SmartScreen
-          puede mostrar "editor desconocido" hasta que la release final se firme.
+          puede mostrar "editor desconocido" al ejecutar el instalador hasta que la
+          release final se firme. El ZIP evita que el navegador tenga que descargar
+          un .exe suelto, pero no sustituye la firma digital del ejecutable.
           '@ | Set-Content "$releaseDir\LEEME-WINDOWS.txt" -Encoding utf8
+          $zip = "$releaseDir\Aqorath-Windows-V1-Candidate.zip"
+          Compress-Archive -Path @(
+            "$releaseDir\Aqorath-Setup-V1-Candidate.exe",
+            "$releaseDir\SHA256SUMS.txt",
+            "$releaseDir\LEEME-WINDOWS.txt"
+          ) -DestinationPath $zip -Force
+          if (-not (Test-Path $zip)) { throw "Windows ZIP candidate was not produced" }
 
       - name: Publish Windows double-click installer
         uses: actions/upload-artifact@v4
         with:
           name: aqorath-windows-installer
           path: |
+            native-release/Aqorath-Windows-V1-Candidate.zip
             native-release/Aqorath-Setup-V1-Candidate.exe
             native-release/SHA256SUMS.txt
             native-release/LEEME-WINDOWS.txt
@@ -470,32 +480,11 @@ jobs:
           adb shell run-as org.meriadock.aqorath ls -l files/aqorath/aqorath.db
           echo "AQR-015 Android private DB: OK" | tee -a "$CHECKPOINTS"
 
-          adb forward --remove tcp:18765 >/dev/null 2>&1 || true
-          adb forward tcp:18765 tcp:8765
-          echo "AQR-015 Android adb forward: OK" | tee -a "$CHECKPOINTS"
-          python - <<'PY' | tee -a "$CHECKPOINTS"
-          import json
-          import time
-          from urllib.error import URLError
-          from urllib.request import urlopen
-
-          url = 'http://127.0.0.1:18765/api/capabilities'
-          last_error = None
-          for _ in range(30):
-              try:
-                  with urlopen(url, timeout=2) as response:
-                      payload = json.load(response)
-                  break
-              except (OSError, URLError) as exc:
-                  last_error = exc
-                  time.sleep(1)
-          else:
-              raise SystemExit(f'loopback capabilities unavailable: {last_error}')
-
-          if not isinstance(payload, (dict, list)):
-              raise SystemExit('unexpected capabilities payload')
-          print('AQR-015 Android airplane-mode local surface: OK')
-          PY
+          PROOF="$(adb shell run-as org.meriadock.aqorath cat files/aqorath/android-runtime-proof.json | tr -d '\r')"
+          echo "$PROOF" | tee -a "$CHECKPOINTS"
+          echo "$PROOF" | grep -q '"capabilities": "loopback-ok"'
+          echo "$PROOF" | grep -q '"network_policy": "loopback-only"'
+          echo "AQR-015 Android airplane-mode in-device capabilities: OK" | tee -a "$CHECKPOINTS"
 
       - name: Upload Android diagnostic logs
         if: always()
@@ -530,7 +519,7 @@ jobs:
           - no existe backend Meriadock para datos contables;
           - el runtime Python bloquea destinos de red no-loopback;
           - la WebView sólo permite la superficie local del mismo dispositivo;
-          - CI acreditó arranque y uso local con modo avión habilitado.
+          - CI acreditó arranque, API local y uso con modo avión habilitado.
 
           Estado:
           - canonical wheel TECHNICAL_INSTALLED: 22/22 PASS
