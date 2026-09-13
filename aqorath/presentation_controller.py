@@ -167,7 +167,7 @@ class LocalPresentationController:
         return _reporting.generate_fiscal_evidence_surface(payload)["common"]
 
     def professional_fiscal_evidence_report(self, payload):
-        return _reporting.professional_fiscal_evidence_surface(payload)
+        return _reporting.generate_fiscal_evidence_surface(payload)["professional"]
 
     def donation_options(self):
         return _application.list_surface_donation_options()
