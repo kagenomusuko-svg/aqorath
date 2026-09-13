@@ -3,6 +3,8 @@ name: Build Aqorath Desktop
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
 
@@ -27,10 +29,54 @@ jobs:
 
       - name: Build executable
         run: |
-          pyinstaller --name Aqorath --onefile scripts/aqorath_launcher.py
+          pyinstaller --clean --noconfirm --name Aqorath --onefile --collect-all uvicorn --collect-submodules fastapi --collect-submodules starlette --hidden-import aqorath.web_surface --hidden-import aqorath.recovery_web scripts/aqorath_launcher.py
+
+      - name: Smoke-test packaged executable
+        shell: pwsh
+        run: |
+          $stdout = Join-Path $PWD "aqorath.stdout.log"
+          $stderr = Join-Path $PWD "aqorath.stderr.log"
+          $process = Start-Process -FilePath "$PWD\dist\Aqorath.exe" -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          $ready = $false
+          try {
+            for ($i = 0; $i -lt 30; $i++) {
+              Start-Sleep -Seconds 1
+              $process.Refresh()
+              if ($process.HasExited) {
+                Write-Host "Aqorath.exe exited during startup with code $($process.ExitCode)."
+                if (Test-Path $stdout) { Get-Content $stdout }
+                if (Test-Path $stderr) { Get-Content $stderr }
+                exit 1
+              }
+              try {
+                $response = Invoke-WebRequest -Uri "http://127.0.0.1:8765/" -UseBasicParsing -TimeoutSec 2
+                if ($response.StatusCode -eq 200) {
+                  $ready = $true
+                  break
+                }
+              } catch {
+                # Server is still starting; retry until the bounded deadline.
+              }
+            }
+
+            if (-not $ready) {
+              Write-Host "Aqorath.exe did not expose the local surface within 30 seconds."
+              if (Test-Path $stdout) { Get-Content $stdout }
+              if (Test-Path $stderr) { Get-Content $stderr }
+              exit 1
+            }
+
+            Write-Host "Packaged Aqorath executable started successfully and served HTTP 200."
+          } finally {
+            $process.Refresh()
+            if (-not $process.HasExited) {
+              Stop-Process -Id $process.Id -Force
+            }
+          }
 
       - name: Upload executable
         uses: actions/upload-artifact@v4
         with:
           name: Aqorath-Windows
           path: dist/Aqorath.exe
+          if-no-files-found: error
