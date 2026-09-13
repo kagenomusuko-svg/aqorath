@@ -36,14 +36,19 @@ jobs:
         run: |
           pyinstaller --clean --noconfirm --paths . --name Aqorath --onefile --windowed --collect-all uvicorn --collect-submodules fastapi --collect-submodules starlette --hidden-import aqorath.web_surface --hidden-import aqorath.recovery_web scripts/aqorath_launcher.py
 
-      - name: Smoke-test packaged executable
+      - name: Smoke-test packaged desktop application
         shell: pwsh
         run: |
           $env:AQORATH_NO_BROWSER = "1"
+          $env:AQORATH_DATA_DIR = Join-Path $env:RUNNER_TEMP "aqorath-desktop-smoke"
+          if (Test-Path $env:AQORATH_DATA_DIR) {
+            Remove-Item -Recurse -Force $env:AQORATH_DATA_DIR
+          }
+
           $process = Start-Process -FilePath "$PWD\dist\Aqorath.exe" -PassThru
           $ready = $false
           try {
-            for ($i = 0; $i -lt 30; $i++) {
+            for ($i = 0; $i -lt 45; $i++) {
               Start-Sleep -Seconds 1
               $process.Refresh()
               if ($process.HasExited) {
@@ -51,7 +56,7 @@ jobs:
                 exit 1
               }
               try {
-                $response = Invoke-WebRequest -Uri "http://127.0.0.1:8765/" -UseBasicParsing -TimeoutSec 2
+                $response = Invoke-WebRequest -Uri "http://127.0.0.1:8765/?module=operations" -UseBasicParsing -TimeoutSec 2
                 if ($response.StatusCode -eq 200) {
                   $ready = $true
                   break
@@ -62,11 +67,34 @@ jobs:
             }
 
             if (-not $ready) {
-              Write-Host "Aqorath.exe did not expose the local surface within 30 seconds."
+              Write-Host "Aqorath.exe did not expose the local surface within 45 seconds."
               exit 1
             }
 
-            Write-Host "Packaged Aqorath executable started successfully and served HTTP 200."
+            if ($response.Content -notmatch 'id="aq-sidebar"') {
+              Write-Host "Desktop navigation shell was not rendered."
+              exit 1
+            }
+
+            $dbPath = Join-Path $env:AQORATH_DATA_DIR "aqorath.db"
+            $trial = Invoke-WebRequest -Uri "http://127.0.0.1:8765/api/trial-balance" -UseBasicParsing -TimeoutSec 10
+            if ($trial.StatusCode -ne 200) {
+              Write-Host "Trial balance endpoint failed with HTTP $($trial.StatusCode)."
+              exit 1
+            }
+
+            if (-not (Test-Path $dbPath)) {
+              Write-Host "Aqorath did not create its writable SQLite database at $dbPath."
+              exit 1
+            }
+
+            $integrity = Invoke-WebRequest -Uri "http://127.0.0.1:8765/api/system/integrity" -UseBasicParsing -TimeoutSec 10
+            if ($integrity.StatusCode -ne 200) {
+              Write-Host "Integrity endpoint failed with HTTP $($integrity.StatusCode)."
+              exit 1
+            }
+
+            Write-Host "Packaged Aqorath passed desktop shell, SQLite persistence, trial balance, and integrity smoke tests."
           } finally {
             $process.Refresh()
             if (-not $process.HasExited) {
