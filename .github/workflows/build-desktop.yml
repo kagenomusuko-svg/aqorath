@@ -8,9 +8,13 @@ on:
     tags:
       - 'v*'
 
+concurrency:
+  group: aqorath-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   windows-build:
-    runs-on: windows-latest
+    runs-on: windows-2022
 
     steps:
       - name: Checkout
