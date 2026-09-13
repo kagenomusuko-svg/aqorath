@@ -30,14 +30,13 @@ jobs:
 
       - name: Build executable
         run: |
-          pyinstaller --clean --noconfirm --paths . --name Aqorath --onefile --collect-all uvicorn --collect-submodules fastapi --collect-submodules starlette --hidden-import aqorath.web_surface --hidden-import aqorath.recovery_web scripts/aqorath_launcher.py
+          pyinstaller --clean --noconfirm --paths . --name Aqorath --onefile --windowed --collect-all uvicorn --collect-submodules fastapi --collect-submodules starlette --hidden-import aqorath.web_surface --hidden-import aqorath.recovery_web scripts/aqorath_launcher.py
 
       - name: Smoke-test packaged executable
         shell: pwsh
         run: |
-          $stdout = Join-Path $PWD "aqorath.stdout.log"
-          $stderr = Join-Path $PWD "aqorath.stderr.log"
-          $process = Start-Process -FilePath "$PWD\dist\Aqorath.exe" -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          $env:AQORATH_NO_BROWSER = "1"
+          $process = Start-Process -FilePath "$PWD\dist\Aqorath.exe" -PassThru
           $ready = $false
           try {
             for ($i = 0; $i -lt 30; $i++) {
@@ -45,8 +44,6 @@ jobs:
               $process.Refresh()
               if ($process.HasExited) {
                 Write-Host "Aqorath.exe exited during startup with code $($process.ExitCode)."
-                if (Test-Path $stdout) { Get-Content $stdout }
-                if (Test-Path $stderr) { Get-Content $stderr }
                 exit 1
               }
               try {
@@ -62,8 +59,6 @@ jobs:
 
             if (-not $ready) {
               Write-Host "Aqorath.exe did not expose the local surface within 30 seconds."
-              if (Test-Path $stdout) { Get-Content $stdout }
-              if (Test-Path $stderr) { Get-Content $stderr }
               exit 1
             }
 
