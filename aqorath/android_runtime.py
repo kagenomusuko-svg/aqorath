@@ -7,6 +7,7 @@ implement accounting, fiscal, persistence or presentation rules.
 from __future__ import annotations
 
 import ipaddress
+import json
 import os
 from pathlib import Path
 import socket
@@ -18,6 +19,7 @@ from urllib.request import urlopen
 _ANDROID_HOST = "127.0.0.1"
 _ANDROID_PORT = 8765
 _ANDROID_URL = f"http://{_ANDROID_HOST}:{_ANDROID_PORT}/"
+_ANDROID_CAPABILITIES_URL = f"{_ANDROID_URL}api/capabilities"
 _SERVER = None
 _SERVER_THREAD = None
 _GUARD_INSTALLED = False
@@ -113,6 +115,24 @@ def _wait_until_ready(timeout: float = 30.0) -> None:
     raise RuntimeError("Aqorath Android local surface did not become ready") from last_error
 
 
+def _assert_capabilities_surface() -> None:
+    """Prove the canonical local API is reachable from inside Android itself."""
+    try:
+        with urlopen(_ANDROID_CAPABILITIES_URL, timeout=2.0) as response:  # noqa: S310 - fixed loopback URL
+            if response.status != 200:
+                raise RuntimeError(
+                    f"Aqorath Android capabilities returned HTTP {response.status}"
+                )
+            payload = json.load(response)
+    except (OSError, URLError, ValueError) as exc:
+        raise RuntimeError(
+            "Aqorath Android local capabilities surface is unavailable"
+        ) from exc
+
+    if not isinstance(payload, (dict, list)):
+        raise RuntimeError("Aqorath Android capabilities payload has an unexpected shape")
+
+
 def _self_test_canonical_modules() -> None:
     """Import authorities whose dependency closure must survive Android packaging."""
     from . import cfdi_source as _cfdi_source  # noqa: F401
@@ -154,6 +174,7 @@ def start(files_dir: str) -> str:
     )
     _SERVER_THREAD.start()
     _wait_until_ready()
+    _assert_capabilities_surface()
     return _ANDROID_URL
 
 
