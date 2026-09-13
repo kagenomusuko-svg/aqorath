@@ -26,17 +26,34 @@ from . import fiscalized_posting_persistence as _fiscalized_persistence
 from . import posting as _posting
 
 
-def prepare_accounting_operation(session, fact, posting_date):
-    """Prepare one ordinary fact without asking presentation for accounting internals."""
+def _prepare_accounting_operation_with_binding_overrides(
+    session,
+    fact,
+    posting_date,
+    binding_overrides,
+):
+    """Prepare through the canonical chain while refining explicit semantic roles.
+
+    Product compositions may already own a concrete resource identity (for example,
+    a selected BankAccount).  This helper keeps account resolution before consent
+    and lets that composition refine only the corresponding semantic role without
+    creating a second accounting or posting authority.
+    """
     if not isinstance(fact, _economic_facts.EconomicFact):
         raise TypeError("fact must be EconomicFact")
+    if not isinstance(binding_overrides, dict):
+        raise TypeError("binding_overrides must be dict")
 
     accounting_resolution = _provenance.resolve_economic_fact_with_provenance(fact)
-    roles = tuple(
-        line.account_role
-        for line in accounting_resolution.proposal.lines
-    )
+    roles = tuple(line.account_role for line in accounting_resolution.proposal.lines)
+    unexpected = set(binding_overrides) - set(roles)
+    if unexpected:
+        raise ValueError(
+            "binding override does not belong to the economic fact: "
+            + ", ".join(sorted(unexpected))
+        )
     bindings = _account_bindings.get_account_bindings(session, roles)
+    bindings.update(binding_overrides)
     resolved_proposal = _account_resolution.resolve_proposal_accounts(
         session,
         accounting_resolution.proposal,
@@ -52,6 +69,16 @@ def prepare_accounting_operation(session, fact, posting_date):
         resolved_proposal=resolved_proposal,
         explanation=explanation,
         confirmation_snapshot=snapshot,
+    )
+
+
+def prepare_accounting_operation(session, fact, posting_date):
+    """Prepare one ordinary fact without asking presentation for accounting internals."""
+    return _prepare_accounting_operation_with_binding_overrides(
+        session,
+        fact,
+        posting_date,
+        {},
     )
 
 

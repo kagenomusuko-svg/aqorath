@@ -10,7 +10,8 @@ from .banking_models import BankAccountRecord, BankStatementRecord, BankTransact
 from .models import Account, EntityRecord
 
 
-def create_bank_account(session, account):
+def _stage_bank_account(session, account):
+    """Stage one validated BankAccount without owning the caller transaction."""
     if not isinstance(account, BankAccount):
         raise TypeError("account must be BankAccount")
     if account.id is not None:
@@ -20,14 +21,22 @@ def create_bank_account(session, account):
     if session.get(Account, account.ledger_account_id) is None:
         raise LookupError("ledger account not found")
     record = BankAccountRecord(**account.__dict__)
+    session.add(record)
+    session.flush()
+    if record.id is None:
+        raise RuntimeError("bank account identity was not assigned")
+    return replace(account, id=record.id)
+
+
+def create_bank_account(session, account):
+    """Persist one BankAccount while preserving the historical public contract."""
     try:
-        session.add(record)
-        session.flush()
+        persisted = _stage_bank_account(session, account)
         session.commit()
     except Exception:
         session.rollback()
         raise
-    return replace(account, id=record.id)
+    return persisted
 
 
 def import_bank_csv(session, bank_account_id, source_name, content):

@@ -1,6 +1,7 @@
 """Schema 9 persistence for OSC fund traceability, never a monetary ledger."""
 from datetime import datetime, timezone
 from typing import Optional
+from aqorath import models as _core_models  # noqa: F401 - register FK target metadata
 from sqlmodel import SQLModel, Field
 from sqlalchemy import Column, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 

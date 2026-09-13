@@ -4,20 +4,40 @@ LOCAL_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 
 
+def load_local_app():
+    """Materialize the one canonical localhost app and all supported route adapters."""
+    # Decorate the common shell before web_surface is materialized.
+    from . import onboarding_shell as _onboarding_shell  # noqa: F401
+    # Importing recovery_web registers AQR-014 routes on the canonical web_surface app.
+    # aqorath.recovery_web:app is therefore an alias, not a second local surface.
+    from . import recovery_web as _recovery_web  # noqa: F401
+    # AQR-015 onboarding routes extend that same canonical FastAPI app.
+    from . import onboarding_web as _onboarding_web  # noqa: F401
+    # V1-08/V1-09 and V1-10 are product adapters over their existing authorities.
+    from . import fixed_asset_web as _fixed_asset_web  # noqa: F401
+    from . import period_web as _period_web  # noqa: F401
+    # OSC Program management is identity-only composition over the existing authority.
+    from . import program_web as _program_web  # noqa: F401
+    from .web_surface import app
+
+    return app
+
+
 def run_local_surface(port=DEFAULT_PORT):
-    """Run Aqorath only on IPv4 loopback; remote binding is not configurable."""
+    """Run Aqorath only on IPv4 loopback; remote binding is not configurable.
+
+    ``load_local_app()`` materializes the canonical ``aqorath.web_surface:app``;
+    AQR-014's ``aqorath.recovery_web:app`` remains an alias of that same app.
+    """
     if type(port) is not int or isinstance(port, bool):
         raise TypeError("port must be int")
     if not 1 <= port <= 65535:
         raise ValueError("port must be between 1 and 65535")
 
-    # Importing recovery_web registers AQR-014 routes on the canonical web_surface app.
-    # aqorath.recovery_web:app is therefore an alias, not a second local surface.
-    from . import recovery_web as _recovery_web  # noqa: F401
     import uvicorn
 
     uvicorn.run(
-        "aqorath.web_surface:app",
+        load_local_app(),
         host=LOCAL_HOST,
         port=port,
         log_level="info",
@@ -28,4 +48,4 @@ if __name__ == "__main__":
     run_local_surface()
 
 
-__all__ = ["LOCAL_HOST", "DEFAULT_PORT", "run_local_surface"]
+__all__ = ["LOCAL_HOST", "DEFAULT_PORT", "load_local_app", "run_local_surface"]

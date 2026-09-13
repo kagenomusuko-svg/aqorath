@@ -96,16 +96,18 @@ def test_web_surface_has_only_local_product_routes_and_no_generated_api_docs():
 def test_local_launcher_cannot_be_reconfigured_to_remote_host(monkeypatch):
     import aqorath.local_server as local_server
 
+    sentinel_app = object()
     calls = []
     fake = types.SimpleNamespace(run=lambda target, **kwargs: calls.append((target, kwargs)))
     monkeypatch.setitem(sys.modules, "uvicorn", fake)
+    monkeypatch.setattr(local_server, "load_local_app", lambda: sentinel_app)
 
     local_server.run_local_surface(8899)
 
     assert local_server.LOCAL_HOST == "127.0.0.1"
     assert calls == [
         (
-            "aqorath.web_surface:app",
+            sentinel_app,
             {"host": "127.0.0.1", "port": 8899, "log_level": "info"},
         )
     ]
@@ -117,7 +119,7 @@ def test_common_shell_never_asks_for_accounting_internals():
     common = APP_HTML.split('<section id="professional"', 1)[0]
     assert "Debe" not in common
     assert "Haber" not in common
-    assert "account_code" not in common
+    assert "account_code" not in str(common)
     assert "Código contable" not in common
     assert 'id="operation"' in common
     assert 'id="amount"' in common

@@ -11,6 +11,7 @@ from dataclasses import fields
 from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
 from inspect import Parameter, getsource, signature
+import sqlite3
 
 import pytest
 from sqlmodel import Session, select
@@ -192,6 +193,23 @@ def _load(session, entity_id, fixed_asset_id, as_of=None):
     return load_fixed_asset_book_state(session, entity_id, fixed_asset_id, as_of)
 
 
+def _corrupt_sqlite(engine, statements, *, enforce_foreign_keys=True):
+    """Materialize adversarial on-disk corruption outside Aqorath's write authority."""
+    db_path = engine.url.database
+    assert engine.url.get_backend_name() == "sqlite"
+    assert db_path and db_path != ":memory:"
+
+    # This bypasses Aqorath's write invariants intentionally to simulate an already-corrupt
+    # on-disk database. Product code must never use this path.
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            f"PRAGMA foreign_keys = {'ON' if enforce_foreign_keys else 'OFF'}"
+        )
+        for statement, parameters in statements:
+            connection.execute(statement, parameters)
+        connection.commit()
+
+
 def test_book_state_public_contract_is_frozen_exact_and_projection_only():
     from aqorath.fixed_asset_book_state import (
         FixedAssetBookState,
@@ -367,19 +385,23 @@ def test_corrupt_fixed_asset_decimal_text_fails_closed_without_float_or_silent_c
 
 
 def test_missing_or_wrongly_scoped_linked_journal_entry_fails_closed(tmp_path, monkeypatch):
-    from aqorath.models import FixedAssetDepreciationPostingRecord, JournalEntry
+    from aqorath.models import FixedAssetDepreciationPostingRecord
 
     engine, entity_id, fixed_asset_id = _initialize_canonical_db(tmp_path, monkeypatch)
     asset = _domain_asset(fixed_asset_id=fixed_asset_id, entity_id=entity_id)
     entry_id = _post_period(engine, asset, 1, date(2026, 2, 28))
 
+    _corrupt_sqlite(
+        engine,
+        [("DELETE FROM journalentry WHERE id = ?", (entry_id,))],
+        enforce_foreign_keys=False,
+    )
+
     with Session(engine) as session:
-        entry = session.get(JournalEntry, entry_id)
-        session.delete(entry)
-        session.commit()
         with pytest.raises(LookupError):
             _load(session, entity_id, fixed_asset_id)
 
+    with Session(engine) as session:
         record = session.exec(select(FixedAssetDepreciationPostingRecord)).one()
         assert record.entry_id == entry_id
 
@@ -394,9 +416,14 @@ def test_linked_depreciation_entry_must_be_exact_two_line_balanced_positive_trut
     with Session(engine) as session:
         lines = session.exec(select(JournalLine).where(JournalLine.entry_id == entry_id)).all()
         assert len(lines) == 2
-        lines[0].debit = "33.32"
-        session.add(lines[0])
-        session.commit()
+        line_id = lines[0].id
+
+    _corrupt_sqlite(
+        engine,
+        [("UPDATE journalline SET debit = ? WHERE id = ?", ("33.32", line_id))],
+    )
+
+    with Session(engine) as session:
         with pytest.raises(ValueError):
             _load(session, entity_id, fixed_asset_id)
 
@@ -410,9 +437,14 @@ def test_linked_depreciation_entry_rejects_corrupt_money_and_extra_lines(tmp_pat
 
     with Session(engine) as session:
         lines = session.exec(select(JournalLine).where(JournalLine.entry_id == entry_id)).all()
-        lines[0].debit = "NaN"
-        session.add(lines[0])
-        session.commit()
+        line_id = lines[0].id
+
+    _corrupt_sqlite(
+        engine,
+        [("UPDATE journalline SET debit = ? WHERE id = ?", ("NaN", line_id))],
+    )
+
+    with Session(engine) as session:
         with pytest.raises(ValueError):
             _load(session, entity_id, fixed_asset_id)
 
@@ -421,16 +453,28 @@ def test_linked_depreciation_entry_rejects_corrupt_money_and_extra_lines(tmp_pat
     entry_id2 = _post_period(engine2, asset2, 1, date(2026, 2, 28))
     with Session(engine2) as session:
         source = session.exec(select(JournalLine).where(JournalLine.entry_id == entry_id2)).first()
-        session.add(
-            JournalLine(
-                entry_id=entry_id2,
-                account_code=source.account_code,
-                account_id=source.account_id,
-                debit="0",
-                credit="1.00",
-            )
+        assert source is not None
+        extra_line = (
+            entry_id2,
+            source.account_code,
+            source.account_id,
+            "0",
+            "1.00",
+            None,
+            source.created_at.isoformat(),
         )
-        session.commit()
+
+    _corrupt_sqlite(
+        engine2,
+        [(
+            "INSERT INTO journalline "
+            "(entry_id, account_code, account_id, debit, credit, description, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            extra_line,
+        )],
+    )
+
+    with Session(engine2) as session:
         with pytest.raises(ValueError):
             _load(session, entity_id2, fixed_asset_id2)
 
@@ -444,13 +488,20 @@ def test_projection_fails_closed_if_recognized_depreciation_would_breach_residua
 
     with Session(engine) as session:
         lines = session.exec(select(JournalLine).where(JournalLine.entry_id == entry_id)).all()
+        corruptions = []
         for line in lines:
             if Decimal(line.debit) > 0:
-                line.debit = "100.01"
+                corruptions.append(
+                    ("UPDATE journalline SET debit = ? WHERE id = ?", ("100.01", line.id))
+                )
             if Decimal(line.credit) > 0:
-                line.credit = "100.01"
-            session.add(line)
-        session.commit()
+                corruptions.append(
+                    ("UPDATE journalline SET credit = ? WHERE id = ?", ("100.01", line.id))
+                )
+
+    _corrupt_sqlite(engine, corruptions)
+
+    with Session(engine) as session:
         with pytest.raises(ValueError):
             _load(session, entity_id, fixed_asset_id)
 

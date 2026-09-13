@@ -6,13 +6,15 @@ with the JournalEntry and JournalLine rows staged by the canonical core primitiv
 """
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 
 from sqlmodel import select
 
+from . import audit_event_repository as _audit_repository
 from . import core as _core
 from . import storage as _storage
+from .audit_event import AuditEvent
 from .fixed_asset_depreciation_posting import (
     FixedAssetDepreciationPostingInstruction,
 )
@@ -97,6 +99,7 @@ def _entry_payload(instruction):
     return {
         "date": instruction.posting_date,
         "description": instruction.posting_instruction.description,
+        "state": "posted",
         "lines": [
             {
                 "account_id": line.account_id,
@@ -106,6 +109,24 @@ def _entry_payload(instruction):
             }
             for line in instruction.posting_instruction.lines
         ],
+    }
+
+
+def _audit_details(recognition, calculation, entry_id, posting_date):
+    return {
+        "entry_id": entry_id,
+        "decision": {
+            "fact": {
+                "type": "fixed_asset_depreciation",
+                "amount": str(recognition.amount),
+            },
+            "posting_date": posting_date.isoformat(),
+            "consent": "explicit_confirmation",
+            "specialized_authority": "fixed_asset_depreciation",
+            "fixed_asset_id": calculation.fixed_asset_id,
+            "period_number": recognition.period_number,
+            "recognition_source_ref": recognition.recognition_source_ref,
+        },
     }
 
 
@@ -176,6 +197,22 @@ def execute_fixed_asset_depreciation_posting_once(instruction):
                     "ok": False,
                     "error": "ORM staging returned no JournalEntry identity",
                 }
+
+            _audit_repository.stage_audit_event(
+                session,
+                AuditEvent(
+                    id=None,
+                    entity_id=calculation.entity_id,
+                    event_type="entry_posted",
+                    timestamp=datetime.now(timezone.utc),
+                    details=_audit_details(
+                        recognition,
+                        calculation,
+                        entry.id,
+                        instruction.posting_date,
+                    ),
+                ),
+            )
 
             record = FixedAssetDepreciationPostingRecord(
                 fixed_asset_id=fixed_asset_id,

@@ -32,8 +32,8 @@ def _validate_account_code(account_code):
         raise ValueError("account code must be non-empty and contain no surrounding whitespace")
 
 
-def set_account_binding(session, role, account_code):
-    """Persist or replace one role binding after validating the concrete Account."""
+def _stage_account_binding(session, role, account_code):
+    """Stage one validated binding without owning the caller's transaction."""
     _validate_role(role)
     _validate_account_code(account_code)
 
@@ -47,22 +47,28 @@ def set_account_binding(session, role, account_code):
             f"Cannot bind role '{role}': account '{account_code}' has no persistent id"
         )
 
+    binding = session.exec(
+        select(AccountRoleBinding).where(AccountRoleBinding.role == role)
+    ).one_or_none()
+
+    if binding is None:
+        binding = AccountRoleBinding(role=role, account_id=account.id)
+    else:
+        binding.account_id = account.id
+
+    session.add(binding)
+    session.flush()
+    return None
+
+
+def set_account_binding(session, role, account_code):
+    """Persist or replace one role binding after validating the concrete Account."""
     try:
-        binding = session.exec(
-            select(AccountRoleBinding).where(AccountRoleBinding.role == role)
-        ).one_or_none()
-
-        if binding is None:
-            binding = AccountRoleBinding(role=role, account_id=account.id)
-        else:
-            binding.account_id = account.id
-
-        session.add(binding)
+        _stage_account_binding(session, role, account_code)
         session.commit()
     except Exception:
         session.rollback()
         raise
-
     return None
 
 

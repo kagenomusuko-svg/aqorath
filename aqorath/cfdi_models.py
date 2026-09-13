@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 
+from aqorath import models as _core_models  # noqa: F401 - register FK target metadata
 from sqlalchemy import Column, ForeignKey, Integer, LargeBinary, String, Text, UniqueConstraint
 from sqlmodel import Field, SQLModel
 

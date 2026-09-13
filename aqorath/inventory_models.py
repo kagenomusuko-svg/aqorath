@@ -7,6 +7,7 @@ truth remains in JournalEntry/JournalLine; every movement points back to that tr
 from datetime import date, datetime, timezone
 from typing import Optional
 
+from aqorath import models as _core_models  # noqa: F401 - register FK target metadata
 from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlmodel import Field, SQLModel
 

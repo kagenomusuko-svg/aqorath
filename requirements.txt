@@ -1,12 +1,4 @@
-pandas>=2.0
-openpyxl>=3.0
-pytest>=7.0
-pyinstaller>=5.10
-reportlab>=4.0
-lxml>=4.9
-requests
-sqlmodel
-sqlalchemy
-python-dateutil
-fastapi
-uvicorn
+# Compatibility entry point for development/CI tooling.
+# Product runtime dependencies are authoritative in setup.cfg and are installed
+# by `pip install .` / wheel installation.
+-r requirements-dev.txt
