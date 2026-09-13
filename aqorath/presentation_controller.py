@@ -30,6 +30,17 @@ class LocalPresentationController:
 
     def capabilities(self):
         fiscal_kinds = tuple(_fiscal_v1.list_fiscal_v1_surface_kinds())
+        entity = _application.get_surface_entity()
+        if entity is None:
+            # A clean installation must expose its local product surface before the
+            # user has created the first Entity through onboarding. Entity-scoped
+            # collections therefore have an empty pre-onboarding projection rather
+            # than turning /api/capabilities into an onboarding deadlock.
+            third_parties = []
+            reporting_dimensions = []
+        else:
+            third_parties = _application.list_surface_third_parties()
+            reporting_dimensions = _reporting.list_reporting_dimensions()
         try:
             inventory_products = _inventory_v1.list_inventory_surface_products()
             inventory_enabled = True
@@ -53,12 +64,12 @@ class LocalPresentationController:
                 {"key": "sale_credit", "label": "Venta a crédito"},
                 {"key": "utility_credit", "label": "Compra/gasto a crédito"},
             ),
-            "third_parties": _application.list_surface_third_parties(),
-            "entity": _application.get_surface_entity(),
+            "third_parties": third_parties,
+            "entity": entity,
             "views": ("common", "professional"),
             "inventory": {"enabled": inventory_enabled, "products": inventory_products},
             "reporting": _reporting.list_reporting_surface_catalog(),
-            "reporting_dimensions": _reporting.list_reporting_dimensions(),
+            "reporting_dimensions": reporting_dimensions,
         }
 
     def prepare(self, operation_key, amount, posting_date):
@@ -156,7 +167,7 @@ class LocalPresentationController:
         return _reporting.generate_fiscal_evidence_surface(payload)["common"]
 
     def professional_fiscal_evidence_report(self, payload):
-        return _reporting.generate_fiscal_evidence_surface(payload)["professional"]
+        return _reporting.professional_fiscal_evidence_surface(payload)
 
     def donation_options(self):
         return _application.list_surface_donation_options()
