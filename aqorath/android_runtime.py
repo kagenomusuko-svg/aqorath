@@ -20,6 +20,7 @@ _ANDROID_HOST = "127.0.0.1"
 _ANDROID_PORT = 8765
 _ANDROID_URL = f"http://{_ANDROID_HOST}:{_ANDROID_PORT}/"
 _ANDROID_CAPABILITIES_URL = f"{_ANDROID_URL}api/capabilities"
+_RUNTIME_PROOF_NAME = "android-runtime-proof.json"
 _SERVER = None
 _SERVER_THREAD = None
 _GUARD_INSTALLED = False
@@ -133,6 +134,17 @@ def _assert_capabilities_surface() -> None:
         raise RuntimeError("Aqorath Android capabilities payload has an unexpected shape")
 
 
+def _write_runtime_proof(root: Path) -> None:
+    proof = {
+        "capabilities": "loopback-ok",
+        "network_policy": "loopback-only",
+    }
+    (root / _RUNTIME_PROOF_NAME).write_text(
+        json.dumps(proof, sort_keys=True),
+        encoding="utf-8",
+    )
+
+
 def _self_test_canonical_modules() -> None:
     """Import authorities whose dependency closure must survive Android packaging."""
     from . import cfdi_source as _cfdi_source  # noqa: F401
@@ -148,7 +160,7 @@ def start(files_dir: str) -> str:
     if _SERVER_THREAD is not None and _SERVER_THREAD.is_alive():
         return _ANDROID_URL
 
-    _configure_private_storage(files_dir)
+    root = _configure_private_storage(files_dir)
     install_loopback_only_network_guard()
     _assert_external_network_is_blocked()
 
@@ -175,6 +187,7 @@ def start(files_dir: str) -> str:
     _SERVER_THREAD.start()
     _wait_until_ready()
     _assert_capabilities_surface()
+    _write_runtime_proof(root)
     return _ANDROID_URL
 
 
